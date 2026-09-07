@@ -41,13 +41,61 @@ def _blend_rate(offense: float, defense_allowed: float, league_anchor: float) ->
     return float(0.46 * offense + 0.46 * defense_allowed + 0.08 * league_anchor)
 
 
+def _drive_expectation(team: TeamState, opponent: TeamState, home: bool) -> float:
+    """Expected team possessions before the two sides are reconciled to one game clock."""
+    drive_mu = 0.50 * team.drives_per_game + 0.50 * opponent.drives_per_game
+    relative_pace = (team.pace_factor + opponent.pace_factor) / 2.0
+    drive_mu *= np.clip(1.0 + 0.25 * (relative_pace - 1.0), 0.94, 1.06)
+    drive_mu += 0.12 if home else -0.12
+    return float(np.clip(drive_mu, 7.5, 14.0))
+
+
+def _simulate_shared_possessions(
+    rng: np.random.Generator,
+    game: GameState,
+    worlds: int,
+    shared_environment: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Generate one finite possession universe and split it by football alternation.
+
+    NFL offenses do not receive independent possession lotteries. Both teams consume the same
+    60-minute clock, so total game possessions vary while each side normally differs by at most
+    one possession. The historical regular-season game-total drive SD is about three drives;
+    using a centered normal for game totals preserves that dispersion without using sportsbook
+    information or forcing either team's scoring output toward a market expectation.
+    """
+    away_mu = _drive_expectation(game.away, game.home, False)
+    home_mu = _drive_expectation(game.home, game.away, True)
+    total_mu = float(np.clip(away_mu + home_mu, 16.0, 27.0))
+
+    # Environment modestly changes the amount of football played, but cannot create an
+    # unbounded possession tail. 3.0 is the observed 2025 REG game-total drive SD audit anchor.
+    environment_shift = np.clip(shared_environment - 1.0, -0.20, 0.20)
+    total_mean_world = total_mu * (1.0 + 0.30 * environment_shift)
+    total_drives = np.rint(rng.normal(total_mean_world, 3.0, worlds))
+    total_drives = np.clip(total_drives, 14, 30).astype(np.int16)
+
+    base = (total_drives // 2).astype(np.int16)
+    odd = (total_drives % 2).astype(np.int16)
+
+    # On odd-possession games, one team gets the extra drive. Let expected possession tendency
+    # and a very small home edge choose which side, while maintaining the alternation constraint.
+    mu_diff = float(np.clip(home_mu - away_mu, -2.0, 2.0))
+    home_extra_p = float(np.clip(0.50 + 0.10 * mu_diff + 0.02, 0.35, 0.65))
+    home_extra = (rng.random(worlds) < home_extra_p).astype(np.int16) * odd
+    away_extra = odd - home_extra
+
+    away_drives = (base + away_extra).astype(np.int16)
+    home_drives = (base + home_extra).astype(np.int16)
+    return away_drives, home_drives
+
+
 def _simulate_team_drives(
     rng: np.random.Generator,
     team: TeamState,
     opponent: TeamState,
+    drives: np.ndarray,
     worlds: int,
-    shared_environment: np.ndarray,
-    home: bool,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -55,18 +103,7 @@ def _simulate_team_drives(
     np.ndarray,
     np.ndarray,
     np.ndarray,
-    np.ndarray,
 ]:
-    # Observed drives/game already contains most realized pace information. Pace therefore
-    # acts only as a small centered contextual adjustment rather than multiplying possession
-    # volume a second time.
-    drive_mu = 0.50 * team.drives_per_game + 0.50 * opponent.drives_per_game
-    relative_pace = (team.pace_factor + opponent.pace_factor) / 2.0
-    drive_mu *= np.clip(1.0 + 0.25 * (relative_pace - 1.0), 0.94, 1.06)
-    drive_mu += 0.12 if home else -0.12
-    drive_mu = float(np.clip(drive_mu, 7.5, 14.0))
-    drives = rng.poisson(np.clip(drive_mu * shared_environment, 6.0, 16.0)).astype(np.int16)
-
     td_base = _blend_rate(team.td_drive_rate, opponent.defensive_td_drive_rate_allowed, 0.22)
     fg_base = _blend_rate(team.fg_drive_rate, opponent.defensive_fg_drive_rate_allowed, 0.14)
     to_base = _blend_rate(team.turnover_drive_rate, opponent.defensive_takeaway_drive_rate, 0.11)
@@ -167,7 +204,6 @@ def _simulate_team_drives(
     points = (7 * touchdowns + 3 * field_goals + two_point + safety).astype(np.int16)
     return (
         points,
-        drives,
         touchdowns,
         field_goals,
         turnovers,
@@ -177,24 +213,25 @@ def _simulate_team_drives(
 
 
 def simulate_game(game: GameState, worlds: int, seed: int) -> GameWorlds:
-    """Vectorized market-blind drive simulator."""
+    """Vectorized market-blind drive simulator with a shared finite-game clock."""
     rng = np.random.default_rng(seed)
     shared = _mean_one_lognormal(rng, 0.08 if game.dome else 0.11, worlds)
-    away = _simulate_team_drives(rng, game.away, game.home, worlds, shared, False)
-    home = _simulate_team_drives(rng, game.home, game.away, worlds, shared, True)
+    away_drives, home_drives = _simulate_shared_possessions(rng, game, worlds, shared)
+    away = _simulate_team_drives(rng, game.away, game.home, away_drives, worlds)
+    home = _simulate_team_drives(rng, game.home, game.away, home_drives, worlds)
     return GameWorlds(
         away_points=away[0],
         home_points=home[0],
-        away_drives=away[1],
-        home_drives=home[1],
-        away_touchdowns=away[2],
-        home_touchdowns=home[2],
-        away_field_goals=away[3],
-        home_field_goals=home[3],
-        away_turnovers=away[4],
-        home_turnovers=home[4],
-        away_pass_disruption=away[5],
-        home_pass_disruption=home[5],
-        away_run_efficiency=away[6],
-        home_run_efficiency=home[6],
+        away_drives=away_drives,
+        home_drives=home_drives,
+        away_touchdowns=away[1],
+        home_touchdowns=home[1],
+        away_field_goals=away[2],
+        home_field_goals=home[2],
+        away_turnovers=away[3],
+        home_turnovers=home[3],
+        away_pass_disruption=away[4],
+        home_pass_disruption=home[4],
+        away_run_efficiency=away[5],
+        home_run_efficiency=home[5],
     )
