@@ -8,6 +8,8 @@ on:
       - "src/monster/sim/game.py"
       - "src/monster/snapshot/league.py"
       - "src/monster/feature_compile/team.py"
+      - "src/monster/ingest/nflverse.py"
+      - "scripts/build_league_policy.py"
       - "scripts/calibrate_score_anatomy.py"
       - ".github/workflows/score-calibration.yml"
   workflow_dispatch:
