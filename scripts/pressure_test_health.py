@@ -19,7 +19,7 @@ from monster.snapshot.league import compile_team_state_map
 from monster.snapshot.model import GameState
 
 MATCHUPS = (
-    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAX"),
+    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAC"),
     ("TB", "CIN"), ("ATL", "PIT"), ("NYJ", "TEN"), ("BAL", "IND"),
     ("ARI", "LAC"), ("WAS", "PHI"), ("MIA", "LV"), ("GB", "MIN"),
 )
