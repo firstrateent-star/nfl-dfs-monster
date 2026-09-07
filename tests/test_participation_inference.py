@@ -86,3 +86,24 @@ def test_practice_squad_and_non_roster_statuses_do_not_dilute_core_units():
     assert projected[1] < 0.05
     assert projected[2] < 0.01
     assert projected[3] == 0.0
+
+
+def test_team_unit_priors_are_conserved_toward_eleven_players():
+    n = 22
+    frame = pl.DataFrame(
+        {
+            "team_id": ["T"] * n,
+            "status": ["ACT"] * n,
+            "position_group": ["DB"] * 11 + ["OL"] * 11,
+            "rookie_year": [2022] * n,
+            "snap_games_observed": [0] * n,
+            "offense_snap_share": [None] * n,
+            "defense_snap_share": [None] * n,
+            "special_teams_snap_share": [None] * n,
+            "snap_share_uncertainty": [None] * n,
+            "changed_team_since_snap_history": [False] * n,
+        }
+    )
+    out = infer_game_day_participation(frame, season=2026)
+    assert 10.8 <= out.get_column("projected_offense_snap_share").sum() <= 11.0
+    assert 10.8 <= out.get_column("projected_defense_snap_share").sum() <= 11.0
