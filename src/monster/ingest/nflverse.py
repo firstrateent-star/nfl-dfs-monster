@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import nflreadpy as nfl
+import polars as pl
 
 PBP_COLUMNS = [
     "game_id",
@@ -59,10 +60,23 @@ def configure_cache(cache_dir: Path) -> None:
     )
 
 
+def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
+    """Current-season snap files may not exist before Week 1; fail neutral, not hard."""
+    try:
+        return nfl.load_snap_counts([current_season])
+    except Exception:
+        return pl.DataFrame()
+
+
 def load_reference_inputs(
     history_seasons: list[int], current_season: int, cache_dir: Path
 ) -> dict:
-    """Load reusable free football inputs with filesystem caching and no market fields."""
+    """Load reusable free football inputs with filesystem caching and no market fields.
+
+    The player universe is the NFL roster universe, including offense, offensive line,
+    defense and special teams. Snap counts are first-class inputs because they determine
+    how much each player's capability evidence should influence team mechanisms.
+    """
     configure_cache(cache_dir)
     pbp = nfl.load_pbp(history_seasons)
     pbp = pbp.select([c for c in PBP_COLUMNS if c in pbp.columns])
@@ -74,9 +88,15 @@ def load_reference_inputs(
         "historical_rosters": nfl.load_rosters_weekly(history_seasons),
         "current_rosters": nfl.load_rosters_weekly([current_season]),
         "injuries": nfl.load_injuries([current_season]),
-        "snap_counts": nfl.load_snap_counts(history_seasons),
+        "historical_snap_counts": nfl.load_snap_counts(history_seasons),
+        "current_snap_counts": _load_current_snap_counts(current_season),
         "combine": nfl.load_combine(),
         "depth_charts": nfl.load_depth_charts([current_season]),
+        "pfr_defense_weekly": nfl.load_pfr_advstats(
+            history_seasons,
+            stat_type="def",
+            summary_level="week",
+        ),
     }
 
 
