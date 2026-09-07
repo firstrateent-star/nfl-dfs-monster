@@ -6,7 +6,10 @@ on:
       - feature/slate-simulator-v1
     paths:
       - src/monster/sim/allocation.py
-      - src/monster/feature_compile/player.py
+      - src/monster/sim/pipeline.py
+      - src/monster/sim/rushing_roles.py
+      - src/monster/snapshot/player.py
+      - src/monster/feature_compile/skill_pools.py
       - scripts/run_week1_full_monster.py
       - scripts/audit_player_opportunity_realism.py
       - .github/workflows/player-opportunity-realism.yml
