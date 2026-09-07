@@ -3,13 +3,6 @@ from __future__ import annotations
 import polars as pl
 
 
-SNAP_COLUMNS = (
-    "offense_pct",
-    "defense_pct",
-    "st_pct",
-)
-
-
 def _normalize_pct(expr: pl.Expr) -> pl.Expr:
     """Normalize snap percentage fields whether source stores 0-1 or 0-100."""
     return (
@@ -55,9 +48,21 @@ def compile_snap_priors(snap_counts: pl.DataFrame, recent_games: int = 6) -> pl.
             pl.col("offense_pct_norm").tail(recent_games).mean().alias("offense_snap_share"),
             pl.col("defense_pct_norm").tail(recent_games).mean().alias("defense_snap_share"),
             pl.col("st_pct_norm").tail(recent_games).mean().alias("special_teams_snap_share"),
-            pl.col("offense_pct_norm").tail(recent_games).std().fill_null(0.0).alias("offense_snap_uncertainty"),
-            pl.col("defense_pct_norm").tail(recent_games).std().fill_null(0.0).alias("defense_snap_uncertainty"),
-            pl.col("st_pct_norm").tail(recent_games).std().fill_null(0.0).alias("special_teams_snap_uncertainty"),
+            pl.col("offense_pct_norm")
+            .tail(recent_games)
+            .std()
+            .fill_null(0.0)
+            .alias("offense_snap_uncertainty"),
+            pl.col("defense_pct_norm")
+            .tail(recent_games)
+            .std()
+            .fill_null(0.0)
+            .alias("defense_snap_uncertainty"),
+            pl.col("st_pct_norm")
+            .tail(recent_games)
+            .std()
+            .fill_null(0.0)
+            .alias("special_teams_snap_uncertainty"),
             pl.len().clip(upper_bound=recent_games).alias("snap_games_observed"),
         )
         .with_columns(
