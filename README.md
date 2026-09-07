@@ -15,7 +15,7 @@ The Monster's upstream job is **football only**:
 - **GitHub Actions** — light scheduled ingestion + manual heavy simulation; budgeted for the free allowance.
 - **Python + NumPy** — Monte Carlo.
 - **Polars + DuckDB + Parquet** — efficient analytical data processing and world-matrix queries.
-- **nflreadpy / nflverse** — primary free football data backbone.
+- **nflreadpy / nflverse** — primary free football data backbone, including rosters, depth charts, injuries, snap counts and defensive advanced statistics.
 - **NOAA/NWS API** — free U.S. weather/conditions.
 
 ## Key design law
