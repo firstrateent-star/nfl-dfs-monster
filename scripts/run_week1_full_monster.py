@@ -92,6 +92,40 @@ def _player_distribution_rows(game_name: str, team_id: str, pool, side) -> list[
     return rows
 
 
+def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray) -> dict:
+    plays = side.team_plays.astype(float)
+    total_yards = np.zeros(len(plays), dtype=float)
+    passing_yards = np.zeros(len(plays), dtype=float)
+    rushing_yards = np.zeros(len(plays), dtype=float)
+    for stats in side.player_stats.values():
+        passing_yards += stats["passing_yards"]
+        rushing_yards += stats["rushing_yards"]
+    total_yards = passing_yards + rushing_yards
+    yards_per_play = np.divide(total_yards, np.maximum(plays, 1.0))
+    return {
+        "game": game_name,
+        "team_id": team_id,
+        "drives_mean": float(drives.mean()),
+        "plays_mean": float(plays.mean()),
+        "plays_p10": _q(plays, 0.10),
+        "plays_p50": _q(plays, 0.50),
+        "plays_p90": _q(plays, 0.90),
+        "dropbacks_mean": float(side.team_dropbacks.mean()),
+        "sacks_mean": float(side.team_sacks.mean()),
+        "pass_attempts_mean": float(side.team_pass_attempts.mean()),
+        "targets_mean": float(side.team_targets.mean()),
+        "rush_attempts_mean": float(side.team_rush_attempts.mean()),
+        "passing_yards_mean": float(passing_yards.mean()),
+        "rushing_yards_mean": float(rushing_yards.mean()),
+        "total_yards_mean": float(total_yards.mean()),
+        "total_yards_p10": _q(total_yards, 0.10),
+        "total_yards_p50": _q(total_yards, 0.50),
+        "total_yards_p90": _q(total_yards, 0.90),
+        "yards_per_play_mean": float(yards_per_play.mean()),
+        "yards_per_play_p90": _q(yards_per_play, 0.90),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, required=True)
@@ -117,6 +151,7 @@ def main() -> None:
     game_rows = []
     player_rows = []
     qb_rows = []
+    opportunity_rows = []
     for idx, (away, home) in enumerate(MATCHUPS):
         game_name = f"{away}@{home}"
         states = compile_team_state_map(policy, {away: home, home: away})
@@ -145,6 +180,8 @@ def main() -> None:
         })
         player_rows.extend(_player_distribution_rows(game_name, away, result.snapshot.away_pool, result.allocation_worlds.away))
         player_rows.extend(_player_distribution_rows(game_name, home, result.snapshot.home_pool, result.allocation_worlds.home))
+        opportunity_rows.append(_team_opportunity_row(game_name, away, result.allocation_worlds.away, g.away_drives))
+        opportunity_rows.append(_team_opportunity_row(game_name, home, result.allocation_worlds.home, g.home_drives))
         for team_id, pool in ((away, result.snapshot.away_pool), (home, result.snapshot.home_pool)):
             for player in pool.players:
                 if player.position == "QB":
@@ -157,10 +194,12 @@ def main() -> None:
     games = pl.DataFrame(game_rows).sort("total_mean", descending=True)
     players = pl.DataFrame(player_rows).sort("fd_points_before_turnover_penalties_mean", descending=True)
     qbs = pl.DataFrame(qb_rows).sort(["team_id", "qb_pass_share"], descending=[False, True])
+    opportunities = pl.DataFrame(opportunity_rows).sort("total_yards_mean", descending=True)
     args.out.mkdir(parents=True, exist_ok=True)
     games.write_csv(args.out / "game_distribution_map.csv")
     players.write_csv(args.out / "player_distributions.csv")
     qbs.write_csv(args.out / "qb_state_audit.csv")
+    opportunities.write_csv(args.out / "team_opportunity_map.csv")
     personnel.filter(
         (pl.col("health_availability_probability") < 0.95)
         | (pl.col("health_effectiveness_if_active") < 0.98)
@@ -180,10 +219,12 @@ def main() -> None:
         "health_dimensions": ["availability", "effectiveness_if_active", "health_uncertainty"],
         "ol_state_enabled": True,
         "physical_mechanism_inputs_enabled": True,
+        "team_opportunity_audit_enabled": True,
         "fantasy_points_note": "FD subtotal excludes interception and fumble penalties because player-level turnover attribution is not yet modeled.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(games)
+    print(opportunities)
     print(players.head(40))
     print(qbs)
     print(json.dumps(manifest, indent=2))
