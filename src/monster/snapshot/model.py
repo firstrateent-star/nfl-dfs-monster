@@ -36,6 +36,12 @@ class TeamState:
     run_defense_effect: float = 0.0
     special_teams_effect: float = 0.0
 
+    # OL continuity/uncertainty is deliberately distinct from blocking mean. Current
+    # individual capability can move pass/run matchup means; missing or rebuilt line
+    # evidence widens the sampled line state instead of being treated as poor ability.
+    offensive_line_continuity: float = 0.5
+    offensive_line_uncertainty: float = 0.10
+
     continuity: float = 0.5
     injury_effect: float = 0.0
     weather_effect: float = 0.0
