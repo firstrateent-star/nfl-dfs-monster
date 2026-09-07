@@ -100,11 +100,29 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
     plays = side.team_plays.astype(float)
     passing_yards = np.zeros(len(plays), dtype=float)
     rushing_yards = np.zeros(len(plays), dtype=float)
+    rushing_columns = []
     for stats in side.player_stats.values():
         passing_yards += stats["passing_yards"]
         rushing_yards += stats["rushing_yards"]
+        rushing_columns.append(stats["rush_attempts"].astype(float))
     total_yards = passing_yards + rushing_yards
     yards_per_play = np.divide(total_yards, np.maximum(plays, 1.0))
+
+    rushing_matrix = (
+        np.column_stack(rushing_columns)
+        if rushing_columns
+        else np.zeros((len(plays), 0), dtype=float)
+    )
+    rushers = (rushing_matrix > 0).sum(axis=1)
+    core_rushers = (rushing_matrix >= 3).sum(axis=1)
+    incidental_mask = (rushing_matrix > 0) & (rushing_matrix <= 2)
+    incidental_rushers = incidental_mask.sum(axis=1)
+    incidental_attempts = np.where(incidental_mask, rushing_matrix, 0.0).sum(axis=1)
+    incidental_share = np.divide(
+        incidental_attempts,
+        np.maximum(side.team_rush_attempts.astype(float), 1.0),
+    )
+
     return {
         "game": game_name,
         "team_id": team_id,
@@ -118,6 +136,20 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
         "pass_attempts_mean": float(side.team_pass_attempts.mean()),
         "targets_mean": float(side.team_targets.mean()),
         "rush_attempts_mean": float(side.team_rush_attempts.mean()),
+        "rushers_per_world_mean": float(rushers.mean()),
+        "rushers_per_world_p10": _q(rushers, 0.10),
+        "rushers_per_world_p50": _q(rushers, 0.50),
+        "rushers_per_world_p90": _q(rushers, 0.90),
+        "core_rushers_per_world_mean": float(core_rushers.mean()),
+        "core_rushers_per_world_p10": _q(core_rushers, 0.10),
+        "core_rushers_per_world_p50": _q(core_rushers, 0.50),
+        "core_rushers_per_world_p90": _q(core_rushers, 0.90),
+        "incidental_rushers_per_world_mean": float(incidental_rushers.mean()),
+        "incidental_rushers_per_world_p10": _q(incidental_rushers, 0.10),
+        "incidental_rushers_per_world_p50": _q(incidental_rushers, 0.50),
+        "incidental_rushers_per_world_p90": _q(incidental_rushers, 0.90),
+        "incidental_rush_attempts_mean": float(incidental_attempts.mean()),
+        "incidental_rush_share_mean": float(incidental_share.mean()),
         "passing_yards_mean": float(passing_yards.mean()),
         "rushing_yards_mean": float(rushing_yards.mean()),
         "total_yards_mean": float(total_yards.mean()),
@@ -224,6 +256,7 @@ def main() -> None:
         "physical_mechanism_inputs_enabled": True,
         "team_opportunity_audit_enabled": True,
         "player_participation_probabilities_enabled": True,
+        "world_level_rushing_role_structure_enabled": True,
         "fantasy_points_note": "FD subtotal excludes interception and fumble penalties because player-level turnover attribution is not yet modeled.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
