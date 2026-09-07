@@ -41,13 +41,12 @@ def _ranked_team_game(frame: pl.DataFrame, count_col: str, player_col: str) -> p
         pl.col("opps").sum().alias("team_opps"),
         pl.len().alias("players_with_opps"),
     )
-    ranked = (
+    return (
         base.sort(["game_id", "posteam", "opps"], descending=[False, False, True])
         .with_columns(pl.col("opps").rank("ordinal", descending=True).over(["game_id", "posteam"]).alias("rank"))
         .join(team, on=["game_id", "posteam"], how="left")
         .with_columns((pl.col("opps") / pl.col("team_opps").clip(lower_bound=1)).alias("share"))
     )
-    return ranked
 
 
 def _historical_rank_metrics(ranked: pl.DataFrame, prefix: str) -> dict[str, dict[str, float]]:
@@ -56,31 +55,43 @@ def _historical_rank_metrics(ranked: pl.DataFrame, prefix: str) -> dict[str, dic
         sub = ranked.filter(pl.col("rank") == rank)
         output[f"{prefix}_rank{rank}_count"] = _summary(sub["opps"].to_numpy())
         output[f"{prefix}_rank{rank}_share"] = _summary(sub["share"].to_numpy())
-    one_per_team_game = ranked.filter(pl.col("rank") == 1)
-    output[f"{prefix}_players_with_opps"] = _summary(one_per_team_game["players_with_opps"].to_numpy())
-    output[f"{prefix}_team_opps"] = _summary(one_per_team_game["team_opps"].to_numpy())
+    leaders = ranked.filter(pl.col("rank") == 1)
+    output[f"{prefix}_players_with_opps"] = _summary(leaders["players_with_opps"].to_numpy())
+    output[f"{prefix}_team_opps"] = _summary(leaders["team_opps"].to_numpy())
     return output
 
 
-def _sim_rank_table(players: pl.DataFrame, team_opps: pl.DataFrame, stat: str, team_col: str) -> pl.DataFrame:
+def _sim_rank_table(
+    players: pl.DataFrame,
+    team_opps: pl.DataFrame,
+    stat: str,
+    team_col: str,
+    participation_col: str,
+) -> tuple[pl.DataFrame, pl.DataFrame]:
     mean_col = f"{stat}_mean"
     p90_col = f"{stat}_p90"
-    team_mean_col = team_col
+    denominator = f"team_{stat}_mean"
+    team_denoms = team_opps.select(
+        "game", "team_id", pl.col(team_col).alias(denominator)
+    )
     base = (
-        players.filter(pl.col(mean_col) > 0.01)
-        .join(team_opps.select("game", "team_id", team_mean_col), on=["game", "team_id"], how="left")
+        players.filter(pl.col(mean_col) > 0.001)
+        .join(team_denoms, on=["game", "team_id"], how="left")
         .sort(["game", "team_id", mean_col], descending=[False, False, True])
         .with_columns(
             pl.col(mean_col).rank("ordinal", descending=True).over(["game", "team_id"]).alias("rank"),
-            (pl.col(mean_col) / pl.col(team_mean_col).clip(lower_bound=0.01)).alias("share"),
+            (pl.col(mean_col) / pl.col(denominator).clip(lower_bound=0.01)).alias("share"),
         )
     )
-    counts = base.group_by(["game", "team_id"]).agg(
-        pl.len().alias("players_with_opps")
+    breadth = (
+        players.group_by(["game", "team_id"])
+        .agg(pl.col(participation_col).sum().alias("expected_players_with_opps"))
     )
-    return base.join(counts, on=["game", "team_id"], how="left").select(
-        "game", "team_id", "player", "position", "rank", mean_col, p90_col, "share", "players_with_opps"
+    ranked = base.join(breadth, on=["game", "team_id"], how="left").select(
+        "game", "team_id", "player", "position", "rank", mean_col, p90_col,
+        "share", "expected_players_with_opps",
     )
+    return ranked, breadth
 
 
 def _sim_rank_metrics(ranked: pl.DataFrame, prefix: str, stat: str) -> dict[str, dict[str, float]]:
@@ -93,7 +104,9 @@ def _sim_rank_metrics(ranked: pl.DataFrame, prefix: str, stat: str) -> dict[str,
         output[f"{prefix}_rank{rank}_p90_count"] = _summary(sub[p90_col].to_numpy())
         output[f"{prefix}_rank{rank}_share"] = _summary(sub["share"].to_numpy())
     leaders = ranked.filter(pl.col("rank") == 1)
-    output[f"{prefix}_players_with_opps"] = _summary(leaders["players_with_opps"].to_numpy())
+    output[f"{prefix}_expected_players_with_opps"] = _summary(
+        leaders["expected_players_with_opps"].to_numpy()
+    )
     return output
 
 
@@ -112,10 +125,9 @@ def main() -> None:
     pbp = nfl.load_pbp([args.history])
     if "season_type" in pbp.columns:
         pbp = pbp.filter(pl.col("season_type") == "REG")
-
     needed = [
         "game_id", "posteam", "pass_attempt", "rush_attempt",
-        "receiver_player_id", "rusher_player_id", "passer_player_id", "sack",
+        "receiver_player_id", "rusher_player_id", "passer_player_id",
         "qb_kneel", "qb_spike",
     ]
     pbp = pbp.select([c for c in needed if c in pbp.columns]).filter(pl.col("posteam").is_not_null())
@@ -135,7 +147,6 @@ def main() -> None:
     hist_targets = _ranked_team_game(target_events, "target_event", "receiver_player_id")
     hist_rushes = _ranked_team_game(rush_events, "rush_event", "rusher_player_id")
 
-    # Team QB attempt distribution is a separate role-state benchmark.
     qb_games = (
         pbp.filter((pl.col("pass_attempt").fill_null(0) == 1) & pl.col("passer_player_id").is_not_null())
         .group_by(["game_id", "posteam", "passer_player_id"])
@@ -147,8 +158,12 @@ def main() -> None:
 
     players = _read(args.players)
     team_opps = _read(args.team_opportunity)
-    sim_targets = _sim_rank_table(players, team_opps, "targets", "targets_mean")
-    sim_rushes = _sim_rank_table(players, team_opps, "rush_attempts", "rush_attempts_mean")
+    sim_targets, target_breadth = _sim_rank_table(
+        players, team_opps, "targets", "targets_mean", "target_participation_probability"
+    )
+    sim_rushes, rush_breadth = _sim_rank_table(
+        players, team_opps, "rush_attempts", "rush_attempts_mean", "rush_participation_probability"
+    )
     sim_qbs = (
         players.filter((pl.col("position") == "QB") & (pl.col("pass_attempts_mean") > 0.1))
         .sort(["game", "team_id", "pass_attempts_mean"], descending=[False, False, True])
@@ -168,18 +183,17 @@ def main() -> None:
         "qb1_pass_attempts_p90": _summary(sim_qbs["pass_attempts_p90"].to_numpy()),
     }
 
-    # Focus diagnostics on concentration and breadth, where allocation mechanics have authority.
     comparisons = []
-    for family, hist_ranked, sim_ranked in (
-        ("target", hist_targets, sim_targets),
-        ("rush", hist_rushes, sim_rushes),
+    for family, hist_ranked, sim_ranked, breadth in (
+        ("target", hist_targets, sim_targets, target_breadth),
+        ("rush", hist_rushes, sim_rushes, rush_breadth),
     ):
         hist_leader_share = float(hist_ranked.filter(pl.col("rank") == 1)["share"].mean())
         sim_leader_share = float(sim_ranked.filter(pl.col("rank") == 1)["share"].mean())
         hist_second_share = float(hist_ranked.filter(pl.col("rank") == 2)["share"].mean())
         sim_second_share = float(sim_ranked.filter(pl.col("rank") == 2)["share"].mean())
         hist_breadth = float(hist_ranked.filter(pl.col("rank") == 1)["players_with_opps"].mean())
-        sim_breadth = float(sim_ranked.filter(pl.col("rank") == 1)["players_with_opps"].mean())
+        sim_breadth = float(breadth["expected_players_with_opps"].mean())
         comparisons.append({
             "family": family,
             "historical_leader_share": hist_leader_share,
@@ -189,12 +203,11 @@ def main() -> None:
             "simulated_second_share": sim_second_share,
             "second_share_delta": sim_second_share - hist_second_share,
             "historical_players_with_opps": hist_breadth,
-            "simulated_players_with_opps": sim_breadth,
+            "simulated_expected_players_with_opps": sim_breadth,
             "breadth_delta": sim_breadth - hist_breadth,
         })
     comparison = pl.DataFrame(comparisons)
 
-    # This is diagnostic, not yet a promotion gate. Label the dominant failure mode.
     max_leader_delta = float(comparison["leader_share_delta"].abs().max())
     max_breadth_delta = float(comparison["breadth_delta"].abs().max())
     if max_leader_delta > 0.08:
@@ -222,7 +235,7 @@ def main() -> None:
         "concentration_comparison": comparison.to_dicts(),
         "diagnosis": diagnosis,
         "market_blind": True,
-        "principle": "Validate role hierarchy and opportunity concentration after the finite game supply is realistic; do not repair player outputs by arbitrary projection shrinkage.",
+        "principle": "Validate role hierarchy and expected game participation after finite football supply is realistic; do not compare nonzero projection means with observed one-game participation.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(comparison)
