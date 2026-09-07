@@ -91,6 +91,40 @@ def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
     return _load_optional_current(nfl.load_snap_counts, current_season)
 
 
+def _supplement_player_ids(players: pl.DataFrame, ff_ids: pl.DataFrame) -> pl.DataFrame:
+    """Fill missing cross-provider IDs from the GSIS-keyed ffverse identity table.
+
+    `load_players()` remains the canonical player table. The ffverse table is used only
+    as a deterministic fallback where the canonical row is missing a PFR/PFF/ESPN ID.
+    This is especially important for offensive linemen because PFR snap counts are keyed
+    by `pfr_player_id` while GSIS remains our roster primary key.
+    """
+    if not ff_ids.height or "gsis_id" not in players.columns or "gsis_id" not in ff_ids.columns:
+        return players
+
+    candidates = [c for c in ("pfr_id", "pff_id", "espn_id") if c in ff_ids.columns]
+    if not candidates:
+        return players
+
+    fallback = (
+        ff_ids.select(["gsis_id", *candidates])
+        .drop_nulls(["gsis_id"])
+        .unique(subset=["gsis_id"], keep="last")
+        .rename({c: f"{c}_ff" for c in candidates})
+    )
+    out = players.join(fallback, on="gsis_id", how="left")
+    replacements = []
+    drops = []
+    for column in candidates:
+        fallback_col = f"{column}_ff"
+        drops.append(fallback_col)
+        if column in out.columns:
+            replacements.append(pl.coalesce([pl.col(column), pl.col(fallback_col)]).alias(column))
+        else:
+            replacements.append(pl.col(fallback_col).alias(column))
+    return out.with_columns(*replacements).drop(drops)
+
+
 def load_league_personnel_inputs(
     history_seasons: list[int], current_season: int, cache_dir: Path
 ) -> dict:
@@ -101,8 +135,15 @@ def load_league_personnel_inputs(
     in the separate heavy football-history path.
     """
     configure_cache(cache_dir)
+    players = nfl.load_players()
+    try:
+        ff_ids = nfl.load_ff_playerids()
+    except (OSError, RuntimeError, ValueError, requests.RequestException):
+        ff_ids = pl.DataFrame()
+    players = _supplement_player_ids(players, ff_ids)
     return {
-        "players": nfl.load_players(),
+        "players": players,
+        "ff_playerids": ff_ids,
         "teams": nfl.load_teams(),
         "current_rosters": _load_weekly_rosters(current_season),
         "injuries": _load_optional_current(nfl.load_injuries, current_season),
