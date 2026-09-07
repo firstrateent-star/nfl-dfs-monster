@@ -89,12 +89,18 @@ features:
     authority: 0.25
     market_derived: false
 
-  # --- performance / opportunity ---
+  # --- performance / scoring anatomy ---
   drives_per_game:
     family: pace
     cadence: weekly
     jurisdiction: [mean, allocation]
     authority: 0.90
+    market_derived: false
+  plays_per_drive:
+    family: pace
+    cadence: weekly
+    jurisdiction: [mean, allocation]
+    authority: 0.85
     market_derived: false
   td_drive_rate:
     family: scoring_anatomy
@@ -119,6 +125,12 @@ features:
     cadence: weekly
     jurisdiction: [mean, allocation, shape]
     authority: 0.85
+    market_derived: false
+  pass_td_share:
+    family: scoring_anatomy
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.80
     market_derived: false
   offensive_success_rate:
     family: performance
@@ -180,18 +192,6 @@ features:
     jurisdiction: [allocation]
     authority: 0.80
     market_derived: false
-  target_share:
-    family: role
-    cadence: weekly
-    jurisdiction: [allocation]
-    authority: 0.90
-    market_derived: false
-  rush_share:
-    family: role
-    cadence: weekly
-    jurisdiction: [allocation]
-    authority: 0.90
-    market_derived: false
   neutral_pass_rate:
     family: coaching_policy
     cadence: weekly
@@ -222,6 +222,20 @@ features:
     jurisdiction: [mean, shape]
     authority: 0.80
     market_derived: false
+
+  # --- player opportunity / efficiency ---
+  target_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.90
+    market_derived: false
+  rush_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.90
+    market_derived: false
   route_participation:
     family: role
     cadence: weekly
@@ -233,6 +247,48 @@ features:
     cadence: weekly
     jurisdiction: [allocation, shape]
     authority: 0.85
+    market_derived: false
+  red_zone_target_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.85
+    market_derived: false
+  red_zone_rush_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.85
+    market_derived: false
+  receiving_td_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.75
+    market_derived: false
+  rushing_td_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.75
+    market_derived: false
+  catch_rate:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.80
+    market_derived: false
+  yards_per_reception:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.75
+    market_derived: false
+  yards_per_carry:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.75
     market_derived: false
 
   # --- health / continuity / coaching ---
