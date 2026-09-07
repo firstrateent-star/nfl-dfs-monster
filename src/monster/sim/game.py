@@ -19,10 +19,6 @@ class GameWorlds:
     home_field_goals: np.ndarray
     away_turnovers: np.ndarray
     home_turnovers: np.ndarray
-    # World-level OL/matchup states propagated into player allocation. Higher pass
-    # disruption means a harder pressure/coverage environment. Higher run efficiency
-    # means a better blocking/front environment for rushing production.
-    # Optional defaults preserve compatibility with historical/test GameWorlds objects.
     away_pass_disruption: np.ndarray | None = None
     home_pass_disruption: np.ndarray | None = None
     away_run_efficiency: np.ndarray | None = None
@@ -61,8 +57,12 @@ def _simulate_team_drives(
     np.ndarray,
     np.ndarray,
 ]:
+    # Observed drives/game already contains most realized pace information. Pace therefore
+    # acts only as a small centered contextual adjustment rather than multiplying possession
+    # volume a second time.
     drive_mu = 0.50 * team.drives_per_game + 0.50 * opponent.drives_per_game
-    drive_mu *= np.clip((team.pace_factor + opponent.pace_factor) / 2.0, 0.82, 1.18)
+    relative_pace = (team.pace_factor + opponent.pace_factor) / 2.0
+    drive_mu *= np.clip(1.0 + 0.25 * (relative_pace - 1.0), 0.94, 1.06)
     drive_mu += 0.12 if home else -0.12
     drive_mu = float(np.clip(drive_mu, 7.5, 14.0))
     drives = rng.poisson(np.clip(drive_mu * shared_environment, 6.0, 16.0)).astype(np.int16)
