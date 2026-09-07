@@ -12,7 +12,7 @@ def _value(row: dict, key: str, default=None):
     return default if value is None else value
 
 
-def _unit_player_from_row(row: dict) -> UnitPlayerInputs:
+def unit_player_from_personnel_row(row: dict) -> UnitPlayerInputs:
     """Adapt one conserved personnel row to the simulation unit compiler.
 
     `projected_*_snap_share` is already expected participation after roster-status
@@ -29,19 +29,19 @@ def _unit_player_from_row(row: dict) -> UnitPlayerInputs:
         snap_share_uncertainty=float(_value(row, "participation_uncertainty", 0.0)),
         active_probability=1.0,
         effectiveness_if_active=1.0,
+        pass_block_signal=_value(row, "observed_pass_block_signal"),
+        run_block_signal=_value(row, "observed_run_block_signal"),
         pass_rush_signal=_value(row, "observed_pass_rush_signal"),
         coverage_signal=_value(row, "observed_coverage_signal"),
         run_defense_signal=_value(row, "observed_run_defense_signal"),
+        special_teams_signal=_value(row, "observed_special_teams_signal"),
     )
 
 
-def compile_league_unit_effects(snapshot: pl.DataFrame) -> pl.DataFrame:
-    """Compile one auditable six-mechanism unit-effect row for every NFL team.
-
-    At this stage observed defensive evidence is allowed authority. Offensive blocking
-    and specialist capability remain neutral until a defensible source is attached;
-    missing evidence is not silently imputed as bad performance.
-    """
+def compile_league_unit_player_map(
+    snapshot: pl.DataFrame,
+) -> dict[str, tuple[UnitPlayerInputs, ...]]:
+    """Expose the canonical personnel snapshot as team-indexed simulation inputs."""
     required = {
         "team_id",
         "projected_offense_snap_share",
@@ -53,10 +53,23 @@ def compile_league_unit_effects(snapshot: pl.DataFrame) -> pl.DataFrame:
     if missing:
         raise ValueError(f"League unit compilation missing columns: {sorted(missing)}")
 
-    rows: list[dict] = []
+    result: dict[str, tuple[UnitPlayerInputs, ...]] = {}
     for team_id in sorted(snapshot.get_column("team_id").unique().to_list()):
         team = snapshot.filter(pl.col("team_id") == team_id)
-        players = tuple(_unit_player_from_row(row) for row in team.to_dicts())
+        result[str(team_id)] = tuple(unit_player_from_personnel_row(row) for row in team.to_dicts())
+    return result
+
+
+def compile_league_unit_effects(snapshot: pl.DataFrame) -> pl.DataFrame:
+    """Compile one auditable six-mechanism unit-effect row for every NFL team.
+
+    Observed evidence receives authority only in its mechanism. Missing offensive
+    blocking or specialist evidence remains neutral instead of being treated as poor.
+    """
+    player_map = compile_league_unit_player_map(snapshot)
+    rows: list[dict] = []
+    for team_id, players in player_map.items():
+        team = snapshot.filter(pl.col("team_id") == team_id)
         effects, trace = compile_team_unit_effects(players)
         rows.append(
             {
