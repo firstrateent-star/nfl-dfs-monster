@@ -10,6 +10,7 @@ on:
       - 'src/monster/ingest/league.py'
       - 'src/monster/feature_compile/participation.py'
       - 'src/monster/feature_compile/participation_inference.py'
+      - 'src/monster/feature_compile/depth.py'
       - 'src/monster/feature_compile/capability.py'
       - 'scripts/build_league_baseline.py'
       - '.github/workflows/build-league-baseline.yml'
