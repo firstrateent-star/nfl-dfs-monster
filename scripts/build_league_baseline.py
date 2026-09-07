@@ -11,6 +11,7 @@ from monster.feature_compile.capability import (
     attach_capability_evidence,
     capability_coverage_report,
 )
+from monster.feature_compile.depth import attach_depth_chart
 from monster.feature_compile.participation_inference import (
     infer_game_day_participation,
     participation_coverage_report,
@@ -43,6 +44,7 @@ def main() -> None:
         inputs["current_snap_counts"],
         recent_games=args.recent_games,
     )
+    snapshot = attach_depth_chart(snapshot, inputs["depth_charts"])
     snapshot = infer_game_day_participation(snapshot, season=args.season)
     snapshot = attach_capability_evidence(
         snapshot,
@@ -59,7 +61,6 @@ def main() -> None:
     participation_coverage.write_csv(args.out / "participation_by_team.csv")
     capability_coverage.write_csv(args.out / "capability_by_team.csv")
 
-    # Keep changing/complex provider tables raw and auditable after promoted joins too.
     for key in [
         "injuries",
         "depth_charts",
@@ -84,6 +85,14 @@ def main() -> None:
         "players_changed_team_with_snap_history": int(
             snapshot.select(pl.col("changed_team_since_snap_history").sum()).item()
         ),
+        "players_with_depth_role": int(
+            snapshot.select(pl.col("depth_rank").is_not_null().sum()).item()
+        ),
+        "no_history_depth_starters": int(
+            snapshot.select(
+                ((pl.col("snap_games_observed") == 0) & (pl.col("depth_rank") == 1)).sum()
+            ).item()
+        ),
         "projected_core_players": int(
             snapshot.select((pl.col("participation_tier") == "core").sum()).item()
         ),
@@ -96,7 +105,9 @@ def main() -> None:
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
     }
     if "forty" in snapshot.columns:
-        manifest["players_with_forty"] = int(snapshot.select(pl.col("forty").is_not_null().sum()).item())
+        manifest["players_with_forty"] = int(
+            snapshot.select(pl.col("forty").is_not_null().sum()).item()
+        )
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
 
