@@ -68,27 +68,18 @@ def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
         return pl.DataFrame()
 
 
-def load_reference_inputs(
+def load_league_personnel_inputs(
     history_seasons: list[int], current_season: int, cache_dir: Path
 ) -> dict:
-    """Load reusable free football inputs with filesystem caching and no market fields.
+    """Load the cheap, all-32-team personnel layer without downloading PBP.
 
-    `players` is the cross-source identity/static master. Weekly rosters define current
-    team/status. The universe is all 32 NFL teams and all rostered offense, OL, defense
-    and special-teams players. Snap counts determine how strongly each player's evidence
-    influences the simulated football game.
+    This is suitable for frequent free-tier refreshes. Static player identity/capability
+    facts are separated from weekly roster/depth/injury/snap state.
     """
     configure_cache(cache_dir)
-    pbp = nfl.load_pbp(history_seasons)
-    pbp = pbp.select([c for c in PBP_COLUMNS if c in pbp.columns])
     return {
         "players": nfl.load_players(),
         "teams": nfl.load_teams(),
-        "pbp": pbp,
-        "player_stats": nfl.load_player_stats(history_seasons),
-        "team_stats": nfl.load_team_stats(history_seasons),
-        "schedules": nfl.load_schedules(sorted(set(history_seasons + [current_season]))),
-        "historical_rosters": nfl.load_rosters_weekly(history_seasons),
         "current_rosters": nfl.load_rosters_weekly([current_season]),
         "injuries": nfl.load_injuries([current_season]),
         "historical_snap_counts": nfl.load_snap_counts(history_seasons),
@@ -100,6 +91,23 @@ def load_reference_inputs(
             stat_type="def",
             summary_level="week",
         ),
+    }
+
+
+def load_reference_inputs(
+    history_seasons: list[int], current_season: int, cache_dir: Path
+) -> dict:
+    """Load heavy football-history inputs plus the reusable league personnel layer."""
+    personnel = load_league_personnel_inputs(history_seasons, current_season, cache_dir)
+    pbp = nfl.load_pbp(history_seasons)
+    pbp = pbp.select([c for c in PBP_COLUMNS if c in pbp.columns])
+    return {
+        **personnel,
+        "pbp": pbp,
+        "player_stats": nfl.load_player_stats(history_seasons),
+        "team_stats": nfl.load_team_stats(history_seasons),
+        "schedules": nfl.load_schedules(sorted(set(history_seasons + [current_season]))),
+        "historical_rosters": nfl.load_rosters_weekly(history_seasons),
     }
 
 
