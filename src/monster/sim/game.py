@@ -64,13 +64,12 @@ def _simulate_team_drives(
     unit_matchup = team.neutral_pass_rate * pass_matchup + (1.0 - team.neutral_pass_rate) * run_matchup
 
     # OL uncertainty is sampled as epistemic football state, not added to the mean.
-    # Rebuilt/poorly linked lines therefore get wider upside/downside pathways while
-    # current individual blocking capability remains the bounded mean effect above.
+    # Neutral defaults produce sigma=0 exactly, preserving the pre-OL control model.
     line_sigma = float(
         np.clip(
             team.offensive_line_uncertainty
             + 0.035 * (1.0 - team.offensive_line_continuity),
-            0.02,
+            0.0,
             0.20,
         )
     )
