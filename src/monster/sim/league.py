@@ -17,6 +17,15 @@ from monster.snapshot.league import compile_team_state_map
 from monster.snapshot.model import GameState
 from monster.snapshot.player import TeamPlayerPool
 
+_OL_CONTEXT_COLUMNS = {
+    "team_id",
+    "position_group",
+    "projected_offense_snap_share",
+    "participation_uncertainty",
+    "snap_games_observed",
+    "prior_team_id",
+}
+
 
 def simulate_league_context_game(
     *,
@@ -41,6 +50,10 @@ def simulate_league_context_game(
     evidence coverage govern a separate sampled uncertainty state. Historical OL outcome
     signals are intentionally not accepted here as additive mean inputs because the team
     policy already contains overlapping historical pressure/rushing outcomes.
+
+    Minimal/synthetic personnel frames may omit historical OL-linkage columns. In that
+    case the OL uncertainty layer stays exactly neutral instead of failing or inventing
+    evidence.
     """
     opponents = {away_team_id: home_team_id, home_team_id: away_team_id}
     states = compile_team_state_map(
@@ -49,17 +62,19 @@ def simulate_league_context_game(
         prior_uncertainty=prior_uncertainty,
     )
     unit_map = compile_league_unit_player_map(personnel)
-    unit_effects = compile_league_unit_effects(personnel)
-    ol_context = compile_ol_simulation_context(personnel, unit_effects)
-    ol_rows = {str(row["team_id"]): row for row in ol_context.to_dicts()}
-    for team_id in (away_team_id, home_team_id):
-        context = ol_rows.get(team_id)
-        if context is not None:
-            states[team_id] = replace(
-                states[team_id],
-                offensive_line_continuity=float(context["offensive_line_continuity"]),
-                offensive_line_uncertainty=float(context["offensive_line_uncertainty"]),
-            )
+
+    if _OL_CONTEXT_COLUMNS.issubset(personnel.columns):
+        unit_effects = compile_league_unit_effects(personnel)
+        ol_context = compile_ol_simulation_context(personnel, unit_effects)
+        ol_rows = {str(row["team_id"]): row for row in ol_context.to_dicts()}
+        for team_id in (away_team_id, home_team_id):
+            context = ol_rows.get(team_id)
+            if context is not None:
+                states[team_id] = replace(
+                    states[team_id],
+                    offensive_line_continuity=float(context["offensive_line_continuity"]),
+                    offensive_line_uncertainty=float(context["offensive_line_uncertainty"]),
+                )
 
     if away_team_id not in unit_map or home_team_id not in unit_map:
         raise ValueError("League personnel artifact does not contain both game teams")
@@ -67,19 +82,20 @@ def simulate_league_context_game(
         raise ValueError("Skill-player pool team IDs must match requested game teams")
 
     mechanisms = team_inputs or {}
+    feature_names = {
+        "historical_team_policy",
+        "league_personnel_participation",
+        "observed_unit_capability",
+    }
+    if _OL_CONTEXT_COLUMNS.issubset(personnel.columns):
+        feature_names.add("offensive_line_continuity_uncertainty")
+
     game = GameState(
         game_id=game_id,
         away=states[away_team_id],
         home=states[home_team_id],
         dome=dome,
-        feature_names=frozenset(
-            {
-                "historical_team_policy",
-                "league_personnel_participation",
-                "observed_unit_capability",
-                "offensive_line_continuity_uncertainty",
-            }
-        ),
+        feature_names=frozenset(feature_names),
     )
     return simulate_monster_game(
         game,
