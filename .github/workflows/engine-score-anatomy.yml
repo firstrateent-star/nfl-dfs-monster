@@ -1,0 +1,31 @@
+name: Engine score anatomy conservation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_engine_score_anatomy.py
+      - src/monster/feature_compile/team.py
+      - src/monster/sim/game.py
+      - .github/workflows/engine-score-anatomy.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build corrected 2025 policy
+        run: uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+      - name: Run scoring conservation audit
+        run: uv run python scripts/audit_engine_score_anatomy.py --policy artifacts/league-policy/team_policy.parquet --season 2025 --worlds 4000 --seed 2025090717 --out artifacts/engine-score-anatomy
+      - name: Show anatomy
+        run: cat artifacts/engine-score-anatomy/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-engine-score-anatomy
+          path: artifacts/engine-score-anatomy/
+          retention-days: 7
