@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+import polars as pl
+
+from monster.feature_compile.participation import compile_snap_priors
+from monster.teams import NFL_TEAMS, TEAM_ALIASES
+
+_TEAM_MAP = {**{team: team for team in NFL_TEAMS}, **TEAM_ALIASES}
+_SNAP_OUTPUTS = [
+    "offense_snap_share",
+    "defense_snap_share",
+    "special_teams_snap_share",
+    "offense_snap_uncertainty",
+    "defense_snap_uncertainty",
+    "special_teams_snap_uncertainty",
+    "primary_snap_share",
+    "snap_share_uncertainty",
+    "snap_games_observed",
+]
+
+
+def canonicalize_team_column(df: pl.DataFrame, column: str = "team") -> pl.DataFrame:
+    """Normalize provider team abbreviations before any cross-source joins."""
+    if column not in df.columns:
+        raise ValueError(f"Missing team column: {column}")
+    return df.with_columns(
+        pl.col(column)
+        .cast(pl.Utf8)
+        .str.to_uppercase()
+        .replace(_TEAM_MAP)
+        .alias("team_id")
+    ).filter(pl.col("team_id").is_in(list(NFL_TEAMS)))
+
+
+def latest_roster_state(rosters: pl.DataFrame) -> pl.DataFrame:
+    """Return the most recent roster state for every team, not cumulative season rosters."""
+    roster = canonicalize_team_column(rosters)
+    if "week" not in roster.columns:
+        return roster
+    latest = roster.group_by("team_id").agg(pl.col("week").max().alias("_latest_week"))
+    return (
+        roster.join(latest, on="team_id", how="inner")
+        .filter(pl.col("week") == pl.col("_latest_week"))
+        .drop("_latest_week")
+    )
+
+
+def _player_static_columns(players: pl.DataFrame) -> list[str]:
+    candidates = [
+        "gsis_id",
+        "display_name",
+        "common_first_name",
+        "first_name",
+        "last_name",
+        "short_name",
+        "position",
+        "position_group",
+        "birth_date",
+        "height",
+        "weight",
+        "years_of_experience",
+        "rookie_year",
+        "draft_club",
+        "draft_number",
+        "pfr_id",
+        "espn_id",
+        "pff_id",
+        "otc_id",
+    ]
+    return [c for c in candidates if c in players.columns]
+
+
+def enrich_roster_identity(roster: pl.DataFrame, players: pl.DataFrame) -> pl.DataFrame:
+    """Join stable nflverse player identity/static facts onto current team membership."""
+    if "gsis_id" not in roster.columns or "gsis_id" not in players.columns:
+        raise ValueError("League identity join requires gsis_id in roster and players datasets")
+    missing_static = [
+        c for c in _player_static_columns(players) if c == "gsis_id" or c not in roster.columns
+    ]
+    static = players.select(missing_static).unique(subset=["gsis_id"], keep="last")
+    return roster.join(static, on="gsis_id", how="left")
+
+
+def _combine_snap_history(
+    historical_snap_counts: pl.DataFrame,
+    current_snap_counts: pl.DataFrame | None,
+) -> pl.DataFrame:
+    frames: list[pl.DataFrame] = []
+    if historical_snap_counts.height:
+        frames.append(historical_snap_counts)
+    if current_snap_counts is not None and current_snap_counts.height:
+        frames.append(current_snap_counts)
+    if not frames:
+        return pl.DataFrame()
+    return pl.concat(frames, how="diagonal_relaxed")
+
+
+def _attach_snap_priors(
+    roster: pl.DataFrame,
+    historical_snap_counts: pl.DataFrame,
+    current_snap_counts: pl.DataFrame | None,
+    recent_games: int,
+) -> pl.DataFrame:
+    snaps = _combine_snap_history(historical_snap_counts, current_snap_counts)
+    if not snaps.height:
+        return roster.with_columns(
+            *[pl.lit(None, dtype=pl.Float64).alias(c) for c in _SNAP_OUTPUTS[:-1]],
+            pl.lit(0, dtype=pl.Int64).alias("snap_games_observed"),
+        )
+
+    snaps = canonicalize_team_column(snaps).with_columns(pl.col("team_id").alias("team"))
+    priors = compile_snap_priors(snaps, recent_games=recent_games).rename({"team": "team_id"})
+
+    roster_pfr = "pfr_id" if "pfr_id" in roster.columns else None
+    if roster_pfr is None and "pfr_player_id" in roster.columns:
+        roster_pfr = "pfr_player_id"
+    if roster_pfr is None:
+        return roster.with_columns(
+            *[pl.lit(None, dtype=pl.Float64).alias(c) for c in _SNAP_OUTPUTS[:-1]],
+            pl.lit(0, dtype=pl.Int64).alias("snap_games_observed"),
+        )
+
+    return roster.join(
+        priors,
+        left_on=["team_id", roster_pfr],
+        right_on=["team_id", "pfr_player_id"],
+        how="left",
+    ).with_columns(pl.col("snap_games_observed").fill_null(0))
+
+
+def build_league_personnel_snapshot(
+    current_rosters: pl.DataFrame,
+    players: pl.DataFrame,
+    historical_snap_counts: pl.DataFrame,
+    current_snap_counts: pl.DataFrame | None = None,
+    *,
+    recent_games: int = 6,
+) -> pl.DataFrame:
+    """Compile the persistent all-NFL personnel baseline used by weekly slate snapshots."""
+    roster = latest_roster_state(current_rosters)
+    roster = enrich_roster_identity(roster, players)
+    roster = _attach_snap_priors(
+        roster,
+        historical_snap_counts,
+        current_snap_counts,
+        recent_games,
+    )
+    validate_league_coverage(roster)
+    return roster.sort(["team_id", "position", "gsis_id"])
+
+
+def validate_league_coverage(snapshot: pl.DataFrame) -> None:
+    actual = set(snapshot.get_column("team_id").drop_nulls().unique().to_list())
+    expected = set(NFL_TEAMS)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
+        raise ValueError(f"League personnel universe mismatch: missing={missing} extra={extra}")
+
+
+def league_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
+    """Make missing-data coverage visible instead of silently converting missing to bad."""
+    expressions: list[pl.Expr] = [
+        pl.len().alias("roster_players"),
+        (pl.col("snap_games_observed") > 0).sum().alias("players_with_snap_prior"),
+    ]
+    for column, alias in [
+        ("height", "players_with_height"),
+        ("weight", "players_with_weight"),
+        ("birth_date", "players_with_birth_date"),
+        ("pfr_id", "players_with_pfr_id"),
+    ]:
+        if column in snapshot.columns:
+            expressions.append(pl.col(column).is_not_null().sum().alias(alias))
+    return snapshot.group_by("team_id").agg(*expressions).sort("team_id")
+
+
+def assert_all_teams_present(team_ids: Iterable[str]) -> None:
+    """Small reusable quality gate for artifacts and database promotion jobs."""
+    actual = set(team_ids)
+    if actual != set(NFL_TEAMS):
+        raise ValueError(f"Expected 32-team league universe, received {len(actual)} teams")
