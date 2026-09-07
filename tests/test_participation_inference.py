@@ -40,8 +40,10 @@ def test_active_player_with_recent_snaps_gets_expected_snap_weight():
         }
     )
     row = infer_game_day_participation(frame, season=2026).row(0, named=True)
-    assert np.isclose(row["game_day_active_probability"], 0.91)
-    assert np.isclose(row["projected_offense_snap_share"], 0.728)
+    # Healthy active roster status is nearly neutral; explicit health state owns injury risk.
+    assert np.isclose(row["roster_active_probability"], 0.985)
+    assert np.isclose(row["game_day_active_probability"], 0.985)
+    assert np.isclose(row["projected_offense_snap_share"], 0.788)
     assert row["participation_evidence"] == "recent_snaps"
     assert row["participation_tier"] == "core"
 
