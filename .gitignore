@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.monster-data/
+*.parquet
+*.npz
+*.duckdb
+*.sqlite
+*.db
+.DS_Store
