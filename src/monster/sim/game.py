@@ -55,6 +55,16 @@ def _simulate_team_drives(
     fg_base = _blend_rate(team.fg_drive_rate, opponent.defensive_fg_drive_rate_allowed, 0.14)
     to_base = _blend_rate(team.turnover_drive_rate, opponent.defensive_takeaway_drive_rate, 0.11)
 
+    # All-player unit interaction. Snap-weighted OL/skill personnel face the opposing
+    # pass rush/coverage/front rather than being collapsed into offensive fantasy players.
+    pass_matchup = (
+        team.pass_protection_effect
+        - opponent.pass_rush_effect
+        - 0.70 * opponent.coverage_effect
+    )
+    run_matchup = team.run_block_effect - opponent.run_defense_effect
+    unit_matchup = team.neutral_pass_rate * pass_matchup + (1.0 - team.neutral_pass_rate) * run_matchup
+
     quality = (
         1.00
         + 0.55 * team.offensive_epa_per_play
@@ -62,6 +72,8 @@ def _simulate_team_drives(
         + 0.22 * (team.offensive_explosive_rate - 0.10)
         - 0.18 * (opponent.defensive_explosive_rate_allowed - 0.10)
         + 0.15 * (team.red_zone_td_rate - 0.55)
+        + unit_matchup
+        + 0.25 * team.special_teams_effect
         + team.injury_effect
         + team.weather_effect
         + team.physical_madden_effect
@@ -78,12 +90,26 @@ def _simulate_team_drives(
     )
     state = _mean_one_lognormal(rng, epistemic_sigma, worlds)
 
+    # Defensive pressure and coverage can create turnover-worthy environments; strong
+    # protection suppresses that mechanism. Effects remain bounded and independent of market data.
+    turnover_matchup = (
+        opponent.pass_rush_effect + 0.60 * opponent.coverage_effect - team.pass_protection_effect
+    )
+    turnover_multiplier = float(np.clip(1.0 + 1.25 * turnover_matchup, 0.86, 1.14))
+
     td_p = _clip_probability(td_base * quality * state, 0.07, 0.48)
     to_p = _clip_probability(
-        to_base / np.sqrt(np.maximum(quality * state, 0.35)), 0.035, 0.24
+        (to_base * turnover_multiplier) / np.sqrt(np.maximum(quality * state, 0.35)),
+        0.035,
+        0.24,
     )
     fg_p = _clip_probability(
-        fg_base * (0.92 + 0.08 * quality) * np.sqrt(state), 0.05, 0.28
+        fg_base
+        * (1.0 + team.special_teams_effect)
+        * (0.92 + 0.08 * quality)
+        * np.sqrt(state),
+        0.05,
+        0.28,
     )
 
     touchdowns = rng.binomial(drives, td_p).astype(np.int16)
