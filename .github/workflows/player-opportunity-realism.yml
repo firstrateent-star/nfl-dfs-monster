@@ -12,6 +12,7 @@ on:
       - src/monster/feature_compile/skill_pools.py
       - scripts/run_week1_full_monster.py
       - scripts/audit_player_opportunity_realism.py
+      - scripts/compare_simulated_rush_structure.py
       - .github/workflows/player-opportunity-realism.yml
   workflow_dispatch:
 
@@ -67,10 +68,17 @@ jobs:
           --team-opportunity artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
           --history 2025
           --out artifacts/player-opportunity-realism
+      - name: Compare core and incidental rushing worlds with 2025 games
+        run: >-
+          uv run python scripts/compare_simulated_rush_structure.py
+          --team-opportunity artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
+          --history 2025
+          --out artifacts/simulated-rush-structure
       - name: Show result
         run: |
           cat artifacts/player-opportunity-realism/concentration_comparison.csv
-          cat artifacts/player-opportunity-realism/manifest.json
+          cat artifacts/simulated-rush-structure/rush_structure_comparison.csv
+          cat artifacts/simulated-rush-structure/manifest.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,4 +87,5 @@ jobs:
             artifacts/week1-player-role-diagnostic/player_distributions.csv
             artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
             artifacts/player-opportunity-realism/
+            artifacts/simulated-rush-structure/
           retention-days: 7
