@@ -32,10 +32,11 @@ def _team_games(season: int) -> tuple[pl.DataFrame, np.ndarray]:
         .agg(pl.len().alias("targets"))
     )
     ranked = pg.with_columns(
+        pl.col("targets").sum().over(["game_id", "posteam"]).alias("team_targets"),
         pl.col("targets")
         .rank(method="ordinal", descending=True)
         .over(["game_id", "posteam"])
-        .alias("rank")
+        .alias("rank"),
     )
     tg = (
         pg.group_by(["game_id", "posteam"])
@@ -55,7 +56,7 @@ def _team_games(season: int) -> tuple[pl.DataFrame, np.ndarray]:
     rank_means = np.array([
         float(
             ranked.filter(pl.col("rank") == rank)
-            .select((pl.col("targets") / pl.col("targets").sum().over(["game_id", "posteam"])).mean())
+            .select((pl.col("targets") / pl.col("team_targets").clip(lower_bound=1)).mean())
             .item()
         )
         for rank in range(1, RANKS + 1)
@@ -110,10 +111,10 @@ def _simulate_metrics(
         for _ in range(replicates):
             shares = rng.dirichlet(alpha)
             counts = rng.multinomial(total, shares)
-            ranked = np.sort(counts)[::-1]
+            ranked_counts = np.sort(counts)[::-1]
             denom = max(total, 1)
             for r in range(RANKS):
-                rank_sums[r] += (ranked[r] if r < len(ranked) else 0) / denom
+                rank_sums[r] += (ranked_counts[r] if r < len(ranked_counts) else 0) / denom
             middle = (counts >= 3) & (counts <= 5)
             peripheral = (counts > 0) & (counts <= 2)
             middle_earners_sum += float(middle.sum())
