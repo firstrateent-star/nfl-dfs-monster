@@ -48,3 +48,38 @@ def test_capability_attachment_is_neutral_when_evidence_is_missing():
     personnel = pl.DataFrame({"pfr_id": ["p1"], "team_id": ["A"]})
     out = attach_capability_evidence(personnel, pl.DataFrame(), pl.DataFrame())
     assert out.get_column("defense_games_observed").to_list() == [0]
+    assert out.get_column("observed_special_teams_signal").to_list() == [None]
+
+
+def test_kicking_and_return_evidence_create_separate_special_teams_signals():
+    personnel = pl.DataFrame(
+        {
+            "pfr_id": ["k1", "k2", "r1", "r2"],
+            "gsis_id": ["k1", "k2", "r1", "r2"],
+            "team_id": ["A", "B", "A", "B"],
+            "position_group": ["SPEC", "SPEC", "WR", "WR"],
+            "position": ["K", "K", "WR", "WR"],
+        }
+    )
+    stats = pl.DataFrame(
+        {
+            "player_id": ["k1", "k2", "r1", "r2"],
+            "fg_made": [30.0, 20.0, 0.0, 0.0],
+            "fg_att": [32.0, 30.0, 0.0, 0.0],
+            "fg_made_40_49": [8.0, 5.0, 0.0, 0.0],
+            "fg_made_50_59": [6.0, 2.0, 0.0, 0.0],
+            "fg_made_60_": [1.0, 0.0, 0.0, 0.0],
+            "pat_made": [40.0, 40.0, 0.0, 0.0],
+            "pat_att": [41.0, 41.0, 0.0, 0.0],
+            "punt_returns": [0.0, 0.0, 15.0, 15.0],
+            "punt_return_yards": [0.0, 0.0, 180.0, 90.0],
+            "kickoff_returns": [0.0, 0.0, 8.0, 8.0],
+            "kickoff_return_yards": [0.0, 0.0, 220.0, 150.0],
+        }
+    )
+    out = attach_capability_evidence(personnel, pl.DataFrame(), pl.DataFrame(), stats)
+    rows = {r["gsis_id"]: r for r in out.to_dicts()}
+    assert rows["k1"]["observed_kicking_signal"] > rows["k2"]["observed_kicking_signal"]
+    assert rows["r1"]["observed_return_signal"] > rows["r2"]["observed_return_signal"]
+    assert rows["k1"]["observed_special_teams_signal"] is not None
+    assert rows["r1"]["observed_special_teams_signal"] is not None
