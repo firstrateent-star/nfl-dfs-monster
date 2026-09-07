@@ -11,6 +11,7 @@ from monster.feature_compile.units import UnitPlayerInputs
 from monster.registry import FeatureRegistry
 from monster.sim.allocation import GameAllocationWorlds, allocate_game_players
 from monster.sim.game import GameWorlds, simulate_game
+from monster.sim.receiving_roles import refine_game_receiving_roles
 from monster.sim.rushing_roles import refine_game_rushing_roles
 from monster.snapshot.compile import CompiledGameSnapshot, compile_game_snapshot
 from monster.snapshot.model import GameState
@@ -42,6 +43,8 @@ def simulate_monster_game(
 
     The scoring state is informed by snap-weighted offense, OL, defense and special
     teams personnel before fantasy-relevant player opportunities are allocated.
+    Receiving and rushing then receive separate market-blind finite role trees so
+    one-game football anatomy is not collapsed into one generic share sampler.
     """
     snapshot = compile_game_snapshot(
         game,
@@ -61,11 +64,17 @@ def simulate_monster_game(
         snapshot.home_pool,
         seed=seed + 1_000_003,
     )
+    allocation_worlds = refine_game_receiving_roles(
+        allocation_worlds,
+        snapshot.away_pool,
+        snapshot.home_pool,
+        seed=seed + 2_000_021,
+    )
     allocation_worlds = refine_game_rushing_roles(
         allocation_worlds,
         snapshot.away_pool,
         snapshot.home_pool,
-        seed=seed + 2_000_033,
+        seed=seed + 3_000_033,
     )
     return MonsterGameWorlds(
         snapshot=snapshot,
