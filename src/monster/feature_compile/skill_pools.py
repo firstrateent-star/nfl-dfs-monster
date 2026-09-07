@@ -16,6 +16,10 @@ _RUSH_DEFAULT = {"QB": 0.08, "RB": 0.45, "WR": 0.03, "TE": 0.005}
 _CATCH_DEFAULT = {"RB": 0.76, "WR": 0.64, "TE": 0.68, "QB": 0.50}
 _YPR_DEFAULT = {"RB": 8.0, "WR": 12.0, "TE": 10.5, "QB": 5.0}
 _YPC_DEFAULT = {"QB": 5.0, "RB": 4.2, "WR": 6.5, "TE": 3.5}
+# Quarterback depth is a contingent state, not an ordinary rotation. QB2/QB3 keep tiny
+# latent mass so they can inherit the offense when QB1 is unavailable, but they do not
+# receive routine 15-20% passing shares merely because they are dressed.
+_QB_DEPTH_WEIGHT = {1: 1.0, 2: 0.006, 3: 0.001, 4: 0.0005}
 
 
 def _finite(value: Any, default: float = 0.0) -> float:
@@ -42,11 +46,7 @@ def _role_prior(history_share: float, volume: float, default: float, scale: floa
 
 
 def compile_player_role_priors(historical_usage: pl.DataFrame) -> dict[str, dict[str, float]]:
-    """Reduce old-team usage into transfer-safe player role tendencies.
-
-    Historical team shares are volume-weighted across any teams a player appeared for;
-    current-team allocation is performed later from current depth/snap evidence.
-    """
+    """Reduce old-team usage into transfer-safe player role tendencies."""
     if not historical_usage.height or "player_id" not in historical_usage.columns:
         return {}
     sums: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
@@ -161,10 +161,14 @@ def compile_current_skill_pools(
 
             depth_rank = int(_finite(row.get("depth_rank"), 0.0))
             if position == "QB":
-                depth_qb = {1: 1.0, 2: 0.18, 3: 0.05}.get(depth_rank, 0.08)
-                qb_hist = _finite(hist.get("qb_pass_share"))
-                qb_conf = float(np.clip(_finite(hist.get("pass_attempts")) / 120.0, 0.0, 0.90))
-                qb_weight = conditional_snap * ((1.0 - qb_conf) * depth_qb + qb_conf * qb_hist)
+                # Current depth is authoritative for ordinary Week 1 passing role; old-team
+                # starter volume must not grant a transferred QB routine share behind QB1.
+                qb_weight = _QB_DEPTH_WEIGHT.get(depth_rank, 0.002)
+                if depth_rank == 1 and str(row.get("status") or "") == "ACT":
+                    active_probability = max(active_probability, 0.985)
+                    uncertainty = min(uncertainty, 0.10)
+                elif depth_rank >= 2 and str(row.get("status") or "") == "ACT":
+                    active_probability = max(active_probability, 0.97)
             else:
                 qb_weight = 0.0
 
