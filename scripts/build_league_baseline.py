@@ -7,6 +7,10 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.participation_inference import (
+    infer_game_day_participation,
+    participation_coverage_report,
+)
 from monster.ingest.league import build_league_personnel_snapshot, league_coverage_report
 from monster.ingest.nflverse import load_league_personnel_inputs
 from monster.teams import NFL_TEAMS
@@ -35,11 +39,14 @@ def main() -> None:
         inputs["current_snap_counts"],
         recent_games=args.recent_games,
     )
+    snapshot = infer_game_day_participation(snapshot, season=args.season)
     coverage = league_coverage_report(snapshot)
+    participation_coverage = participation_coverage_report(snapshot)
 
     snapshot.write_parquet(args.out / "league_personnel.parquet", compression="zstd")
     snapshot.write_csv(args.out / "league_personnel.csv")
     coverage.write_csv(args.out / "coverage_by_team.csv")
+    participation_coverage.write_csv(args.out / "participation_by_team.csv")
 
     # Keep changing/complex provider tables raw and auditable until their joins are promoted.
     for key in [
@@ -62,6 +69,15 @@ def main() -> None:
         "roster_rows": snapshot.height,
         "players_with_snap_prior": int(
             snapshot.select((pl.col("snap_games_observed") > 0).sum()).item()
+        ),
+        "players_changed_team_with_snap_history": int(
+            snapshot.select(pl.col("changed_team_since_snap_history").sum()).item()
+        ),
+        "projected_core_players": int(
+            snapshot.select((pl.col("participation_tier") == "core").sum()).item()
+        ),
+        "projected_rotation_players": int(
+            snapshot.select((pl.col("participation_tier") == "rotation").sum()).item()
         ),
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
     }
