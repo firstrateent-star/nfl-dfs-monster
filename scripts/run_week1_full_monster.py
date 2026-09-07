@@ -118,12 +118,22 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
     incidental_mask = (rushing_matrix > 0) & (rushing_matrix <= 2)
     incidental_rushers = incidental_mask.sum(axis=1)
     incidental_attempts = np.where(incidental_mask, rushing_matrix, 0.0).sum(axis=1)
-    incidental_share = np.divide(
-        incidental_attempts,
-        np.maximum(side.team_rush_attempts.astype(float), 1.0),
-    )
+    team_rush_attempts = side.team_rush_attempts.astype(float)
+    incidental_share = np.divide(incidental_attempts, np.maximum(team_rush_attempts, 1.0))
 
-    return {
+    # Historical rank shares are realized within one team-game. Preserve that same object here:
+    # rank players inside each simulated world before averaging. Do not rank players by their
+    # cross-world projection means, which mixes football randomness with epistemic role identity.
+    ranked = np.sort(rushing_matrix, axis=1)[:, ::-1] if rushing_matrix.shape[1] else rushing_matrix
+    rank_attempts: list[np.ndarray] = []
+    rank_shares: list[np.ndarray] = []
+    for rank in range(3):
+        attempts = ranked[:, rank] if ranked.shape[1] > rank else np.zeros(len(plays), dtype=float)
+        share = np.divide(attempts, np.maximum(team_rush_attempts, 1.0))
+        rank_attempts.append(attempts)
+        rank_shares.append(share)
+
+    row = {
         "game": game_name,
         "team_id": team_id,
         "drives_mean": float(drives.mean()),
@@ -159,6 +169,15 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
         "yards_per_play_mean": float(yards_per_play.mean()),
         "yards_per_play_p90": _q(yards_per_play, 0.90),
     }
+    for rank in range(3):
+        label = rank + 1
+        row[f"rush_rank{label}_attempts_world_mean"] = float(rank_attempts[rank].mean())
+        row[f"rush_rank{label}_attempts_world_p50"] = _q(rank_attempts[rank], 0.50)
+        row[f"rush_rank{label}_attempts_world_p90"] = _q(rank_attempts[rank], 0.90)
+        row[f"rush_rank{label}_share_world_mean"] = float(rank_shares[rank].mean())
+        row[f"rush_rank{label}_share_world_p50"] = _q(rank_shares[rank], 0.50)
+        row[f"rush_rank{label}_share_world_p90"] = _q(rank_shares[rank], 0.90)
+    return row
 
 
 def main() -> None:
@@ -257,6 +276,7 @@ def main() -> None:
         "team_opportunity_audit_enabled": True,
         "player_participation_probabilities_enabled": True,
         "world_level_rushing_role_structure_enabled": True,
+        "world_level_rushing_rank_audit_enabled": True,
         "fantasy_points_note": "FD subtotal excludes interception and fumble penalties because player-level turnover attribution is not yet modeled.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
