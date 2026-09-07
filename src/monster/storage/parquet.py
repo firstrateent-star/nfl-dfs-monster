@@ -1,13 +1,18 @@
 from __future__ import annotations
+
 from pathlib import Path
+
 import duckdb
 
 
-def compact_parquet(input_parquet: str | Path, output_parquet: str | Path) -> None:
-    """Rewrite Parquet with ZSTD; DuckDB reads only needed columns/row groups later."""
+def summarize_world_file(path: str | Path) -> dict:
+    path = str(path)
     con = duckdb.connect()
-    con.execute(
-        "COPY (SELECT * FROM read_parquet(?)) TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
-        [str(input_parquet), str(output_parquet)],
-    )
-    con.close()
+    try:
+        row = con.execute(
+            "select count(*) as rows, count(*) filter (where 1=1) as observed from read_parquet(?)",
+            [path],
+        ).fetchone()
+        return {"rows": row[0], "observed": row[1]}
+    finally:
+        con.close()

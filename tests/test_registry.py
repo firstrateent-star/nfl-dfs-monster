@@ -1,5 +1,6 @@
 from monster.registry import FeatureRegistry
 
+
 def test_market_features_are_forbidden_upstream():
     r = FeatureRegistry.load()
     assert "sportsbook_total" in r.forbidden_upstream()

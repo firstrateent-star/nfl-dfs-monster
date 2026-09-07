@@ -1,25 +1,67 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import nflreadpy as nfl
 
 PBP_COLUMNS = [
-    "game_id", "season", "week", "home_team", "away_team", "posteam", "defteam",
-    "posteam_type", "play_type", "qtr", "down", "goal_to_go", "ydstogo", "yardline_100",
-    "game_seconds_remaining", "score_differential", "fixed_drive", "epa", "success",
-    "pass_attempt", "rush_attempt", "qb_dropback", "complete_pass", "interception",
-    "fumble_lost", "sack", "qb_hit", "qb_scramble", "air_yards", "yards_after_catch",
-    "yards_gained", "touchdown", "pass_touchdown", "rush_touchdown", "field_goal_attempt",
-    "field_goal_result", "receiver_player_id", "rusher_player_id", "passer_player_id",
+    "game_id",
+    "season",
+    "week",
+    "home_team",
+    "away_team",
+    "posteam",
+    "defteam",
+    "posteam_type",
+    "play_type",
+    "qtr",
+    "down",
+    "goal_to_go",
+    "ydstogo",
+    "yardline_100",
+    "game_seconds_remaining",
+    "score_differential",
+    "fixed_drive",
+    "epa",
+    "success",
+    "pass_attempt",
+    "rush_attempt",
+    "qb_dropback",
+    "complete_pass",
+    "interception",
+    "fumble_lost",
+    "sack",
+    "qb_hit",
+    "qb_scramble",
+    "air_yards",
+    "yards_after_catch",
+    "yards_gained",
+    "touchdown",
+    "pass_touchdown",
+    "rush_touchdown",
+    "field_goal_attempt",
+    "field_goal_result",
+    "receiver_player_id",
+    "rusher_player_id",
+    "passer_player_id",
 ]
 
 
 def configure_cache(cache_dir: Path) -> None:
     from nflreadpy.config import update_config
-    update_config(cache_mode="filesystem", cache_dir=str(cache_dir), cache_duration=21_600, verbose=False, user_agent="nfl-dfs-monster/0.1")
+
+    update_config(
+        cache_mode="filesystem",
+        cache_dir=str(cache_dir),
+        cache_duration=21_600,
+        verbose=False,
+        user_agent="nfl-dfs-monster/0.1",
+    )
 
 
-def load_reference_inputs(history_seasons: list[int], current_season: int, cache_dir: Path) -> dict:
+def load_reference_inputs(
+    history_seasons: list[int], current_season: int, cache_dir: Path
+) -> dict:
     """Load reusable free football inputs with filesystem caching and no market fields."""
     configure_cache(cache_dir)
     pbp = nfl.load_pbp(history_seasons)

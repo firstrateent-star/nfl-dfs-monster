@@ -1,18 +1,25 @@
 from __future__ import annotations
+
 import requests
 
 BASE = "https://api.weather.gov"
 
-class NWSClient:
-    def __init__(self, user_agent: str, timeout: int = 20):
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": user_agent, "Accept": "application/geo+json"})
-        self.timeout = timeout
 
-    def hourly_forecast(self, latitude: float, longitude: float) -> dict:
-        point = self.session.get(f"{BASE}/points/{latitude},{longitude}", timeout=self.timeout)
-        point.raise_for_status()
-        url = point.json()["properties"]["forecastHourly"]
-        forecast = self.session.get(url, timeout=self.timeout)
-        forecast.raise_for_status()
-        return forecast.json()
+def _headers(user_agent: str) -> dict[str, str]:
+    return {"User-Agent": user_agent, "Accept": "application/geo+json"}
+
+
+def point_metadata(lat: float, lon: float, user_agent: str) -> dict:
+    response = requests.get(
+        f"{BASE}/points/{lat},{lon}", headers=_headers(user_agent), timeout=20
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def hourly_forecast(lat: float, lon: float, user_agent: str) -> dict:
+    meta = point_metadata(lat, lon, user_agent)
+    url = meta["properties"]["forecastHourly"]
+    response = requests.get(url, headers=_headers(user_agent), timeout=20)
+    response.raise_for_status()
+    return response.json()

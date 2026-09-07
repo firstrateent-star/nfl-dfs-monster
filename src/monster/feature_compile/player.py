@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+
 import polars as pl
 
 
@@ -25,9 +26,18 @@ def age_on_date(birth_date: date | None, game_date: date) -> float | None:
 def compile_player_usage(pbp: pl.DataFrame) -> pl.DataFrame:
     """Compile player opportunity priors directly from football events."""
     required = {
-        "posteam", "receiver_player_id", "rusher_player_id", "passer_player_id",
-        "pass_attempt", "rush_attempt", "qb_scramble", "yardline_100", "touchdown",
-        "yards_gained", "air_yards", "complete_pass",
+        "posteam",
+        "receiver_player_id",
+        "rusher_player_id",
+        "passer_player_id",
+        "pass_attempt",
+        "rush_attempt",
+        "qb_scramble",
+        "yardline_100",
+        "touchdown",
+        "yards_gained",
+        "air_yards",
+        "complete_pass",
     }
     missing = required.difference(pbp.columns)
     if missing:
