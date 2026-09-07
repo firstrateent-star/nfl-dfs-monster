@@ -88,17 +88,17 @@ def _load_optional_current(loader, current_season: int) -> pl.DataFrame:
 
 
 def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
-    """Current-season snap files may not exist before Week 1; fail neutral, not hard."""
     return _load_optional_current(nfl.load_snap_counts, current_season)
 
 
 def load_league_personnel_inputs(
     history_seasons: list[int], current_season: int, cache_dir: Path
 ) -> dict:
-    """Load the cheap, all-32-team personnel layer without downloading PBP.
+    """Load the reusable all-32-team personnel/capability layer without PBP.
 
-    This is suitable for frequent free-tier refreshes. Static player identity/capability
-    facts are separated from weekly roster/depth/injury/snap state.
+    Historical player stats are small enough to belong here and provide free tackling,
+    coverage and pressure evidence for defenders. The expensive play-by-play table stays
+    in the separate heavy football-history path.
     """
     configure_cache(cache_dir)
     return {
@@ -108,6 +108,7 @@ def load_league_personnel_inputs(
         "injuries": _load_optional_current(nfl.load_injuries, current_season),
         "historical_snap_counts": nfl.load_snap_counts(history_seasons),
         "current_snap_counts": _load_current_snap_counts(current_season),
+        "player_stats_history": nfl.load_player_stats(history_seasons),
         "combine": nfl.load_combine(),
         "depth_charts": _load_optional_current(nfl.load_depth_charts, current_season),
         "pfr_defense_weekly": nfl.load_pfr_advstats(
@@ -128,7 +129,7 @@ def load_reference_inputs(
     return {
         **personnel,
         "pbp": pbp,
-        "player_stats": nfl.load_player_stats(history_seasons),
+        "player_stats": personnel["player_stats_history"],
         "team_stats": nfl.load_team_stats(history_seasons),
         "schedules": nfl.load_schedules(sorted(set(history_seasons + [current_season]))),
         "historical_rosters": nfl.load_rosters_weekly(history_seasons),
