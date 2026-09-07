@@ -26,17 +26,19 @@ def team_state_from_policy_row(
     opponent_id: str,
     prior_uncertainty: float = 0.12,
     coaching_entropy: float = 0.10,
+    pace_anchor_seconds: float = 28.0,
 ) -> TeamState:
     """Convert one market-blind historical policy prior into simulation state.
 
-    Historical behavior is a prior, never a frozen 2026 forecast. Missing channels fall
-    back to structural league-neutral defaults, while `prior_uncertainty` explicitly
-    represents year-over-year epistemic uncertainty until current coaching/personnel
-    evidence narrows it.
+    Historical behavior is a prior, never a frozen 2026 forecast. Pace is expressed
+    relative to the league context supplied by the compiled policy rather than an
+    absolute seconds-per-play constant, preventing systematic possession suppression.
     """
     team_id = str(row["team_id"])
-    seconds_per_play = _num(row, "neutral_seconds_per_play", 28.0)
-    pace_factor = float(np.clip(28.0 / max(seconds_per_play, 15.0), 0.82, 1.18))
+    seconds_per_play = _num(row, "neutral_seconds_per_play", pace_anchor_seconds)
+    pace_factor = float(
+        np.clip(pace_anchor_seconds / max(seconds_per_play, 15.0), 0.82, 1.18)
+    )
 
     return TeamState(
         team_id=team_id,
@@ -85,6 +87,11 @@ def compile_team_state_map(
     if "team_id" not in policy.columns:
         raise ValueError("Policy artifact requires team_id")
     rows = {str(row["team_id"]): row for row in policy.to_dicts()}
+    pace_anchor = 28.0
+    if "neutral_seconds_per_play" in policy.columns:
+        valid_pace = policy.get_column("neutral_seconds_per_play").drop_nulls()
+        if len(valid_pace):
+            pace_anchor = float(valid_pace.median())
     states: dict[str, TeamState] = {}
     for team_id, opponent_id in opponents.items():
         row = rows.get(team_id, {"team_id": team_id})
@@ -92,5 +99,6 @@ def compile_team_state_map(
             row,
             opponent_id=opponent_id,
             prior_uncertainty=prior_uncertainty,
+            pace_anchor_seconds=pace_anchor,
         )
     return states
