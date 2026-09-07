@@ -73,14 +73,17 @@ def load_reference_inputs(
 ) -> dict:
     """Load reusable free football inputs with filesystem caching and no market fields.
 
-    The player universe is the NFL roster universe, including offense, offensive line,
-    defense and special teams. Snap counts are first-class inputs because they determine
-    how much each player's capability evidence should influence team mechanisms.
+    `players` is the cross-source identity/static master. Weekly rosters define current
+    team/status. The universe is all 32 NFL teams and all rostered offense, OL, defense
+    and special-teams players. Snap counts determine how strongly each player's evidence
+    influences the simulated football game.
     """
     configure_cache(cache_dir)
     pbp = nfl.load_pbp(history_seasons)
     pbp = pbp.select([c for c in PBP_COLUMNS if c in pbp.columns])
     return {
+        "players": nfl.load_players(),
+        "teams": nfl.load_teams(),
         "pbp": pbp,
         "player_stats": nfl.load_player_stats(history_seasons),
         "team_stats": nfl.load_team_stats(history_seasons),
