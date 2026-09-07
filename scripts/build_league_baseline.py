@@ -7,6 +7,10 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.capability import (
+    attach_capability_evidence,
+    capability_coverage_report,
+)
 from monster.feature_compile.participation_inference import (
     infer_game_day_participation,
     participation_coverage_report,
@@ -40,15 +44,22 @@ def main() -> None:
         recent_games=args.recent_games,
     )
     snapshot = infer_game_day_participation(snapshot, season=args.season)
+    snapshot = attach_capability_evidence(
+        snapshot,
+        inputs["combine"],
+        inputs["pfr_defense_weekly"],
+    )
     coverage = league_coverage_report(snapshot)
     participation_coverage = participation_coverage_report(snapshot)
+    capability_coverage = capability_coverage_report(snapshot)
 
     snapshot.write_parquet(args.out / "league_personnel.parquet", compression="zstd")
     snapshot.write_csv(args.out / "league_personnel.csv")
     coverage.write_csv(args.out / "coverage_by_team.csv")
     participation_coverage.write_csv(args.out / "participation_by_team.csv")
+    capability_coverage.write_csv(args.out / "capability_by_team.csv")
 
-    # Keep changing/complex provider tables raw and auditable until their joins are promoted.
+    # Keep changing/complex provider tables raw and auditable after promoted joins too.
     for key in [
         "injuries",
         "depth_charts",
@@ -79,8 +90,13 @@ def main() -> None:
         "projected_rotation_players": int(
             snapshot.select((pl.col("participation_tier") == "rotation").sum()).item()
         ),
+        "players_with_defender_history": int(
+            snapshot.select((pl.col("defense_games_observed") > 0).sum()).item()
+        ),
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
     }
+    if "forty" in snapshot.columns:
+        manifest["players_with_forty"] = int(snapshot.select(pl.col("forty").is_not_null().sum()).item())
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
 
