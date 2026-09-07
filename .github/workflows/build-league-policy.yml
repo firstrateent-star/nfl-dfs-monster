@@ -1,0 +1,35 @@
+name: Build 32-team league policy
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - 'src/monster/feature_compile/team.py'
+      - 'src/monster/ingest/nflverse.py'
+      - 'src/monster/teams.py'
+      - 'scripts/build_league_policy.py'
+      - '.github/workflows/build-league-policy.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build market-blind historical team policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025
+          --out artifacts/league-policy
+      - name: Show team policy
+        run: cat artifacts/league-policy/team_policy.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-2025-league-policy
+          path: artifacts/league-policy/
+          retention-days: 7
+          compression-level: 6
