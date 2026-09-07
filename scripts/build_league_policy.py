@@ -8,7 +8,7 @@ from pathlib import Path
 import polars as pl
 
 from monster.feature_compile.team import compile_team_policy
-from monster.ingest.nflverse import configure_cache
+from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
 from monster.teams import NFL_TEAMS
 
 
@@ -24,6 +24,7 @@ def main() -> None:
     import nflreadpy as nfl
 
     pbp = nfl.load_pbp(args.history)
+    pbp = pbp.select([column for column in PBP_COLUMNS if column in pbp.columns])
     policy = compile_team_policy(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
     policy = canonical.join(policy, on="team_id", how="left").sort("team_id")
