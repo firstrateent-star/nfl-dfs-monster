@@ -80,6 +80,8 @@ All-player evidence is aggregated into bounded team mechanisms before scoring:
 
 These mechanisms affect drive success, touchdown/field-goal/turnover probabilities and uncertainty. They do **not** add fantasy points directly.
 
+For example, an elite edge rusher projected for 25% of defensive snaps has less influence than a slightly weaker edge projected for 90% of snaps. The same logic applies to OL, corners, safeties, linebackers and special-teamers.
+
 ## Market anti-leakage
 
 Sportsbook totals, spreads, implied totals, ownership and DFS projections live in a downstream namespace. The football snapshot builder and simulator are not allowed to query them.
