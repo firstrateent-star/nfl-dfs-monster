@@ -1,0 +1,13 @@
+create index if not exists feature_values_lookup_idx on monster.feature_values(entity_type, entity_id, feature_name, effective_at desc);
+create index if not exists feature_values_name_idx on monster.feature_values(feature_name, effective_at desc);
+create index if not exists dirty_queue_pending_idx on monster.dirty_queue(status, downstream_stage);
+create index if not exists games_slate_idx on monster.games(season, week);
+create index if not exists game_summaries_game_idx on monster.game_summaries(game_id);
+create index if not exists team_summaries_game_idx on monster.team_summaries(game_id);
+create index if not exists team_summaries_team_idx on monster.team_summaries(team_id);
+create index if not exists player_summaries_player_idx on monster.player_summaries(player_id);
+create index if not exists player_summaries_game_idx on monster.player_summaries(game_id);
+create index if not exists slate_players_game_idx on monster.slate_players(game_id);
+create index if not exists slate_players_player_idx on monster.slate_players(player_id);
+create index if not exists market_lines_game_idx on monster.market_lines(game_id);
+create index if not exists audit_events_run_idx on monster.audit_events(run_id);
