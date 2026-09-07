@@ -64,7 +64,7 @@ def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
     """Current-season snap files may not exist before Week 1; fail neutral, not hard."""
     try:
         return nfl.load_snap_counts([current_season])
-    except Exception:
+    except (OSError, RuntimeError, ValueError):
         return pl.DataFrame()
 
 
