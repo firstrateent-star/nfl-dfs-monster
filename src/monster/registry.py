@@ -27,21 +27,31 @@ class FeatureRegistry:
     @classmethod
     def load(cls, path: str | Path = "config/feature_registry.yaml") -> FeatureRegistry:
         path = Path(path)
-        raw_text = path.read_text()
-        raw = yaml.safe_load(raw_text)
-        specs = {}
-        for name, cfg in raw["features"].items():
-            specs[name] = FeatureSpec(
-                name=name,
-                family=cfg["family"],
-                cadence=cfg["cadence"],
-                jurisdiction=tuple(cfg.get("jurisdiction", [])),
-                authority=float(cfg.get("authority", 0.0)),
-                production_weight=float(cfg.get("production_weight", 1.0)),
-                market_derived=bool(cfg.get("market_derived", False)),
-                promotion_gate=cfg.get("promotion_gate"),
-            )
-        return cls(specs, raw_text)
+        registry_paths = [path]
+        fragment_dir = path.parent / "feature_registry.d"
+        if fragment_dir.exists():
+            registry_paths.extend(sorted(fragment_dir.glob("*.yaml")))
+
+        specs: dict[str, FeatureSpec] = {}
+        raw_parts: list[str] = []
+        for registry_path in registry_paths:
+            raw_text = registry_path.read_text()
+            raw_parts.append(f"# {registry_path}\n{raw_text}")
+            raw = yaml.safe_load(raw_text) or {}
+            for name, cfg in raw.get("features", {}).items():
+                if name in specs:
+                    raise ValueError(f"Duplicate feature registry entry: {name}")
+                specs[name] = FeatureSpec(
+                    name=name,
+                    family=cfg["family"],
+                    cadence=cfg["cadence"],
+                    jurisdiction=tuple(cfg.get("jurisdiction", [])),
+                    authority=float(cfg.get("authority", 0.0)),
+                    production_weight=float(cfg.get("production_weight", 1.0)),
+                    market_derived=bool(cfg.get("market_derived", False)),
+                    promotion_gate=cfg.get("promotion_gate"),
+                )
+        return cls(specs, "\n".join(raw_parts))
 
     def hash(self) -> str:
         return hashlib.sha256(self.raw_text.encode()).hexdigest()
