@@ -1,0 +1,35 @@
+name: Receiving tier stability audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_receiving_tier_stability.py
+      - .github/workflows/receiving-tier-stability.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Audit 2022-2025 receiving tier stability
+        run: >-
+          uv run python scripts/audit_receiving_tier_stability.py
+          --seasons 2022 2023 2024 2025
+          --out artifacts/receiving-tier-stability
+      - name: Show result
+        run: |
+          cat artifacts/receiving-tier-stability/season_stability.csv
+          cat artifacts/receiving-tier-stability/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-receiving-tier-stability
+          path: artifacts/receiving-tier-stability/
+          retention-days: 7
