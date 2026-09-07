@@ -53,7 +53,7 @@ def configure_cache(cache_dir: Path) -> None:
 
     update_config(
         cache_mode="filesystem",
-        cache_dir=str(cache_dir),
+        cache_dir=cache_dir,
         cache_duration=21_600,
         verbose=False,
         user_agent="nfl-dfs-monster/0.1",
