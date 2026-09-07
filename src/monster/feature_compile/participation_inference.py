@@ -5,7 +5,7 @@ import polars as pl
 from monster.feature_compile.depth import depth_role_multiplier
 
 _STATUS_ACTIVE_PROB = {
-    "ACT": 0.91,
+    "ACT": 0.985,
     "DEV": 0.04,
     "RES": 0.01,
     "EXE": 0.0,
@@ -47,7 +47,6 @@ def _conditional_share(
     defaults: dict[str, float],
     depth_rank: pl.Expr,
 ) -> pl.Expr:
-    """Use observed snaps first; use depth to refine only no-history role priors."""
     fallback = (_map_float(group, defaults) * depth_role_multiplier(depth_rank)).clip(0.0, 0.95)
     return (
         pl.when(pl.col(prior).is_not_null())
@@ -57,7 +56,6 @@ def _conditional_share(
 
 
 def _conserve_unit(frame: pl.DataFrame, raw_column: str, output_column: str) -> pl.DataFrame:
-    """Rescale independent player priors toward 11 player-equivalents per team."""
     if "team_id" not in frame.columns:
         return frame.with_columns(pl.col(raw_column).alias(output_column))
     total = pl.col(raw_column).sum().over("team_id").clip(lower_bound=0.01)
@@ -67,12 +65,7 @@ def _conserve_unit(frame: pl.DataFrame, raw_column: str, output_column: str) -> 
 
 
 def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.DataFrame:
-    """Infer availability, conditional role, uncertainty and expected snap influence.
-
-    Recent snap evidence remains the primary participation prior. Modern depth-chart
-    evidence refines players with no recent snap history, which is especially valuable
-    for rookies and new roles before Week 1. Depth rank never changes talent/capability.
-    """
+    """Infer roster availability and role while preserving health as a separate state."""
     required = {
         "status",
         "position_group",
@@ -88,10 +81,16 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
 
     if "depth_rank" not in snapshot.columns:
         snapshot = snapshot.with_columns(pl.lit(None, dtype=pl.Int64).alias("depth_rank"))
+    if "health_availability_probability" not in snapshot.columns:
+        snapshot = snapshot.with_columns(
+            pl.lit(1.0).alias("health_availability_probability"),
+            pl.lit(1.0).alias("health_effectiveness_if_active"),
+            pl.lit(0.08).alias("health_uncertainty"),
+        )
     depth_rank = pl.col("depth_rank").cast(pl.Int64, strict=False)
 
     frame = snapshot.with_columns(
-        _map_float("status", _STATUS_ACTIVE_PROB).alias("game_day_active_probability"),
+        _map_float("status", _STATUS_ACTIVE_PROB).alias("roster_active_probability"),
         _conditional_share(
             "offense_snap_share", "position_group", _OFFENSE_DEFAULT, depth_rank
         ).alias("conditional_offense_snap_share"),
@@ -101,6 +100,11 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
         _conditional_share(
             "special_teams_snap_share", "position_group", _SPECIAL_DEFAULT, depth_rank
         ).alias("conditional_special_teams_snap_share"),
+    ).with_columns(
+        (
+            pl.col("roster_active_probability")
+            * pl.col("health_availability_probability").fill_null(1.0).clip(0.0, 1.0)
+        ).clip(0.0, 1.0).alias("game_day_active_probability")
     )
 
     rookie_expr = (
@@ -113,8 +117,6 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
     practice_squad = pl.col("status") == "DEV"
     has_depth = pl.col("depth_rank").is_not_null()
 
-    # Depth evidence partially reduces pure role ignorance, while deep-chart status
-    # still leaves substantial uncertainty about game-day participation.
     frame = frame.with_columns(
         (
             0.08
@@ -135,23 +137,19 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
     )
 
     frame = frame.with_columns(
-        (
-            pl.col("game_day_active_probability") * pl.col("conditional_offense_snap_share")
-        ).alias("raw_projected_offense_snap_share"),
-        (
-            pl.col("game_day_active_probability") * pl.col("conditional_defense_snap_share")
-        ).alias("raw_projected_defense_snap_share"),
+        (pl.col("game_day_active_probability") * pl.col("conditional_offense_snap_share")).alias(
+            "raw_projected_offense_snap_share"
+        ),
+        (pl.col("game_day_active_probability") * pl.col("conditional_defense_snap_share")).alias(
+            "raw_projected_defense_snap_share"
+        ),
         (
             pl.col("game_day_active_probability")
             * pl.col("conditional_special_teams_snap_share")
         ).alias("raw_projected_special_teams_snap_share"),
     )
-    frame = _conserve_unit(
-        frame, "raw_projected_offense_snap_share", "projected_offense_snap_share"
-    )
-    frame = _conserve_unit(
-        frame, "raw_projected_defense_snap_share", "projected_defense_snap_share"
-    )
+    frame = _conserve_unit(frame, "raw_projected_offense_snap_share", "projected_offense_snap_share")
+    frame = _conserve_unit(frame, "raw_projected_defense_snap_share", "projected_defense_snap_share")
     frame = _conserve_unit(
         frame, "raw_projected_special_teams_snap_share", "projected_special_teams_snap_share"
     )
@@ -184,7 +182,6 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
 
 
 def participation_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
-    """Audit how many players actually influence each team after participation inference."""
     expressions = [
         (pl.col("status") == "ACT").sum().alias("active_roster_rows"),
         (pl.col("participation_tier") == "core").sum().alias("core_players"),
@@ -193,10 +190,9 @@ def participation_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
         (pl.col("participation_tier") == "background").sum().alias("background_players"),
         pl.col("projected_offense_snap_share").sum().alias("offense_snap_equivalents"),
         pl.col("projected_defense_snap_share").sum().alias("defense_snap_equivalents"),
-        pl.col("projected_special_teams_snap_share")
-        .sum()
-        .alias("special_teams_snap_equivalents"),
+        pl.col("projected_special_teams_snap_share").sum().alias("special_teams_snap_equivalents"),
         pl.col("participation_uncertainty").mean().alias("mean_participation_uncertainty"),
+        pl.col("health_uncertainty").mean().alias("mean_health_uncertainty"),
     ]
     if "depth_rank" in snapshot.columns:
         expressions.extend(
