@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import polars as pl
+import requests
 
 from monster.feature_compile.capability import (
     attach_capability_evidence,
@@ -18,6 +19,11 @@ from monster.feature_compile.participation_inference import (
     participation_coverage_report,
 )
 from monster.ingest.league import build_league_personnel_snapshot, league_coverage_report
+from monster.ingest.madden_players import (
+    attach_madden_ol_ratings,
+    load_madden27_player_ratings,
+    madden_ol_coverage,
+)
 from monster.ingest.nflverse import load_league_personnel_inputs
 from monster.teams import NFL_TEAMS
 
@@ -53,9 +59,19 @@ def main() -> None:
         inputs["pfr_defense_weekly"],
         inputs["player_stats_history"],
     )
+
+    # Madden remains optional and failure-neutral. It is proxy evidence only and has
+    # already been shrunk toward league average before entering unit compilation.
+    try:
+        madden_ratings = load_madden27_player_ratings()
+    except (OSError, RuntimeError, ValueError, requests.RequestException):
+        madden_ratings = pl.DataFrame()
+    snapshot = attach_madden_ol_ratings(snapshot, madden_ratings)
+
     coverage = league_coverage_report(snapshot)
     participation_coverage = participation_coverage_report(snapshot)
     capability_coverage = capability_coverage_report(snapshot)
+    madden_coverage = madden_ol_coverage(snapshot)
     unit_effects = compile_league_unit_effects(snapshot)
 
     snapshot.write_parquet(args.out / "league_personnel.parquet", compression="zstd")
@@ -63,6 +79,8 @@ def main() -> None:
     coverage.write_csv(args.out / "coverage_by_team.csv")
     participation_coverage.write_csv(args.out / "participation_by_team.csv")
     capability_coverage.write_csv(args.out / "capability_by_team.csv")
+    if madden_coverage.height:
+        madden_coverage.write_csv(args.out / "madden_ol_coverage_by_team.csv")
     unit_effects.write_csv(args.out / "team_unit_effects.csv")
 
     for key in [
@@ -72,9 +90,12 @@ def main() -> None:
         "pfr_defense_weekly",
         "player_stats_history",
         "current_snap_counts",
+        "ff_playerids",
     ]:
         _write_if_present(inputs[key], args.out / f"raw_{key}.parquet")
+    _write_if_present(madden_ratings, args.out / "raw_madden27_player_ratings.parquet")
 
+    ol_rows = snapshot.filter(pl.col("position_group") == "OL")
     manifest = {
         "artifact": "Monster 2026 League Personnel Baseline",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -89,6 +110,13 @@ def main() -> None:
         ),
         "players_changed_team_with_snap_history": int(
             snapshot.select(pl.col("changed_team_since_snap_history").sum()).item()
+        ),
+        "ol_roster_rows": ol_rows.height,
+        "ol_players_with_snap_prior": int(
+            ol_rows.select((pl.col("snap_games_observed") > 0).sum()).item()
+        ),
+        "ol_players_with_madden_blocking": int(
+            ol_rows.select(pl.col("madden_pass_block").is_not_null().sum()).item()
         ),
         "players_with_depth_role": int(
             snapshot.select(pl.col("depth_rank").is_not_null().sum()).item()
