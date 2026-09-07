@@ -10,6 +10,7 @@ on:
       - "src/monster/feature_compile/participation_inference.py"
       - "config/health/week1_2026_2026-09-07.csv"
       - "scripts/build_health_snapshot.py"
+      - "scripts/build_continuity_conditioned_policy.py"
       - "scripts/pressure_test_health.py"
       - "scripts/run_week1_full_monster.py"
       - ".github/workflows/week1-health-full-monster.yml"
@@ -29,10 +30,14 @@ jobs:
           uv run python scripts/build_league_baseline.py
           --season 2026 --history 2025 --recent-games 6
           --out artifacts/league-baseline
-      - name: Build historical policy and player usage
+      - name: Build 2025 historical policy and current player usage
         run: >-
           uv run python scripts/build_league_policy.py
           --history 2025 --out artifacts/league-policy
+      - name: Build 2024 historical policy for continuity memory
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024 --out artifacts/league-policy-2024
       - name: Build Week 1 health snapshot
         run: >-
           uv run python scripts/build_health_snapshot.py
@@ -40,10 +45,17 @@ jobs:
           --injuries artifacts/league-baseline/raw_injuries.parquet
           --overrides config/health/week1_2026_2026-09-07.csv
           --season 2026 --out artifacts/week1-health
-      - name: Run matched-seed health A/B
+      - name: Compile OOS-earned continuity-conditioned 2026 team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run matched-seed health A/B on promoted team policy
         run: >-
           uv run python scripts/pressure_test_health.py
-          --policy artifacts/league-policy/team_policy.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
           --control-personnel artifacts/league-baseline/league_personnel.parquet
           --health-personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
@@ -53,10 +65,10 @@ jobs:
       - name: Enforce health guardrail
         run: >-
           uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
-      - name: Run 60000-world full Week 1 football simulation
+      - name: Run 60000-world continuity-conditioned Week 1 football simulation
         run: >-
           uv run python scripts/run_week1_full_monster.py
-          --policy artifacts/league-policy/team_policy.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
@@ -64,6 +76,8 @@ jobs:
           --out artifacts/week1-full-monster
       - name: Show key results
         run: |
+          cat artifacts/continuity-policy/manifest.json
+          cat artifacts/continuity-policy/continuity_audit.csv
           cat artifacts/week1-health/manifest.json
           cat artifacts/health-pressure-test/manifest.json
           cat artifacts/week1-full-monster/game_distribution_map.csv
@@ -71,8 +85,9 @@ jobs:
           cat artifacts/week1-full-monster/manifest.json
       - uses: actions/upload-artifact@v4
         with:
-          name: monster-week1-health-full-simulation
+          name: monster-week1-continuity-health-full-simulation
           path: |
+            artifacts/continuity-policy/
             artifacts/week1-health/
             artifacts/health-pressure-test/
             artifacts/week1-full-monster/
