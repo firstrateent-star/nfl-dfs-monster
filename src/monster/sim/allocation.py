@@ -140,12 +140,61 @@ def _empty_player_stats(worlds: int) -> dict[str, np.ndarray]:
     return {key: np.zeros(worlds, dtype=np.float32) for key in STAT_KEYS}
 
 
+def _shared_game_play_budget(
+    rng: np.random.Generator,
+    away_pool: TeamPlayerPool,
+    home_pool: TeamPlayerPool,
+    away_drives: np.ndarray,
+    home_drives: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample one finite game play budget, then allocate it between the two offenses.
+
+    Historical 2025 REG games averaged 121.1 offensive scrimmage plays with an 8.56-play
+    standard deviation. Team drive count correlated only ~0.20 with team play count, so drive
+    worlds should shape the split modestly rather than mechanically multiplying plays per drive.
+    The matchup-specific center still comes from each team's inherited plays/drive identity.
+    """
+    worlds = len(away_drives)
+
+    away_raw = away_drives.astype(float) * away_pool.plays_per_drive
+    home_raw = home_drives.astype(float) * home_pool.plays_per_drive
+    away_center = float(np.mean(away_raw))
+    home_center = float(np.mean(home_raw))
+    game_center = float(np.clip(away_center + home_center, 105.0, 137.0))
+
+    # One 60-minute game owns the variance budget. The normal is empirical, bounded only at
+    # implausible extremes; it replaces two independent team Poisson play lotteries.
+    total_plays = np.rint(rng.normal(game_center, 8.56, worlds))
+    total_plays = np.clip(total_plays, 90, 150).astype(np.int16)
+
+    base_away_share = away_center / max(game_center, 1e-9)
+    total_drives = np.maximum(away_drives + home_drives, 1).astype(float)
+    away_drive_share = away_drives.astype(float) / total_drives
+
+    # Drive count contains some information about play share, but only weakly. A small latent
+    # possession-efficiency term allows real team play imbalance while conserving the game total.
+    drive_signal = 0.20 * (away_drive_share - 0.50)
+    split_sigma = float(
+        np.clip(
+            0.035 + 0.10 * (away_pool.play_volume_uncertainty + home_pool.play_volume_uncertainty - 0.12),
+            0.025,
+            0.055,
+        )
+    )
+    latent_split = rng.normal(0.0, split_sigma, worlds)
+    away_share = np.clip(base_away_share + drive_signal + latent_split, 0.30, 0.70)
+
+    away_plays = rng.binomial(total_plays.astype(np.int64), away_share).astype(np.int16)
+    home_plays = (total_plays - away_plays).astype(np.int16)
+    return away_plays, home_plays
+
+
 def _allocate_team(
     rng: np.random.Generator,
     pool: TeamPlayerPool,
     team_points: np.ndarray,
     opponent_points: np.ndarray,
-    team_drives: np.ndarray,
+    team_plays: np.ndarray,
     team_touchdowns: np.ndarray,
     pass_disruption: np.ndarray,
     run_efficiency: np.ndarray,
@@ -154,10 +203,6 @@ def _allocate_team(
         raise ValueError(f"Team {pool.team_id} has no players in its allocation pool")
 
     worlds = len(team_points)
-    volume_state = _mean_one_lognormal(rng, pool.play_volume_uncertainty, worlds)
-    expected_plays = np.clip(team_drives * pool.plays_per_drive * volume_state, team_drives, None)
-    team_plays = rng.poisson(expected_plays).astype(np.int16)
-
     score_pressure = opponent_points.astype(float) - team_points.astype(float)
     pass_rate = np.clip(
         pool.neutral_pass_rate + pool.script_pass_sensitivity * score_pressure,
@@ -297,7 +342,7 @@ def allocate_game_players(
     home_pool: TeamPlayerPool,
     seed: int,
 ) -> GameAllocationWorlds:
-    """Allocate one simulated game's football supply to player stat worlds."""
+    """Allocate one simulated game's finite football supply to player stat worlds."""
     rng = np.random.default_rng(seed)
     worlds = len(game_worlds.away_points)
     away_pass_disruption = (
@@ -321,12 +366,20 @@ def allocate_game_players(
         else np.ones(worlds, dtype=np.float32)
     )
 
+    away_plays, home_plays = _shared_game_play_budget(
+        rng,
+        away_pool,
+        home_pool,
+        game_worlds.away_drives,
+        game_worlds.home_drives,
+    )
+
     away = _allocate_team(
         rng,
         away_pool,
         game_worlds.away_points,
         game_worlds.home_points,
-        game_worlds.away_drives,
+        away_plays,
         game_worlds.away_touchdowns,
         away_pass_disruption,
         away_run_efficiency,
@@ -336,7 +389,7 @@ def allocate_game_players(
         home_pool,
         game_worlds.home_points,
         game_worlds.away_points,
-        game_worlds.home_drives,
+        home_plays,
         game_worlds.home_touchdowns,
         home_pass_disruption,
         home_run_efficiency,
