@@ -60,11 +60,31 @@ def _sample_role_shares(
     base_values: np.ndarray,
     worlds: int,
 ) -> np.ndarray:
-    base = _normalized_base(base_values)
+    """Sample uncertain role shares without inventing opportunity for structural zeros.
+
+    A zero role is a jurisdiction statement: that player is not eligible for this
+    opportunity mechanism in the current state. Gamma/Dirichlet smoothing must not turn
+    QB target share=0 or WR rush share=0 into accidental touches. If every base value is
+    zero, the caller has supplied no role information and we fall back to an equal prior.
+    """
+    raw = np.clip(base_values.astype(float), 0.0, None)
+    positive = raw > 0.0
+    if not positive.any():
+        base = np.repeat(1.0 / len(raw), len(raw))
+        eligible = np.ones(len(raw), dtype=bool)
+    else:
+        base = raw / raw.sum()
+        eligible = positive
+
     mean_uncertainty = float(np.mean([p.role_uncertainty for p in players]))
     concentration = float(np.clip(1.0 / max(mean_uncertainty**2, 0.0025), 10.0, 250.0))
-    shapes = np.clip(base * concentration, 0.05, None)
-    weights = rng.gamma(shape=shapes, scale=1.0, size=(worlds, len(players)))
+    weights = np.zeros((worlds, len(players)), dtype=float)
+    eligible_shapes = np.clip(base[eligible] * concentration, 0.05, None)
+    weights[:, eligible] = rng.gamma(
+        shape=eligible_shapes,
+        scale=1.0,
+        size=(worlds, int(eligible.sum())),
+    )
 
     active_probability = np.array([p.active_probability for p in players], dtype=float)
     effectiveness = np.array([p.effectiveness_if_active for p in players], dtype=float)
@@ -75,6 +95,7 @@ def _sample_role_shares(
     row_sum = weights.sum(axis=1)
     empty = row_sum <= 0
     if empty.any():
+        # Prefer the highest-base eligible player. Structural-zero players stay excluded.
         fallback = int(np.argmax(base))
         weights[empty, fallback] = 1.0
         row_sum = weights.sum(axis=1)
