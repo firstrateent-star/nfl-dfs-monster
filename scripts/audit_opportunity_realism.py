@@ -5,7 +5,6 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-import numpy as np
 import polars as pl
 
 from monster.ingest.nflverse import configure_cache
@@ -50,8 +49,8 @@ def main() -> None:
         raw = raw.filter(pl.col("season_type") == "REG")
 
     needed = [
-        "game_id", "posteam", "play_type", "pass_attempt", "rush_attempt", "sack",
-        "yards_gained", "qb_kneel", "qb_spike",
+        "game_id", "posteam", "fixed_drive", "play_type", "pass_attempt", "rush_attempt",
+        "sack", "yards_gained", "qb_kneel", "qb_spike",
     ]
     pbp = raw.select([c for c in needed if c in raw.columns]).filter(pl.col("posteam").is_not_null())
     if "qb_kneel" in pbp.columns:
@@ -68,12 +67,16 @@ def main() -> None:
         rush_attempt.alias("ra"),
         sack.alias("sk"),
         offensive_play.alias("offensive_play"),
-        pl.when(offensive_play == 1).then(pl.col("yards_gained").fill_null(0.0)).otherwise(0.0).alias("offensive_yards"),
+        pl.when(offensive_play == 1)
+        .then(pl.col("yards_gained").fill_null(0.0))
+        .otherwise(0.0)
+        .alias("offensive_yards"),
     )
 
     team_games = (
         pbp.group_by(["game_id", "posteam"])
         .agg(
+            pl.col("fixed_drive").drop_nulls().n_unique().alias("drives"),
             pl.sum("offensive_play").alias("plays"),
             pl.sum("pa").alias("pass_attempts"),
             pl.sum("ra").alias("rush_attempts"),
@@ -86,8 +89,26 @@ def main() -> None:
         )
     )
 
-    metrics = ["plays", "dropbacks", "pass_attempts", "rush_attempts", "sacks", "total_yards", "yards_per_play"]
+    game_drives = (
+        team_games.group_by("game_id")
+        .agg(
+            pl.sum("drives").alias("game_total_drives"),
+            pl.max("drives").alias("max_team_drives"),
+            pl.min("drives").alias("min_team_drives"),
+        )
+        .with_columns(
+            (pl.col("max_team_drives") - pl.col("min_team_drives")).alias("drive_imbalance")
+        )
+    )
+
+    metrics = [
+        "drives", "plays", "dropbacks", "pass_attempts", "rush_attempts", "sacks",
+        "total_yards", "yards_per_play",
+    ]
     league = _league_summary(team_games, metrics)
+    game_drive_summary = _league_summary(
+        game_drives, ["game_total_drives", "drive_imbalance"]
+    )
     team_hist = (
         team_games.group_by("posteam")
         .agg(*[pl.mean(m).alias(f"hist_{m}_mean") for m in metrics])
@@ -96,6 +117,7 @@ def main() -> None:
 
     sim = _read(args.sim_opportunity)
     sim_metric_map = {
+        "drives": "drives_mean",
         "plays": "plays_mean",
         "dropbacks": "dropbacks_mean",
         "pass_attempts": "pass_attempts_mean",
@@ -125,14 +147,23 @@ def main() -> None:
         (pl.col("sim_yards_per_play") - pl.col("hist_yards_per_play_mean")).alias("delta_vs_team_hist_ypp"),
     )
 
-    # Diagnostic rather than a production gate: identify which layer is creating excess supply.
     mean_play_z = float(comparison.get_column("league_plays_z").mean())
     mean_yards_z = float(comparison.get_column("league_total_yards_z").mean())
     mean_ypp_z = float(comparison.get_column("league_yards_per_play_z").mean())
     mean_team_play_delta = float(comparison.get_column("delta_vs_team_hist_plays").mean())
     mean_team_yard_delta = float(comparison.get_column("delta_vs_team_hist_yards").mean())
 
-    if mean_play_z > 0.50 and mean_ypp_z > 0.35:
+    sim_p10 = float(sim.get_column("plays_p10").mean())
+    sim_p90 = float(sim.get_column("plays_p90").mean())
+    historical_play_p10 = float(league_dict["plays"]["historical_p10"])
+    historical_play_p90 = float(league_dict["plays"]["historical_p90"])
+    play_tail_width_ratio = (sim_p90 - sim_p10) / max(
+        historical_play_p90 - historical_play_p10, 1e-9
+    )
+
+    if play_tail_width_ratio > 1.50:
+        diagnosis = "play_distribution_overdispersed"
+    elif mean_play_z > 0.50 and mean_ypp_z > 0.35:
         diagnosis = "both_volume_and_efficiency_high"
     elif mean_play_z > 0.50:
         diagnosis = "play_volume_high"
@@ -145,7 +176,9 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
     team_games.write_csv(args.out / "historical_team_games.csv")
+    game_drives.write_csv(args.out / "historical_game_drives.csv")
     league.write_csv(args.out / "historical_league_distribution.csv")
+    game_drive_summary.write_csv(args.out / "historical_game_drive_distribution.csv")
     comparison.write_csv(args.out / "sim_vs_historical.csv")
 
     manifest = {
@@ -159,12 +192,18 @@ def main() -> None:
         "mean_league_ypp_z": mean_ypp_z,
         "mean_delta_vs_same_team_history_plays": mean_team_play_delta,
         "mean_delta_vs_same_team_history_yards": mean_team_yard_delta,
+        "mean_sim_play_p10": sim_p10,
+        "mean_sim_play_p90": sim_p90,
+        "historical_play_p10": historical_play_p10,
+        "historical_play_p90": historical_play_p90,
+        "play_tail_width_ratio": play_tail_width_ratio,
         "diagnosis": diagnosis,
         "market_blind": True,
-        "principle": "Diagnose opportunity supply before modifying player shares or fantasy translation.",
+        "principle": "Diagnose opportunity mean and shape before modifying player shares or fantasy translation.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(league)
+    print(game_drive_summary)
     print(comparison.sort("league_total_yards_z", descending=True))
     print(json.dumps(manifest, indent=2))
 
