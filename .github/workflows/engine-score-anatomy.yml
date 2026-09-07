@@ -6,8 +6,11 @@ on:
       - feature/slate-simulator-v1
     paths:
       - scripts/audit_engine_score_anatomy.py
+      - scripts/build_league_policy.py
       - src/monster/feature_compile/team.py
+      - src/monster/ingest/nflverse.py
       - src/monster/sim/game.py
+      - src/monster/snapshot/league.py
       - .github/workflows/engine-score-anatomy.yml
   workflow_dispatch:
 
