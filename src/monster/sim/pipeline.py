@@ -11,6 +11,7 @@ from monster.feature_compile.units import UnitPlayerInputs
 from monster.registry import FeatureRegistry
 from monster.sim.allocation import GameAllocationWorlds, allocate_game_players
 from monster.sim.game import GameWorlds, simulate_game
+from monster.sim.rushing_roles import refine_game_rushing_roles
 from monster.snapshot.compile import CompiledGameSnapshot, compile_game_snapshot
 from monster.snapshot.model import GameState
 from monster.snapshot.player import TeamPlayerPool
@@ -59,6 +60,12 @@ def simulate_monster_game(
         snapshot.away_pool,
         snapshot.home_pool,
         seed=seed + 1_000_003,
+    )
+    allocation_worlds = refine_game_rushing_roles(
+        allocation_worlds,
+        snapshot.away_pool,
+        snapshot.home_pool,
+        seed=seed + 2_000_033,
     )
     return MonsterGameWorlds(
         snapshot=snapshot,
