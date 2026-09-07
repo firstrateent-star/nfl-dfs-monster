@@ -8,10 +8,12 @@ on:
       - 'src/monster/teams.py'
       - 'src/monster/ingest/nflverse.py'
       - 'src/monster/ingest/league.py'
+      - 'src/monster/ingest/madden_players.py'
       - 'src/monster/feature_compile/participation.py'
       - 'src/monster/feature_compile/participation_inference.py'
       - 'src/monster/feature_compile/depth.py'
       - 'src/monster/feature_compile/capability.py'
+      - 'src/monster/feature_compile/offensive_line.py'
       - 'src/monster/feature_compile/units.py'
       - 'src/monster/feature_compile/league_units.py'
       - 'scripts/build_league_baseline.py'
@@ -39,6 +41,8 @@ jobs:
         run: cat artifacts/league-baseline/participation_by_team.csv
       - name: Show capability coverage
         run: cat artifacts/league-baseline/capability_by_team.csv
+      - name: Show Madden OL coverage
+        run: cat artifacts/league-baseline/madden_ol_coverage_by_team.csv
       - name: Show compiled unit effects
         run: cat artifacts/league-baseline/team_unit_effects.csv
       - uses: actions/upload-artifact@v4
