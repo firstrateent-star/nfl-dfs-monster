@@ -16,10 +16,13 @@ def _normalize_pct(expr: pl.Expr) -> pl.Expr:
 def compile_snap_priors(snap_counts: pl.DataFrame, recent_games: int = 6) -> pl.DataFrame:
     """Compile player field-time priors from recent game-level snap counts.
 
+    The prior follows the player across teams instead of requiring his historical
+    team to match his current team. That preserves useful snap evidence for traded
+    and free-agent players. `prior_team_id` and `snap_team_count` let downstream
+    participation inference widen role uncertainty when the player has changed teams.
+
     Snap share is a *weight on every other player metric*. It is not itself an
-    efficiency bonus. For a Week 1 slate the prior naturally falls back to the
-    player's most recent games from the previous season; current depth chart,
-    injury and role evidence can update the prior later in the snapshot compiler.
+    efficiency bonus.
     """
     required = {
         "season",
@@ -42,8 +45,10 @@ def compile_snap_priors(snap_counts: pl.DataFrame, recent_games: int = 6) -> pl.
     )
 
     return (
-        ordered.group_by(["team", "pfr_player_id"], maintain_order=True)
+        ordered.group_by("pfr_player_id", maintain_order=True)
         .agg(
+            pl.col("team").last().alias("prior_team_id"),
+            pl.col("team").tail(recent_games).n_unique().alias("snap_team_count"),
             pl.col("position").last().alias("position"),
             pl.col("offense_pct_norm").tail(recent_games).mean().alias("offense_snap_share"),
             pl.col("defense_pct_norm").tail(recent_games).mean().alias("defense_snap_share"),
