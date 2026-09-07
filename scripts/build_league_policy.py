@@ -8,6 +8,7 @@ from pathlib import Path
 import polars as pl
 
 from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
+from monster.feature_compile.player import compile_player_usage
 from monster.feature_compile.team import compile_team_policy
 from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
 from monster.teams import NFL_TEAMS
@@ -20,7 +21,6 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=Path("artifacts/league-policy"))
     args = parser.parse_args()
 
-    # Keep this heavier PBP-derived artifact separate from the cheap roster refresh.
     configure_cache(args.cache_dir)
     import nflreadpy as nfl
 
@@ -28,6 +28,7 @@ def main() -> None:
     pbp = pbp.select([column for column in PBP_COLUMNS if column in pbp.columns])
     policy = compile_team_policy(pbp)
     ol_outcomes = compile_historical_ol_outcomes(pbp)
+    player_usage = compile_player_usage(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
     policy = canonical.join(policy, on="team_id", how="left").sort("team_id")
     ol_outcomes = canonical.join(ol_outcomes, on="team_id", how="left").sort("team_id")
@@ -37,6 +38,8 @@ def main() -> None:
     policy.write_parquet(args.out / "team_policy.parquet", compression="zstd")
     ol_outcomes.write_csv(args.out / "offensive_line_outcomes.csv")
     ol_outcomes.write_parquet(args.out / "offensive_line_outcomes.parquet", compression="zstd")
+    player_usage.write_csv(args.out / "player_usage.csv")
+    player_usage.write_parquet(args.out / "player_usage.parquet", compression="zstd")
 
     missing = int(policy.select(pl.col("games_observed").is_null().sum()).item())
     ol_missing = int(
@@ -48,6 +51,7 @@ def main() -> None:
         "history_seasons": args.history,
         "canonical_team_count": len(NFL_TEAMS),
         "compiled_team_count": policy.height,
+        "player_usage_rows": player_usage.height,
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
