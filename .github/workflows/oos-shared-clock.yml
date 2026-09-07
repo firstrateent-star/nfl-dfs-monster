@@ -1,0 +1,37 @@
+name: Shared clock OOS engine A/B
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - src/monster/sim/game.py
+      - scripts/validate_oos_shared_clock.py
+      - .github/workflows/oos-shared-clock.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run legacy-vs-shared clock OOS A/B
+        run: >-
+          uv run python scripts/validate_oos_shared_clock.py
+          --worlds 3000 --seed 2026090791
+          --out artifacts/oos-shared-clock
+      - name: Show result
+        run: cat artifacts/oos-shared-clock/manifest.json
+      - name: Enforce shared-clock promotion gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-shared-clock/manifest.json')); assert d['promotion_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-shared-clock
+          path: artifacts/oos-shared-clock/
+          retention-days: 7
