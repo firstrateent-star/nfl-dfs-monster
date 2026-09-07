@@ -1,0 +1,38 @@
+sources:
+  nflverse:
+    provider: nflreadpy
+    cost: free
+    canonical_for: [play_by_play, player_stats, team_stats, schedules, rosters, weekly_rosters, injuries, snap_counts, combine, depth_charts, nextgen_stats]
+    refresh: {static: weekly, slate_week: daily}
+    attribution: nflverse / source-specific CC license
+
+  nws:
+    provider: api.weather.gov
+    cost: free
+    canonical_for: [temperature, wind, precipitation, forecast_conditions, alerts]
+    refresh: {early_week: daily, within_48h: every_6_hours, gameday: every_2_hours}
+    notes: US government open data. User-Agent required.
+
+  fanduel_csv:
+    provider: user_upload
+    cost: free
+    downstream_only: true
+    canonical_for: [salary, roster_position, contest_player_id, fanduel_injury_flag]
+
+  draftkings_csv:
+    provider: user_upload
+    cost: free
+    downstream_only: true
+    canonical_for: [salary, roster_position, contest_player_id]
+
+  madden:
+    provider: imported_snapshot
+    cost: free_if_user_obtains_data
+    canonical_for: [madden_attributes]
+    notes: Store source provenance and licensing notes.
+
+  birth_data:
+    provider: curated/imported
+    cost: free
+    canonical_for: [date_of_birth, birth_place, birth_time_if_known]
+    notes: Birth-time completeness is expected to be low; confidence must be explicit.

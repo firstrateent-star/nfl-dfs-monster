@@ -1,0 +1,24 @@
+name: Simulate slate
+on:
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Monte Carlo worlds per game
+        required: true
+        default: '100000'
+      seed:
+        description: Base seed
+        required: true
+        default: '2026091301'
+permissions:
+  contents: read
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run monster validate-config
+      - run: echo "Full snapshot->game->player simulation is next implementation milestone."

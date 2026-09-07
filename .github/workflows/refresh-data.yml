@@ -1,0 +1,19 @@
+name: Refresh football data
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 11 * * *'
+permissions:
+  contents: read
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Validate configuration
+        run: uv run monster validate-config
+      - name: Placeholder refresh gate
+        run: echo "Next build wires nflverse/NWS refresh into Supabase with change detection."

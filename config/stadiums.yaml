@@ -1,0 +1,13 @@
+stadiums:
+  CAR: {name: "Bank of America Stadium", dome: false, latitude: null, longitude: null}
+  CIN: {name: "Paycor Stadium", dome: false, latitude: null, longitude: null}
+  DET: {name: "Ford Field", dome: true, latitude: null, longitude: null}
+  HOU: {name: "NRG Stadium", dome: true, latitude: null, longitude: null}
+  IND: {name: "Lucas Oil Stadium", dome: true, latitude: null, longitude: null}
+  JAC: {name: "EverBank Stadium", dome: false, latitude: null, longitude: null}
+  PIT: {name: "Acrisure Stadium", dome: false, latitude: null, longitude: null}
+  TEN: {name: "Nissan Stadium", dome: false, latitude: null, longitude: null}
+  LAC: {name: "SoFi Stadium", dome: true, latitude: null, longitude: null}
+  MIN: {name: "U.S. Bank Stadium", dome: true, latitude: null, longitude: null}
+  LV: {name: "Allegiant Stadium", dome: true, latitude: null, longitude: null}
+  PHI: {name: "Lincoln Financial Field", dome: false, latitude: null, longitude: null}
