@@ -12,6 +12,7 @@ from monster.feature_compile.capability import (
     capability_coverage_report,
 )
 from monster.feature_compile.depth import attach_depth_chart
+from monster.feature_compile.league_units import compile_league_unit_effects
 from monster.feature_compile.participation_inference import (
     infer_game_day_participation,
     participation_coverage_report,
@@ -50,22 +51,26 @@ def main() -> None:
         snapshot,
         inputs["combine"],
         inputs["pfr_defense_weekly"],
+        inputs["player_stats_history"],
     )
     coverage = league_coverage_report(snapshot)
     participation_coverage = participation_coverage_report(snapshot)
     capability_coverage = capability_coverage_report(snapshot)
+    unit_effects = compile_league_unit_effects(snapshot)
 
     snapshot.write_parquet(args.out / "league_personnel.parquet", compression="zstd")
     snapshot.write_csv(args.out / "league_personnel.csv")
     coverage.write_csv(args.out / "coverage_by_team.csv")
     participation_coverage.write_csv(args.out / "participation_by_team.csv")
     capability_coverage.write_csv(args.out / "capability_by_team.csv")
+    unit_effects.write_csv(args.out / "team_unit_effects.csv")
 
     for key in [
         "injuries",
         "depth_charts",
         "combine",
         "pfr_defense_weekly",
+        "player_stats_history",
         "current_snap_counts",
     ]:
         _write_if_present(inputs[key], args.out / f"raw_{key}.parquet")
@@ -99,9 +104,13 @@ def main() -> None:
         "projected_rotation_players": int(
             snapshot.select((pl.col("participation_tier") == "rotation").sum()).item()
         ),
-        "players_with_defender_history": int(
+        "players_with_pfr_defender_history": int(
             snapshot.select((pl.col("defense_games_observed") > 0).sum()).item()
         ),
+        "players_with_def_stat_history": int(
+            snapshot.select((pl.col("def_stat_games_observed") > 0).sum()).item()
+        ),
+        "teams_with_compiled_unit_effects": unit_effects.height,
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
     }
     if "forty" in snapshot.columns:
