@@ -13,6 +13,7 @@ on:
       - scripts/run_week1_full_monster.py
       - scripts/audit_player_opportunity_realism.py
       - scripts/compare_simulated_rush_structure.py
+      - scripts/compare_simulated_target_structure.py
       - .github/workflows/player-opportunity-realism.yml
   workflow_dispatch:
 
@@ -74,11 +75,19 @@ jobs:
           --team-opportunity artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
           --history 2025
           --out artifacts/simulated-rush-structure
+      - name: Compare realized target worlds with 2025 games
+        run: >-
+          uv run python scripts/compare_simulated_target_structure.py
+          --team-opportunity artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
+          --history 2025
+          --out artifacts/simulated-target-structure
       - name: Show result
         run: |
           cat artifacts/player-opportunity-realism/concentration_comparison.csv
           cat artifacts/simulated-rush-structure/rush_structure_comparison.csv
           cat artifacts/simulated-rush-structure/manifest.json
+          cat artifacts/simulated-target-structure/target_structure_comparison.csv
+          cat artifacts/simulated-target-structure/manifest.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -88,4 +97,5 @@ jobs:
             artifacts/week1-player-role-diagnostic/team_opportunity_map.csv
             artifacts/player-opportunity-realism/
             artifacts/simulated-rush-structure/
+            artifacts/simulated-target-structure/
           retention-days: 7
