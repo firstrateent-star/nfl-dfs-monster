@@ -19,6 +19,13 @@ class GameWorlds:
     home_field_goals: np.ndarray
     away_turnovers: np.ndarray
     home_turnovers: np.ndarray
+    # World-level OL/matchup states propagated into player allocation. Higher pass
+    # disruption means a harder pressure/coverage environment. Higher run efficiency
+    # means a better blocking/front environment for rushing production.
+    away_pass_disruption: np.ndarray
+    home_pass_disruption: np.ndarray
+    away_run_efficiency: np.ndarray
+    home_run_efficiency: np.ndarray
 
     @property
     def total(self) -> np.ndarray:
@@ -44,7 +51,15 @@ def _simulate_team_drives(
     worlds: int,
     shared_environment: np.ndarray,
     home: bool,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+    np.ndarray,
+]:
     drive_mu = 0.50 * team.drives_per_game + 0.50 * opponent.drives_per_game
     drive_mu *= np.clip((team.pace_factor + opponent.pace_factor) / 2.0, 0.82, 1.18)
     drive_mu += 0.12 if home else -0.12
@@ -64,16 +79,40 @@ def _simulate_team_drives(
     unit_matchup = team.neutral_pass_rate * pass_matchup + (1.0 - team.neutral_pass_rate) * run_matchup
 
     # OL uncertainty is sampled as epistemic football state, not added to the mean.
-    # Neutral defaults produce sigma=0 exactly, preserving the pre-OL control model.
-    line_sigma = float(
-        np.clip(
-            team.offensive_line_uncertainty
-            + 0.035 * (1.0 - team.offensive_line_continuity),
-            0.0,
-            0.20,
+    # Rebuilt/poorly linked lines therefore get wider upside/downside pathways while
+    # current individual blocking capability remains the bounded mean effect above.
+    if team.offensive_line_uncertainty <= 0.0:
+        line_state = np.zeros(worlds, dtype=np.float32)
+    else:
+        line_sigma = float(
+            np.clip(
+                team.offensive_line_uncertainty
+                + 0.035 * (1.0 - team.offensive_line_continuity),
+                0.0,
+                0.20,
+            )
         )
-    )
-    line_state = rng.normal(0.0, line_sigma, worlds)
+        line_state = rng.normal(0.0, line_sigma, worlds).astype(np.float32)
+
+    # Preserve the causal pathway into the downstream player allocator. These are
+    # dimensionless bounded multipliers around 1.0, not extra fantasy-point bonuses.
+    pass_disruption = np.clip(
+        1.0
+        + 1.10
+        * (
+            opponent.pass_rush_effect
+            + 0.60 * opponent.coverage_effect
+            - team.pass_protection_effect
+        )
+        - 0.80 * line_state,
+        0.78,
+        1.22,
+    ).astype(np.float32)
+    run_efficiency = np.clip(
+        1.0 + 0.90 * run_matchup + 0.60 * line_state,
+        0.84,
+        1.16,
+    ).astype(np.float32)
 
     quality_base = (
         1.00
@@ -100,11 +139,9 @@ def _simulate_team_drives(
     )
     state = _mean_one_lognormal(rng, epistemic_sigma, worlds)
 
-    turnover_matchup = (
-        opponent.pass_rush_effect + 0.60 * opponent.coverage_effect - team.pass_protection_effect
-    )
-    # Bad OL worlds increase turnover pressure; good OL worlds suppress it.
-    turnover_multiplier = np.clip(1.0 + 1.25 * turnover_matchup - 0.55 * line_state, 0.82, 1.18)
+    # Use the same pass-disruption state that will later govern sacks/player efficiency,
+    # so turnover and player pathways cannot drift into separate football realities.
+    turnover_multiplier = np.clip(1.0 + 0.55 * (pass_disruption - 1.0), 0.86, 1.14)
 
     td_p = _clip_probability(td_base * quality * state, 0.07, 0.48)
     to_p = _clip_probability(
@@ -134,7 +171,15 @@ def _simulate_team_drives(
     ).astype(np.int16)
     safety = (rng.binomial(1, 0.012, worlds) * 2).astype(np.int16)
     points = (7 * touchdowns + 3 * field_goals + two_point + safety).astype(np.int16)
-    return points, drives, touchdowns, field_goals, turnovers
+    return (
+        points,
+        drives,
+        touchdowns,
+        field_goals,
+        turnovers,
+        pass_disruption,
+        run_efficiency,
+    )
 
 
 def simulate_game(game: GameState, worlds: int, seed: int) -> GameWorlds:
@@ -154,4 +199,8 @@ def simulate_game(game: GameState, worlds: int, seed: int) -> GameWorlds:
         home_field_goals=home[3],
         away_turnovers=away[4],
         home_turnovers=home[4],
+        away_pass_disruption=away[5],
+        home_pass_disruption=home[5],
+        away_run_efficiency=away[6],
+        home_run_efficiency=home[6],
     )
