@@ -1,0 +1,30 @@
+name: Schedule-neutral residual OOS
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_schedule_neutral_residual.py
+      - .github/workflows/oos-schedule-neutral-residual.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run schedule-neutral residual ablation
+        run: uv run python scripts/validate_oos_schedule_neutral_residual.py --worlds 1800 --calibration-worlds 700 --seed 2026090767 --out artifacts/oos-schedule-neutral-residual
+      - name: Show result
+        run: cat artifacts/oos-schedule-neutral-residual/manifest.json
+      - name: Enforce residual gate
+        run: uv run python -c "import json; d=json.load(open('artifacts/oos-schedule-neutral-residual/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-schedule-neutral-residual
+          path: artifacts/oos-schedule-neutral-residual/
+          retention-days: 7
