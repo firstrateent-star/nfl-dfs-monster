@@ -1,0 +1,35 @@
+name: Year-forward score validation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_score_oos.py
+      - src/monster/feature_compile/team.py
+      - src/monster/ingest/nflverse.py
+      - src/monster/sim/game.py
+      - src/monster/snapshot/league.py
+      - .github/workflows/score-oos.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run 2023 to 2024 and 2024 to 2025 year-forward folds
+        run: uv run python scripts/validate_score_oos.py --worlds 3000 --seed 2026090719 --out artifacts/score-oos
+      - name: Enforce predictive structure gate
+        run: uv run python -c "import json; d=json.load(open('artifacts/score-oos/manifest.json')); assert d['predictive_structure_pass'], d"
+      - name: Show validation
+        if: always()
+        run: cat artifacts/score-oos/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-score-oos
+          path: artifacts/score-oos/
+          retention-days: 7
