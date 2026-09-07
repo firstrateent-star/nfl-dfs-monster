@@ -70,24 +70,39 @@ def _sample_incidental_count(
     return min(target, incidental_attempts, peripheral_count)
 
 
+def _sample_core_roles(
+    rng: np.random.Generator,
+    eligible: np.ndarray,
+    role_strength: np.ndarray,
+    role_uncertainty: np.ndarray,
+    count: int,
+) -> np.ndarray:
+    """Sample a persistent latent A/B/C ordering from evidence plus role uncertainty.
+
+    Role identity and role volume are distinct uncertainties. Historical/current role strength
+    supplies the center of each player's latent rank; player-specific role uncertainty supplies
+    only the amount of Sunday-to-Sunday rank noise. Strongly separated roles therefore remain
+    stable across worlds, while genuinely ambiguous backfields can swap A/B/C identities.
+    """
+    if count <= 0 or len(eligible) == 0:
+        return np.empty(0, dtype=int)
+    count = min(count, len(eligible))
+    strength = np.clip(role_strength[eligible].astype(float), 1e-9, None)
+    uncertainty = np.clip(role_uncertainty[eligible].astype(float), 0.025, 0.60)
+    latent_score = np.log(strength) + rng.normal(0.0, uncertainty)
+    order = np.argsort(latent_score)[::-1]
+    return eligible[order[:count]]
+
+
 def _core_role_probabilities(
     rng: np.random.Generator,
-    candidates: np.ndarray,
-    role_strength: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Order selected players into latent Role A/B/C slots and sample entitlement shares.
-
-    Current player evidence determines who occupies the slots. The league prior determines only
-    the generic hierarchy between slots. A Dirichlet draw preserves substantial Sunday-to-Sunday
-    variation rather than forcing every backfield into a fixed 62/27/11 split.
-    """
-    order = np.argsort(role_strength[candidates])[::-1]
-    ordered = candidates[order]
-    center = CORE_ROLE_ENTITLEMENT[: len(ordered)].astype(float)
+    ordered_candidates: np.ndarray,
+) -> np.ndarray:
+    """Sample carry entitlement for already ordered latent Role A/B/C occupants."""
+    center = CORE_ROLE_ENTITLEMENT[: len(ordered_candidates)].astype(float)
     center /= center.sum()
-    concentration = max(CORE_ROLE_CONCENTRATION, float(len(ordered) * 3))
-    probabilities = rng.dirichlet(np.clip(center * concentration, 0.25, None))
-    return ordered, probabilities
+    concentration = max(CORE_ROLE_CONCENTRATION, float(len(ordered_candidates) * 3))
+    return rng.dirichlet(np.clip(center * concentration, 0.25, None))
 
 
 def _redistribute_team_rushing(
@@ -109,9 +124,11 @@ def _redistribute_team_rushing(
 
     active_probability = np.array([p.active_probability for p in players], dtype=float)
     role_probability = np.array([p.rush_role_probability for p in players], dtype=float)
+    role_uncertainty = np.array([p.role_uncertainty for p in players], dtype=float)
     effectiveness = np.array([p.effectiveness_if_active for p in players], dtype=float)
 
-    # Role strength chooses the occupants of A/B/C. It does not directly set their final shares.
+    # Role strength defines the center of latent A/B/C identity. Uncertainty governs how often
+    # nearby players can exchange ranks; it does not directly change the carry budget.
     role_strength = (
         np.sqrt(np.clip(base, 1e-9, None))
         * np.clip(role_probability, 0.01, 1.0)
@@ -143,11 +160,17 @@ def _redistribute_team_rushing(
         core_n = total - incidental_n
 
         core_count = _sample_core_count(rng, core_n, len(eligible))
-        selected = _weighted_choice_without_replacement(rng, eligible, role_strength, core_count)
-        if len(selected) == 0:
-            selected = np.array([int(eligible[np.argmax(base[eligible])])], dtype=int)
+        core_candidates = _sample_core_roles(
+            rng,
+            eligible,
+            role_strength,
+            role_uncertainty,
+            core_count,
+        )
+        if len(core_candidates) == 0:
+            core_candidates = np.array([int(eligible[np.argmax(base[eligible])])], dtype=int)
 
-        core_candidates, core_p = _core_role_probabilities(rng, selected, role_strength)
+        core_p = _core_role_probabilities(rng, core_candidates)
 
         # Every selected core role receives at least one carry if the game has enough core work.
         guaranteed = min(core_n, len(core_candidates))
