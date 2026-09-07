@@ -74,6 +74,9 @@ def _player_distribution_rows(game_name: str, team_id: str, pool, side) -> list[
             "active_probability": player.active_probability,
             "effectiveness_if_active": player.effectiveness_if_active,
             "role_uncertainty": player.role_uncertainty,
+            "target_participation_probability": float((stats["targets"] > 0).mean()),
+            "rush_participation_probability": float((stats["rush_attempts"] > 0).mean()),
+            "pass_attempt_participation_probability": float((stats["pass_attempts"] > 0).mean()),
             "fd_points_before_turnover_penalties_mean": float(fd_partial.mean()),
             "fd_points_before_turnover_penalties_p20": _q(fd_partial, 0.20),
             "fd_points_before_turnover_penalties_p50": _q(fd_partial, 0.50),
@@ -87,6 +90,7 @@ def _player_distribution_rows(game_name: str, team_id: str, pool, side) -> list[
         ):
             values = stats[stat]
             row[f"{stat}_mean"] = float(values.mean())
+            row[f"{stat}_p50"] = _q(values, 0.50)
             row[f"{stat}_p90"] = _q(values, 0.90)
         rows.append(row)
     return rows
@@ -94,7 +98,6 @@ def _player_distribution_rows(game_name: str, team_id: str, pool, side) -> list[
 
 def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray) -> dict:
     plays = side.team_plays.astype(float)
-    total_yards = np.zeros(len(plays), dtype=float)
     passing_yards = np.zeros(len(plays), dtype=float)
     rushing_yards = np.zeros(len(plays), dtype=float)
     for stats in side.player_stats.values():
@@ -220,6 +223,7 @@ def main() -> None:
         "ol_state_enabled": True,
         "physical_mechanism_inputs_enabled": True,
         "team_opportunity_audit_enabled": True,
+        "player_participation_probabilities_enabled": True,
         "fantasy_points_note": "FD subtotal excludes interception and fumble penalties because player-level turnover attribution is not yet modeled.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
