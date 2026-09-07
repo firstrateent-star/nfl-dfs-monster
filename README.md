@@ -33,11 +33,13 @@ CANONICAL SUPABASE STATE
     ↓
 FEATURE COMPILER
     ↓
-MECHANISM COMPILER
+ALL-PLAYER PARTICIPATION + SNAP WEIGHTS
+    ↓
+OL / PASS RUSH / COVERAGE / RUN DEFENSE / SPECIAL TEAMS UNIT MECHANISMS
     ↓
 SLATE SNAPSHOT (market blind)
     ↓
-12 INDEPENDENT DRIVE-BASED GAME SIMULATORS
+12 INDEPENDENT GAME SIMULATORS
     ↓
 TEAM SCORE DISTRIBUTIONS
     ↓
@@ -50,31 +52,33 @@ FROZEN FOOTBALL OUTPUTS
 FanDuel / DraftKings decoders (later)
 ```
 
-## Mechanism compiler
+## Full player universe + snap counts
 
-The simulator now has a bounded mechanism layer for the extra Monster metrics.
+The Monster player universe comes from NFL/nflverse rosters, **not DFS player lists**. Offense, offensive line, defense and special teams are all eligible to influence the football simulation.
 
-Player inputs include height, weight, wingspan, 40 time, Madden speed/acceleration/route-running/catching, age + career workload, health/effectiveness and continuity. These compile into small football-specific modifiers such as explosive-play ability, catch-point conversion, rushing efficiency and role uncertainty.
+Snap share is a first-class weighting layer:
 
-Team inputs include derived Madden/team strength, offensive-line and opponent-front indices, continuity, coaching entropy, wind, precipitation, temperature and dome state. These compile into bounded personnel/environment effects before game simulation.
+- offensive snap share weights offensive personnel / OL influence;
+- defensive snap share weights pass rush, coverage and run-defense influence;
+- special-teams snap share weights kicking/return/ST influence;
+- recent snap volatility contributes to personnel uncertainty.
 
-Constitutional rules enforced by tests:
+A player's size/Madden/statistical capability does not matter at full strength simply because he is on the roster. It matters in proportion to how often the model expects him to be on the field and whether he is active/effective.
 
-- missing extra data is neutral;
-- physical/Madden effects are bounded rather than direct point bonuses;
-- age alone cannot reduce expected production;
-- age + workload can increase biological uncertainty;
-- astrology is retained as a traceable shadow signal with zero production authority;
-- player mechanism changes cannot retroactively change an already-generated team scoring world;
-- all player opportunities and touchdowns are allocated from the same team worlds.
+For Week 1, recent prior-season snap counts provide the baseline and current depth chart/injury/role evidence can update that prior. As the current season progresses, current-season snap counts become increasingly authoritative.
 
-The canonical single-game call is `simulate_monster_game(...)`:
+## Mechanism-specific personnel model
 
-```text
-compile rich football evidence
-→ simulate drives / TD / FG / turnovers / team points
-→ allocate plays / targets / carries / TDs / yards to players
-```
+All-player evidence is aggregated into bounded team mechanisms before scoring:
+
+- pass protection
+- run blocking
+- pass rush
+- coverage
+- run defense
+- special teams
+
+These mechanisms affect drive success, touchdown/field-goal/turnover probabilities and uncertainty. They do **not** add fantasy points directly.
 
 ## Market anti-leakage
 
@@ -99,7 +103,7 @@ uv run monster db-check
 
 ## Current build stage
 
-The permanent infrastructure spine, drive-based scoring layer, player allocation layer, and bounded mechanism compiler are implemented on the Slate Simulator v1 development branch. The next modeling milestone is to populate a real Week 1 market-blind snapshot from nflverse + Supabase and run the 12-game slate end to end.
+This repository is the permanent infrastructure spine. The current working milestone is **Monster Slate Simulator v1**: compile a rich market-blind Week 1 snapshot using the full NFL roster universe, snap-weighted personnel mechanisms, and then run team-score + player-allocation worlds.
 
 ## Live Supabase project
 - Project ID: `nuyvuwqvsgopapjbnndu`
@@ -109,4 +113,4 @@ The permanent infrastructure spine, drive-based scoring layer, player allocation
 - Private schema: `monster`
 - Public/anon access to `monster` is revoked.
 
-The canonical v0.6.3 market-blind run, 24 teams, 12 games, feature definitions, and dependency rules are already seeded in the live database.
+The canonical v0.6.3 market-blind run, 24 teams, 12 games, feature definitions, dependency rules, and snap/unit feature governance are seeded in the live database.
