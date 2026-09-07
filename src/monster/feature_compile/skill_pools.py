@@ -45,6 +45,51 @@ def _role_prior(history_share: float, volume: float, default: float, scale: floa
     return (1.0 - confidence) * default + confidence * history_share
 
 
+def _rush_role_probability(
+    position: str,
+    depth_rank: int,
+    conditional_snap: float,
+    historical_rushes: float,
+    historical_rush_share: float,
+) -> float:
+    """Estimate whether an active player enters the designed carry tree in one game.
+
+    This is deliberately separate from game-day availability. The prior uses current depth/snap
+    role first and old rushing evidence second. It is not a carry-share multiplier: once a player
+    enters the carry tree, the existing rush-share process decides how many attempts they receive.
+    """
+    snap = float(np.clip(conditional_snap, 0.0, 1.0))
+    rushes = max(float(historical_rushes), 0.0)
+    share = float(np.clip(historical_rush_share, 0.0, 1.0))
+
+    if position == "QB":
+        if depth_rank == 1:
+            return float(np.clip(0.94 + 0.05 * min(rushes / 50.0, 1.0), 0.94, 0.995))
+        return 0.015
+
+    if position == "RB":
+        depth_prior = {1: 0.995, 2: 0.90, 3: 0.48, 4: 0.20}.get(depth_rank, 0.12)
+        history_signal = 1.0 - np.exp(-rushes / 18.0)
+        snap_signal = np.clip(snap / 0.35, 0.0, 1.0)
+        probability = 0.55 * depth_prior + 0.25 * history_signal + 0.20 * snap_signal
+        return float(np.clip(probability, 0.08, 0.995))
+
+    if position == "WR":
+        # Designed WR carries are real but sparse. Historical rushing evidence can elevate a
+        # gadget player materially; ordinary receiving snaps alone should not make every WR a rusher.
+        history_signal = 1.0 - np.exp(-rushes / 6.0)
+        share_signal = np.clip(share / 0.08, 0.0, 1.0)
+        depth_signal = 1.0 if depth_rank in (1, 2, 3) else 0.35
+        probability = 0.03 + 0.47 * history_signal + 0.22 * share_signal + 0.06 * depth_signal
+        return float(np.clip(probability, 0.025, 0.78))
+
+    if position == "TE":
+        history_signal = 1.0 - np.exp(-rushes / 4.0)
+        return float(np.clip(0.015 + 0.30 * history_signal, 0.01, 0.35))
+
+    return 0.02
+
+
 def compile_player_role_priors(historical_usage: pl.DataFrame) -> dict[str, dict[str, float]]:
     """Reduce old-team usage into transfer-safe player role tendencies."""
     if not historical_usage.height or "player_id" not in historical_usage.columns:
@@ -196,6 +241,14 @@ def compile_current_skill_pools(
             if _finite(hist.get("rushes")) >= 15:
                 ypc = float(np.clip(_finite(hist.get("yards_per_carry"), ypc), 1.5, 9.0))
 
+            rush_role_probability = _rush_role_probability(
+                position,
+                depth_rank,
+                conditional_snap,
+                _finite(hist.get("rushes")),
+                _finite(hist.get("rush_share")),
+            )
+
             drafts.append(
                 {
                     "row": row,
@@ -210,6 +263,7 @@ def compile_current_skill_pools(
                     "qb_weight": qb_weight,
                     "active_probability": active_probability,
                     "uncertainty": uncertainty,
+                    "rush_role_probability": rush_role_probability,
                     "catch_rate": catch_rate,
                     "ypr": ypr,
                     "ypc": ypc,
@@ -245,6 +299,7 @@ def compile_current_skill_pools(
                     active_probability=draft["active_probability"],
                     effectiveness_if_active=1.0,
                     role_uncertainty=draft["uncertainty"],
+                    rush_role_probability=draft["rush_role_probability"],
                     qb_pass_share=qb[idx],
                 )
             )
