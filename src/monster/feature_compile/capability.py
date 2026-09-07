@@ -35,6 +35,22 @@ _PLAYER_DEFENSE_COLUMNS = [
     "def_interceptions",
     "def_pass_defended",
 ]
+_PLAYER_SPECIAL_COLUMNS = [
+    "fg_made",
+    "fg_att",
+    "fg_missed",
+    "fg_blocked",
+    "fg_made_40_49",
+    "fg_made_50_59",
+    "fg_made_60_",
+    "pat_made",
+    "pat_att",
+    "pat_missed",
+    "punt_returns",
+    "punt_return_yards",
+    "kickoff_returns",
+    "kickoff_return_yards",
+]
 
 
 def compile_combine_features(combine: pl.DataFrame) -> pl.DataFrame:
@@ -76,21 +92,35 @@ def compile_defender_history(pfr_defense_weekly: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def compile_player_defense_stats(player_stats: pl.DataFrame) -> pl.DataFrame:
-    """Aggregate nflverse official defensive stat channels by GSIS player ID."""
+def compile_player_history_stats(player_stats: pl.DataFrame) -> pl.DataFrame:
+    """Aggregate nflverse defense, kicking and return channels by GSIS player ID."""
     if not player_stats.height or "player_id" not in player_stats.columns:
         return pl.DataFrame()
-    fields = [c for c in _PLAYER_DEFENSE_COLUMNS if c in player_stats.columns]
+    fields = [
+        c
+        for c in dict.fromkeys(_PLAYER_DEFENSE_COLUMNS + _PLAYER_SPECIAL_COLUMNS)
+        if c in player_stats.columns
+    ]
     if not fields:
         return pl.DataFrame()
     return (
         player_stats.with_columns(pl.col("player_id").cast(pl.Utf8))
         .group_by("player_id")
         .agg(
-            pl.len().alias("def_stat_games_observed"),
+            pl.len().alias("history_stat_games_observed"),
             *[pl.col(c).sum().alias(f"stat_{c}") for c in fields],
         )
     )
+
+
+def compile_player_defense_stats(player_stats: pl.DataFrame) -> pl.DataFrame:
+    """Backward-compatible alias for the broader official player-history aggregate."""
+    frame = compile_player_history_stats(player_stats)
+    if frame.height and "history_stat_games_observed" in frame.columns:
+        frame = frame.with_columns(
+            pl.col("history_stat_games_observed").alias("def_stat_games_observed")
+        )
+    return frame
 
 
 def _centered_percentile(metric: pl.Expr, eligible: pl.Expr) -> pl.Expr:
@@ -160,8 +190,6 @@ def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
         ((tfl + 0.20 * tackles) / games).alias("raw_run_defense_event_rate"),
     )
 
-    # Jurisdiction is required to compare players with meaningful positional peers.
-    # If it is absent, preserve the raw evidence and fail neutral rather than guessing.
     if "position_group" not in frame.columns:
         return frame.with_columns(
             pl.lit(None, dtype=pl.Float64).alias("observed_pass_rush_signal"),
@@ -184,13 +212,85 @@ def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def derive_special_teams_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
+    """Derive role-specific kicking/return priors; unsupported ST roles remain neutral."""
+    def c(name: str) -> pl.Expr:
+        return pl.col(name).fill_null(0.0) if name in snapshot.columns else pl.lit(0.0)
+
+    fg_att = c("stat_fg_att")
+    fg_made = c("stat_fg_made")
+    fg_40 = c("stat_fg_made_40_49")
+    fg_50 = c("stat_fg_made_50_59")
+    fg_60 = c("stat_fg_made_60_")
+    pat_att = c("stat_pat_att")
+    pat_made = c("stat_pat_made")
+    pr = c("stat_punt_returns")
+    pr_yards = c("stat_punt_return_yards")
+    kr = c("stat_kickoff_returns")
+    kr_yards = c("stat_kickoff_return_yards")
+
+    frame = snapshot.with_columns(
+        (
+            (fg_made + 0.15 * fg_40 + 0.35 * fg_50 + 0.60 * fg_60 + 0.10 * pat_made)
+            / (fg_att + 0.10 * pat_att).clip(lower_bound=1.0)
+        ).alias("raw_kicking_value_rate"),
+        (pr_yards / pr.clip(lower_bound=1.0)).alias("raw_punt_return_ypr"),
+        (kr_yards / kr.clip(lower_bound=1.0)).alias("raw_kick_return_ypr"),
+    )
+    if "position_group" not in frame.columns:
+        return frame.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("observed_kicking_signal"),
+            pl.lit(None, dtype=pl.Float64).alias("observed_return_signal"),
+            pl.lit(None, dtype=pl.Float64).alias("observed_special_teams_signal"),
+        )
+
+    position = (
+        pl.col("position").cast(pl.Utf8).str.to_uppercase()
+        if "position" in frame.columns
+        else pl.lit("")
+    )
+    kick_eligible = (fg_att >= 3) & (position == "K")
+    punt_return_eligible = pr >= 3
+    kick_return_eligible = kr >= 3
+
+    frame = frame.with_columns(
+        _centered_percentile(pl.col("raw_kicking_value_rate"), kick_eligible).alias(
+            "observed_kicking_signal"
+        ),
+        _centered_percentile(pl.col("raw_punt_return_ypr"), punt_return_eligible).alias(
+            "observed_punt_return_signal"
+        ),
+        _centered_percentile(pl.col("raw_kick_return_ypr"), kick_return_eligible).alias(
+            "observed_kick_return_signal"
+        ),
+    )
+    return frame.with_columns(
+        pl.mean_horizontal(
+            "observed_punt_return_signal", "observed_kick_return_signal"
+        ).alias("observed_return_signal"),
+        pl.when(pl.col("observed_kicking_signal").is_not_null())
+        .then(pl.col("observed_kicking_signal"))
+        .when(
+            pl.col("observed_punt_return_signal").is_not_null()
+            | pl.col("observed_kick_return_signal").is_not_null()
+        )
+        .then(
+            pl.mean_horizontal(
+                "observed_punt_return_signal", "observed_kick_return_signal"
+            )
+        )
+        .otherwise(None)
+        .alias("observed_special_teams_signal"),
+    )
+
+
 def attach_capability_evidence(
     personnel: pl.DataFrame,
     combine: pl.DataFrame,
     pfr_defense_weekly: pl.DataFrame,
     player_stats_history: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """Attach free physical and defensive evidence to the full league personnel table."""
+    """Attach free physical, defensive and special-teams evidence league-wide."""
     result = personnel
     combine_features = compile_combine_features(combine)
     if combine_features.height and "pfr_id" in result.columns:
@@ -220,10 +320,16 @@ def attach_capability_evidence(
             left_on="gsis_id",
             right_on="player_id",
             how="left",
-        ).with_columns(pl.col("def_stat_games_observed").fill_null(0))
+        ).with_columns(
+            pl.col("def_stat_games_observed").fill_null(0),
+            pl.col("history_stat_games_observed").fill_null(0),
+        )
     else:
-        result = result.with_columns(pl.lit(0, dtype=pl.Int64).alias("def_stat_games_observed"))
-    return derive_defender_mechanism_signals(result)
+        result = result.with_columns(
+            pl.lit(0, dtype=pl.Int64).alias("def_stat_games_observed"),
+            pl.lit(0, dtype=pl.Int64).alias("history_stat_games_observed"),
+        )
+    return derive_special_teams_signals(derive_defender_mechanism_signals(result))
 
 
 def capability_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
@@ -233,10 +339,10 @@ def capability_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
         (pl.col("def_stat_games_observed") > 0).sum().alias("players_with_def_stat_history"),
         pl.col("observed_pass_rush_signal").is_not_null().sum().alias("pass_rush_signal_players"),
         pl.col("observed_coverage_signal").is_not_null().sum().alias("coverage_signal_players"),
-        pl.col("observed_run_defense_signal")
-        .is_not_null()
-        .sum()
-        .alias("run_defense_signal_players"),
+        pl.col("observed_run_defense_signal").is_not_null().sum().alias("run_defense_signal_players"),
+        pl.col("observed_kicking_signal").is_not_null().sum().alias("kicking_signal_players"),
+        pl.col("observed_return_signal").is_not_null().sum().alias("return_signal_players"),
+        pl.col("observed_special_teams_signal").is_not_null().sum().alias("special_teams_signal_players"),
     ]
     for column, alias in [
         ("forty", "players_with_forty"),
