@@ -33,9 +33,11 @@ CANONICAL SUPABASE STATE
     ↓
 FEATURE COMPILER
     ↓
+MECHANISM COMPILER
+    ↓
 SLATE SNAPSHOT (market blind)
     ↓
-12 INDEPENDENT GAME SIMULATORS
+12 INDEPENDENT DRIVE-BASED GAME SIMULATORS
     ↓
 TEAM SCORE DISTRIBUTIONS
     ↓
@@ -46,6 +48,32 @@ SLATE WORLDS
 FROZEN FOOTBALL OUTPUTS
     ↓
 FanDuel / DraftKings decoders (later)
+```
+
+## Mechanism compiler
+
+The simulator now has a bounded mechanism layer for the extra Monster metrics.
+
+Player inputs include height, weight, wingspan, 40 time, Madden speed/acceleration/route-running/catching, age + career workload, health/effectiveness and continuity. These compile into small football-specific modifiers such as explosive-play ability, catch-point conversion, rushing efficiency and role uncertainty.
+
+Team inputs include derived Madden/team strength, offensive-line and opponent-front indices, continuity, coaching entropy, wind, precipitation, temperature and dome state. These compile into bounded personnel/environment effects before game simulation.
+
+Constitutional rules enforced by tests:
+
+- missing extra data is neutral;
+- physical/Madden effects are bounded rather than direct point bonuses;
+- age alone cannot reduce expected production;
+- age + workload can increase biological uncertainty;
+- astrology is retained as a traceable shadow signal with zero production authority;
+- player mechanism changes cannot retroactively change an already-generated team scoring world;
+- all player opportunities and touchdowns are allocated from the same team worlds.
+
+The canonical single-game call is `simulate_monster_game(...)`:
+
+```text
+compile rich football evidence
+→ simulate drives / TD / FG / turnovers / team points
+→ allocate plays / targets / carries / TDs / yards to players
 ```
 
 ## Market anti-leakage
@@ -71,7 +99,7 @@ uv run monster db-check
 
 ## Current build stage
 
-This repository is the permanent infrastructure spine. The next modeling milestone is **Monster Slate Simulator v1**: compile a rich market-blind Week 1 snapshot and run full team-score + player-allocation worlds.
+The permanent infrastructure spine, drive-based scoring layer, player allocation layer, and bounded mechanism compiler are implemented on the Slate Simulator v1 development branch. The next modeling milestone is to populate a real Week 1 market-blind snapshot from nflverse + Supabase and run the 12-game slate end to end.
 
 ## Live Supabase project
 - Project ID: `nuyvuwqvsgopapjbnndu`
