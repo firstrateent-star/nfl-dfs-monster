@@ -9,6 +9,7 @@ on:
       - 'src/monster/ingest/nflverse.py'
       - 'src/monster/ingest/league.py'
       - 'src/monster/feature_compile/participation.py'
+      - 'src/monster/feature_compile/participation_inference.py'
       - 'scripts/build_league_baseline.py'
       - '.github/workflows/build-league-baseline.yml'
 permissions:
@@ -28,8 +29,10 @@ jobs:
           --history 2025
           --recent-games 6
           --out artifacts/league-baseline
-      - name: Show coverage
+      - name: Show source coverage
         run: cat artifacts/league-baseline/coverage_by_team.csv
+      - name: Show participation coverage
+        run: cat artifacts/league-baseline/participation_by_team.csv
       - uses: actions/upload-artifact@v4
         with:
           name: monster-2026-league-baseline
