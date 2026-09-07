@@ -94,23 +94,38 @@ def compile_player_defense_stats(player_stats: pl.DataFrame) -> pl.DataFrame:
 
 
 def _centered_percentile(metric: pl.Expr, eligible: pl.Expr) -> pl.Expr:
-    """Convert a raw rate to roughly [-1,1] relative to positional peers."""
-    ranked = metric.rank(method="average").over("position_group")
+    """Convert a raw rate to [-1,1] among eligible positional peers only."""
+    eligible_metric = pl.when(eligible).then(metric).otherwise(None)
+    ranked = eligible_metric.rank(method="average").over("position_group")
     count = eligible.cast(pl.Int64).sum().over("position_group").clip(lower_bound=1)
     return pl.when(eligible).then((2.0 * ranked / count - 1.0).clip(-1.0, 1.0)).otherwise(None)
 
 
 def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
-    """Create bounded observed pass-rush, coverage and run-defense signals.
+    """Create bounded observed pass-rush, coverage and run-defense signals."""
+    games = (
+        pl.col("def_stat_games_observed")
+        .fill_null(0)
+        .cast(pl.Float64)
+        .clip(lower_bound=1.0)
+    )
+    pfr_games = (
+        pl.col("defense_games_observed")
+        .fill_null(0)
+        .cast(pl.Float64)
+        .clip(lower_bound=1.0)
+    )
 
-    These are starting mechanism priors, not universal defender grades. Each raw channel
-    is rate-normalized by observed games and compared only with positional peers.
-    """
-    games = pl.col("def_stat_games_observed").fill_null(0).cast(pl.Float64).clip(lower_bound=1.0)
-    pfr_games = pl.col("defense_games_observed").fill_null(0).cast(pl.Float64).clip(lower_bound=1.0)
-
-    qb_hits = pl.col("stat_def_qb_hits").fill_null(0.0) if "stat_def_qb_hits" in snapshot.columns else pl.lit(0.0)
-    sacks = pl.col("stat_def_sacks").fill_null(0.0) if "stat_def_sacks" in snapshot.columns else pl.lit(0.0)
+    qb_hits = (
+        pl.col("stat_def_qb_hits").fill_null(0.0)
+        if "stat_def_qb_hits" in snapshot.columns
+        else pl.lit(0.0)
+    )
+    sacks = (
+        pl.col("stat_def_sacks").fill_null(0.0)
+        if "stat_def_sacks" in snapshot.columns
+        else pl.lit(0.0)
+    )
     hurries = (
         pl.col("hist_def_times_hurried").fill_null(0.0)
         if "hist_def_times_hurried" in snapshot.columns
@@ -126,7 +141,11 @@ def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
         if "stat_def_interceptions" in snapshot.columns
         else pl.lit(0.0)
     )
-    tackles = pl.col("stat_def_tackles").fill_null(0.0) if "stat_def_tackles" in snapshot.columns else pl.lit(0.0)
+    tackles = (
+        pl.col("stat_def_tackles").fill_null(0.0)
+        if "stat_def_tackles" in snapshot.columns
+        else pl.lit(0.0)
+    )
     tfl = (
         pl.col("stat_def_tackles_for_loss").fill_null(0.0)
         if "stat_def_tackles_for_loss" in snapshot.columns
@@ -134,7 +153,9 @@ def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
     )
 
     frame = snapshot.with_columns(
-        ((qb_hits + 1.5 * sacks) / games + 0.5 * hurries / pfr_games).alias("raw_pass_rush_rate"),
+        ((qb_hits + 1.5 * sacks) / games + 0.5 * hurries / pfr_games).alias(
+            "raw_pass_rush_rate"
+        ),
         ((pass_defended + 2.0 * interceptions) / games).alias("raw_coverage_play_rate"),
         ((tfl + 0.20 * tackles) / games).alias("raw_run_defense_event_rate"),
     )
@@ -181,7 +202,8 @@ def attach_capability_evidence(
     elif "defense_games_observed" not in result.columns:
         result = result.with_columns(pl.lit(0, dtype=pl.Int64).alias("defense_games_observed"))
 
-    stat_history = compile_player_defense_stats(player_stats_history or pl.DataFrame())
+    stats_source = player_stats_history if player_stats_history is not None else pl.DataFrame()
+    stat_history = compile_player_defense_stats(stats_source)
     if stat_history.height and "gsis_id" in result.columns:
         result = result.join(
             stat_history,
@@ -201,7 +223,10 @@ def capability_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
         (pl.col("def_stat_games_observed") > 0).sum().alias("players_with_def_stat_history"),
         pl.col("observed_pass_rush_signal").is_not_null().sum().alias("pass_rush_signal_players"),
         pl.col("observed_coverage_signal").is_not_null().sum().alias("coverage_signal_players"),
-        pl.col("observed_run_defense_signal").is_not_null().sum().alias("run_defense_signal_players"),
+        pl.col("observed_run_defense_signal")
+        .is_not_null()
+        .sum()
+        .alias("run_defense_signal_players"),
     ]
     for column, alias in [
         ("forty", "players_with_forty"),
