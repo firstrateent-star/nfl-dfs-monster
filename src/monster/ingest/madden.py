@@ -26,17 +26,18 @@ def load_team_ratings(path: Path) -> pl.DataFrame:
 def compile_team_madden_inputs(ratings: pl.DataFrame) -> dict[str, TeamMechanismInputs]:
     """Give EA offense ratings small proxy authority; preserve defense only for audit.
 
-    Observed defensive personnel mechanisms outrank team-level EA defense ratings, so
-    defense is deliberately not injected into production scoring here.
+    `team_madden_ovr` is the pre-existing bounded proxy slot in the mechanism compiler.
+    For this adapter it deliberately receives EA's offense rating, not overall rating,
+    because observed defensive personnel mechanisms outrank the team-level EA defense
+    proxy. The raw defense and overall ratings remain in the source table for audit.
     """
-    required = {"team_id", "offense_rating", "overall_rating"}
+    required = {"team_id", "offense_rating", "overall_rating", "defense_rating"}
     missing = required.difference(ratings.columns)
     if missing:
         raise ValueError(f"Madden ratings missing columns: {sorted(missing)}")
     return {
         str(row["team_id"]): TeamMechanismInputs(
-            team_madden_ovr=float(row["overall_rating"]),
-            team_madden_offense=float(row["offense_rating"]),
+            team_madden_ovr=float(row["offense_rating"]),
         )
         for row in ratings.to_dicts()
     }
