@@ -1,0 +1,40 @@
+name: Offensive personnel OOS multi-seed stress
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/stress_oos_offensive_personnel.py
+      - scripts/validate_oos_offensive_personnel.py
+      - src/monster/sim/game.py
+      - src/monster/feature_compile/team.py
+      - .github/workflows/oos-offensive-personnel-stress.yml
+  workflow_dispatch:
+
+jobs:
+  stress:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run multi-seed robustness test
+        run: >-
+          uv run python scripts/stress_oos_offensive_personnel.py
+          --worlds 2000 --seeds 7 --base-seed 2026090729
+          --out artifacts/oos-offensive-personnel-stress
+      - name: Show robustness result
+        if: always()
+        run: cat artifacts/oos-offensive-personnel-stress/manifest.json
+      - name: Enforce robustness gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-offensive-personnel-stress/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-offensive-personnel-stress
+          path: artifacts/oos-offensive-personnel-stress/
+          retention-days: 7
