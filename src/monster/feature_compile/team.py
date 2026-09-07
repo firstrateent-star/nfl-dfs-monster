@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import polars as pl
 
+from monster.teams import TEAM_ALIASES
+
 SCRIMMAGE_TYPES = ["pass", "run"]
 
 
@@ -19,6 +21,8 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
     """Compile market-blind team behavior and efficiency priors from play-by-play.
 
     Expensive historical evaluation happens once here; Monte Carlo consumes a compact team state.
+    Team identifiers are normalized before aggregation, and touchdown-drive labels represent
+    offensive scoring only rather than generic touchdown events such as pick-sixes.
     """
     required = {
         "game_id",
@@ -44,6 +48,15 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
         "fixed_drive",
     }
     _require(pbp, required)
+
+    pbp = pbp.with_columns(
+        pl.col("posteam").replace(TEAM_ALIASES),
+        pl.col("defteam").replace(TEAM_ALIASES),
+    )
+    offensive_touchdown = (
+        (pl.col("pass_touchdown").fill_null(0) == 1)
+        | (pl.col("rush_touchdown").fill_null(0) == 1)
+    )
 
     scrimmage = pbp.filter(
         pl.col("posteam").is_not_null() & pl.col("play_type").is_in(SCRIMMAGE_TYPES)
@@ -126,9 +139,10 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
 
     drive_level = (
         pbp.filter(pl.col("posteam").is_not_null() & pl.col("fixed_drive").is_not_null())
+        .with_columns(offensive_touchdown.cast(pl.Int8).alias("offensive_touchdown"))
         .group_by(["game_id", "posteam", "fixed_drive"])
         .agg(
-            pl.col("touchdown").max().fill_null(0).alias("drive_td"),
+            pl.col("offensive_touchdown").max().fill_null(0).alias("drive_td"),
             (pl.col("field_goal_result") == "made").max().fill_null(False).alias("drive_fg"),
             ((pl.col("interception") == 1) | (pl.col("fumble_lost") == 1))
             .max()
@@ -162,8 +176,9 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
             & pl.col("fixed_drive").is_not_null()
             & (pl.col("yardline_100") <= 20)
         )
+        .with_columns(offensive_touchdown.cast(pl.Int8).alias("offensive_touchdown"))
         .group_by(["game_id", "posteam", "fixed_drive"])
-        .agg(pl.col("touchdown").max().fill_null(0).alias("rz_drive_td"))
+        .agg(pl.col("offensive_touchdown").max().fill_null(0).alias("rz_drive_td"))
         .group_by("posteam")
         .agg(
             pl.len().alias("red_zone_drives"),
