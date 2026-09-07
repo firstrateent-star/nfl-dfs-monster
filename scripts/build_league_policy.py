@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
 from monster.feature_compile.team import compile_team_policy
 from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
 from monster.teams import NFL_TEAMS
@@ -26,14 +27,21 @@ def main() -> None:
     pbp = nfl.load_pbp(args.history)
     pbp = pbp.select([column for column in PBP_COLUMNS if column in pbp.columns])
     policy = compile_team_policy(pbp)
+    ol_outcomes = compile_historical_ol_outcomes(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
     policy = canonical.join(policy, on="team_id", how="left").sort("team_id")
+    ol_outcomes = canonical.join(ol_outcomes, on="team_id", how="left").sort("team_id")
 
     args.out.mkdir(parents=True, exist_ok=True)
     policy.write_csv(args.out / "team_policy.csv")
     policy.write_parquet(args.out / "team_policy.parquet", compression="zstd")
+    ol_outcomes.write_csv(args.out / "offensive_line_outcomes.csv")
+    ol_outcomes.write_parquet(args.out / "offensive_line_outcomes.parquet", compression="zstd")
 
     missing = int(policy.select(pl.col("games_observed").is_null().sum()).item())
+    ol_missing = int(
+        ol_outcomes.select(pl.col("historical_pass_protection_signal").is_null().sum()).item()
+    )
     manifest = {
         "artifact": "Monster Historical Team Policy Priors",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -41,6 +49,7 @@ def main() -> None:
         "canonical_team_count": len(NFL_TEAMS),
         "compiled_team_count": policy.height,
         "teams_missing_observed_games": missing,
+        "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
         "principle": "Historical outcomes are priors and audit targets; simulation policy remains contextual.",
     }
