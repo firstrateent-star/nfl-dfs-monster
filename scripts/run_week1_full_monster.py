@@ -24,12 +24,6 @@ MATCHUPS = (
     ("ARI", "LAC"), ("WAS", "PHI"), ("MIA", "LV"), ("GB", "MIN"),
 )
 GAME_DATE = date(2026, 9, 13)
-PARENT_TOTAL_REFERENCE = {
-    "CHI@CAR": 48.7, "BUF@HOU": 49.0, "NO@DET": 49.2, "CLE@JAC": 40.265085,
-    "TB@CIN": 50.8, "ATL@PIT": 42.009865, "NYJ@TEN": 40.467785,
-    "BAL@IND": 49.6, "ARI@LAC": 48.1, "WAS@PHI": 45.41134,
-    "MIA@LV": 39.939785, "GB@MIN": 41.2,
-}
 
 
 def _read(path: Path) -> pl.DataFrame:
@@ -136,14 +130,11 @@ def main() -> None:
         g = result.game_worlds
         total = g.away_points + g.home_points
         margin = g.away_points - g.home_points
-        model_total = float(total.mean())
-        reference = PARENT_TOTAL_REFERENCE[game_name]
         game_rows.append({
             "game": game_name, "seed": seed, "worlds": args.worlds,
             "away_points_mean": float(g.away_points.mean()),
             "home_points_mean": float(g.home_points.mean()),
-            "total_mean": model_total, "parent_v0_6_2_total_reference": reference,
-            "delta_vs_parent_reference": model_total - reference,
+            "total_mean": float(total.mean()),
             "total_p10": _q(total, 0.10), "total_p20": _q(total, 0.20),
             "total_p50": _q(total, 0.50), "total_p80": _q(total, 0.80),
             "total_p90": _q(total, 0.90), "p60_plus": float((total >= 60).mean()),
@@ -176,15 +167,16 @@ def main() -> None:
     ).write_csv(args.out / "health_states_used.csv")
 
     manifest = {
-        "artifact": "Monster Week 1 Full Football Simulation — Health + OL Strengthened",
+        "artifact": "Monster Week 1 Full Football Simulation — Continuity + Health + OL",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "worlds_per_game": args.worlds,
         "base_seed": args.seed,
         "games": [f"{a}@{h}" for a, h in MATCHUPS],
         "market_blind_production": True,
-        "parent_total_reference_is_audit_only": True,
+        "market_or_contaminated_reference_loaded": False,
         "salary_used_in_football_simulation": False,
         "ownership_used_in_football_simulation": False,
+        "continuity_conditioned_policy": True,
         "health_dimensions": ["availability", "effectiveness_if_active", "health_uncertainty"],
         "ol_state_enabled": True,
         "physical_mechanism_inputs_enabled": True,
