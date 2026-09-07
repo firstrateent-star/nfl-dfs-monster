@@ -1,0 +1,79 @@
+name: Week 1 health gate and full Monster simulation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/feature_compile/health.py"
+      - "src/monster/feature_compile/health_pools.py"
+      - "src/monster/feature_compile/participation_inference.py"
+      - "config/health/week1_2026_2026-09-07.csv"
+      - "scripts/build_health_snapshot.py"
+      - "scripts/pressure_test_health.py"
+      - "scripts/run_week1_full_monster.py"
+      - ".github/workflows/week1-health-full-monster.yml"
+  workflow_dispatch:
+
+jobs:
+  health-and-sim:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build current 32-team personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build historical policy and player usage
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025 --out artifacts/league-policy
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Run matched-seed health A/B
+        run: >-
+          uv run python scripts/pressure_test_health.py
+          --policy artifacts/league-policy/team_policy.parquet
+          --control-personnel artifacts/league-baseline/league_personnel.parquet
+          --health-personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 5000 --seed 2026090705
+          --out artifacts/health-pressure-test
+      - name: Enforce health guardrail
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
+      - name: Run 60000-world full Week 1 football simulation
+        run: >-
+          uv run python scripts/run_week1_full_monster.py
+          --policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 60000 --seed 2026090710
+          --out artifacts/week1-full-monster
+      - name: Show key results
+        run: |
+          cat artifacts/week1-health/manifest.json
+          cat artifacts/health-pressure-test/manifest.json
+          cat artifacts/week1-full-monster/game_distribution_map.csv
+          cat artifacts/week1-full-monster/qb_state_audit.csv
+          cat artifacts/week1-full-monster/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-week1-health-full-simulation
+          path: |
+            artifacts/week1-health/
+            artifacts/health-pressure-test/
+            artifacts/week1-full-monster/
+          retention-days: 7
