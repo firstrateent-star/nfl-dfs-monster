@@ -5,6 +5,7 @@ on:
     branches:
       - feature/slate-simulator-v1
     paths:
+      - src/monster/sim/game.py
       - scripts/validate_oos_continuity_conditioned_memory.py
       - .github/workflows/oos-continuity-conditioned-memory.yml
   workflow_dispatch:
