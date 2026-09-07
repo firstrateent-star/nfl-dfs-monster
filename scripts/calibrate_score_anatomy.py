@@ -11,6 +11,7 @@ import polars as pl
 from monster.sim.game import simulate_game
 from monster.snapshot.league import compile_team_state_map
 from monster.snapshot.model import GameState
+from monster.teams import normalize_team_id
 
 
 def _read(path: Path) -> pl.DataFrame:
@@ -48,13 +49,14 @@ def main() -> None:
     elif "week" in regular.columns:
         regular = regular.filter(pl.col("week").cast(pl.Utf8).str.contains(r"^\d+$"))
 
+    policy_teams = set(policy.get_column("team_id").to_list())
     rows: list[dict] = []
+    skipped: list[dict] = []
     for idx, row in enumerate(regular.to_dicts()):
-        home = str(row[home_col])
-        away = str(row[away_col])
-        if home not in set(policy.get_column("team_id").to_list()) or away not in set(
-            policy.get_column("team_id").to_list()
-        ):
+        home = normalize_team_id(str(row[home_col]))
+        away = normalize_team_id(str(row[away_col]))
+        if home not in policy_teams or away not in policy_teams:
+            skipped.append({"home": home, "away": away, "week": row.get("week")})
             continue
         states = compile_team_state_map(policy, {away: home, home: away}, prior_uncertainty=0.04)
         result = simulate_game(
@@ -93,6 +95,8 @@ def main() -> None:
         raise RuntimeError("No historical games available for score calibration")
     args.out.mkdir(parents=True, exist_ok=True)
     audit.write_csv(args.out / "game_replay_audit.csv")
+    if skipped:
+        pl.DataFrame(skipped).write_csv(args.out / "skipped_games.csv")
 
     team_actual = np.concatenate(
         [audit.get_column("actual_away").to_numpy(), audit.get_column("actual_home").to_numpy()]
@@ -105,7 +109,9 @@ def main() -> None:
     manifest = {
         "artifact": "Monster Historical Score Anatomy Calibration Audit",
         "season": args.season,
+        "regular_games_available": regular.height,
         "games": audit.height,
+        "skipped_games": len(skipped),
         "worlds_per_game": args.worlds,
         "actual_points_per_team_mean": float(team_actual.mean()),
         "model_points_per_team_mean": float(team_model.mean()),
@@ -117,7 +123,9 @@ def main() -> None:
         "game_total_mae": float(np.abs(total_model - total_actual).mean()),
         "actual_game_total_sd": float(total_actual.std()),
         "model_game_total_sd_of_means": float(total_model.std()),
-        "calibration_pass": abs(float((total_model - total_actual).mean())) <= 2.5,
+        "calibration_pass": (
+            len(skipped) == 0 and abs(float((total_model - total_actual).mean())) <= 2.5
+        ),
         "principle": "Calibrate causal score anatomy against historical football, never against DFS salary or ownership.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
