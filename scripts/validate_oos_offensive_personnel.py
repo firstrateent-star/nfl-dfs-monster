@@ -182,14 +182,15 @@ def run_fold(train: int, test: int, worlds: int, seed: int) -> tuple[list[dict],
     for idx, row in enumerate(schedule.to_dicts()):
         away, home = normalize_team_id(str(row["away_team"])), normalize_team_id(str(row["home_team"]))
         base = compile_team_state_map(policy, {away: home, home: away}, prior_uncertainty=0.16)
-        for vi, variant in enumerate(VARIANTS):
+        paired_seed = seed + idx * 101
+        for variant in VARIANTS:
             a, h = base[away], base[home]
             if variant != "policy":
                 a = _apply_offense(a, team_offense[away], variant == "continuity_offense")
                 h = _apply_offense(h, team_offense[home], variant == "continuity_offense")
             result = simulate_game(
                 GameState(f"{away}@{home}-{variant}", a, h), worlds=worlds,
-                seed=seed + idx * 101 + vi * 1_000_003,
+                seed=paired_seed,
             )
             records.append({
                 "train_season": train, "test_season": test, "variant": variant,
@@ -249,6 +250,7 @@ def main() -> None:
         "artifact": "Monster Pre-Week-1 Offensive Personnel OOS Ablation",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "worlds_per_game_variant": args.worlds,
+        "paired_common_random_numbers": True,
         "fold_metrics": all_metrics, "summary": summary.to_dicts(), "best_candidate": best,
         "bridge_pass": passed, "modern_depth_available_by_fold": depth_flags,
         "allowed_test_season_information": ["Week 1 roster", "Week 1 depth chart when schema-supported", "static identity facts"],
