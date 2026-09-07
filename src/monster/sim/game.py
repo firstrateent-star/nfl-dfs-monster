@@ -55,8 +55,6 @@ def _simulate_team_drives(
     fg_base = _blend_rate(team.fg_drive_rate, opponent.defensive_fg_drive_rate_allowed, 0.14)
     to_base = _blend_rate(team.turnover_drive_rate, opponent.defensive_takeaway_drive_rate, 0.11)
 
-    # All-player unit interaction. Snap-weighted OL/skill personnel face the opposing
-    # pass rush/coverage/front rather than being collapsed into offensive fantasy players.
     pass_matchup = (
         team.pass_protection_effect
         - opponent.pass_rush_effect
@@ -65,7 +63,20 @@ def _simulate_team_drives(
     run_matchup = team.run_block_effect - opponent.run_defense_effect
     unit_matchup = team.neutral_pass_rate * pass_matchup + (1.0 - team.neutral_pass_rate) * run_matchup
 
-    quality = (
+    # OL uncertainty is sampled as epistemic football state, not added to the mean.
+    # Rebuilt/poorly linked lines therefore get wider upside/downside pathways while
+    # current individual blocking capability remains the bounded mean effect above.
+    line_sigma = float(
+        np.clip(
+            team.offensive_line_uncertainty
+            + 0.035 * (1.0 - team.offensive_line_continuity),
+            0.02,
+            0.20,
+        )
+    )
+    line_state = rng.normal(0.0, line_sigma, worlds)
+
+    quality_base = (
         1.00
         + 0.55 * team.offensive_epa_per_play
         + 0.45 * opponent.defensive_epa_allowed_per_play
@@ -78,7 +89,7 @@ def _simulate_team_drives(
         + team.weather_effect
         + team.physical_madden_effect
     )
-    quality = float(np.clip(quality, 0.72, 1.30))
+    quality = np.clip(quality_base + line_state, 0.72, 1.30)
     epistemic_sigma = float(
         np.clip(
             team.uncertainty
@@ -90,12 +101,11 @@ def _simulate_team_drives(
     )
     state = _mean_one_lognormal(rng, epistemic_sigma, worlds)
 
-    # Defensive pressure and coverage can create turnover-worthy environments; strong
-    # protection suppresses that mechanism. Effects remain bounded and independent of market data.
     turnover_matchup = (
         opponent.pass_rush_effect + 0.60 * opponent.coverage_effect - team.pass_protection_effect
     )
-    turnover_multiplier = float(np.clip(1.0 + 1.25 * turnover_matchup, 0.86, 1.14))
+    # Bad OL worlds increase turnover pressure; good OL worlds suppress it.
+    turnover_multiplier = np.clip(1.0 + 1.25 * turnover_matchup - 0.55 * line_state, 0.82, 1.18)
 
     td_p = _clip_probability(td_base * quality * state, 0.07, 0.48)
     to_p = _clip_probability(
