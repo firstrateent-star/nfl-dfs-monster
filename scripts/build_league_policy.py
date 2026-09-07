@@ -26,6 +26,11 @@ def main() -> None:
 
     pbp = nfl.load_pbp(args.history)
     pbp = pbp.select([column for column in PBP_COLUMNS if column in pbp.columns])
+    raw_rows = pbp.height
+    if "season_type" in pbp.columns:
+        pbp = pbp.filter(pl.col("season_type") == "REG")
+    regular_rows = pbp.height
+
     policy = compile_team_policy(pbp)
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
@@ -49,13 +54,16 @@ def main() -> None:
         "artifact": "Monster Historical Team Policy Priors",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "history_seasons": args.history,
+        "pbp_scope": "REG" if "season_type" in pbp.columns else "provider_default",
+        "raw_pbp_rows": raw_rows,
+        "policy_pbp_rows": regular_rows,
         "canonical_team_count": len(NFL_TEAMS),
         "compiled_team_count": policy.height,
         "player_usage_rows": player_usage.height,
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
-        "principle": "Historical outcomes are priors and audit targets; simulation policy remains contextual.",
+        "principle": "Historical outcomes are priors and audit targets; simulation policy remains contextual and season-scope aligned.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
