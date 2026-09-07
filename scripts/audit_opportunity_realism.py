@@ -90,33 +90,41 @@ def main() -> None:
         )
     )
 
-    game_drives = (
+    game_shape = (
         team_games.group_by("game_id")
         .agg(
             pl.sum("drives").alias("game_total_drives"),
             pl.max("drives").alias("max_team_drives"),
             pl.min("drives").alias("min_team_drives"),
+            pl.sum("plays").alias("game_total_plays"),
+            pl.max("plays").alias("max_team_plays"),
+            pl.min("plays").alias("min_team_plays"),
         )
         .with_columns(
-            (pl.col("max_team_drives") - pl.col("min_team_drives")).alias("drive_imbalance")
+            (pl.col("max_team_drives") - pl.col("min_team_drives")).alias("drive_imbalance"),
+            (pl.col("max_team_plays") - pl.col("min_team_plays")).alias("play_imbalance"),
         )
     )
 
-    # Diagnose the remaining play-shape variance after possession count is known. This is the
-    # quantity the allocation layer should reproduce; sampling another Poisson at ~60 plays can
-    # double-count variance already supplied by the drive process.
     x = team_games.get_column("drives").cast(pl.Float64).to_numpy()
     y = team_games.get_column("plays").cast(pl.Float64).to_numpy()
     slope, intercept = np.polyfit(x, y, 1)
     fitted = intercept + slope * x
     residual = y - fitted
+    drive_play_corr = float(np.corrcoef(x, y)[0, 1])
     residual_sd = float(np.std(residual, ddof=1))
     residual_p10 = float(np.quantile(residual, 0.10))
     residual_p50 = float(np.quantile(residual, 0.50))
     residual_p90 = float(np.quantile(residual, 0.90))
     conditional_play_model = pl.DataFrame({
-        "metric": ["intercept", "plays_per_drive_slope", "residual_sd", "residual_p10", "residual_p50", "residual_p90"],
-        "value": [float(intercept), float(slope), residual_sd, residual_p10, residual_p50, residual_p90],
+        "metric": [
+            "intercept", "plays_per_drive_slope", "drive_play_corr",
+            "residual_sd", "residual_p10", "residual_p50", "residual_p90",
+        ],
+        "value": [
+            float(intercept), float(slope), drive_play_corr,
+            residual_sd, residual_p10, residual_p50, residual_p90,
+        ],
     })
 
     metrics = [
@@ -124,8 +132,9 @@ def main() -> None:
         "total_yards", "yards_per_play",
     ]
     league = _league_summary(team_games, metrics)
-    game_drive_summary = _league_summary(
-        game_drives, ["game_total_drives", "drive_imbalance"]
+    game_shape_summary = _league_summary(
+        game_shape,
+        ["game_total_drives", "drive_imbalance", "game_total_plays", "play_imbalance"],
     )
     team_hist = (
         team_games.group_by("posteam")
@@ -194,12 +203,13 @@ def main() -> None:
 
     args.out.mkdir(parents=True, exist_ok=True)
     team_games.write_csv(args.out / "historical_team_games.csv")
-    game_drives.write_csv(args.out / "historical_game_drives.csv")
+    game_shape.write_csv(args.out / "historical_game_shape.csv")
     league.write_csv(args.out / "historical_league_distribution.csv")
-    game_drive_summary.write_csv(args.out / "historical_game_drive_distribution.csv")
+    game_shape_summary.write_csv(args.out / "historical_game_shape_distribution.csv")
     conditional_play_model.write_csv(args.out / "historical_plays_given_drives.csv")
     comparison.write_csv(args.out / "sim_vs_historical.csv")
 
+    game_shape_dict = {row["metric"]: row for row in game_shape_summary.to_dicts()}
     manifest = {
         "artifact": "Monster Opportunity Realism Audit",
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -219,18 +229,28 @@ def main() -> None:
         "historical_plays_given_drives": {
             "intercept": float(intercept),
             "slope": float(slope),
+            "correlation": drive_play_corr,
             "residual_sd": residual_sd,
             "residual_p10": residual_p10,
             "residual_p50": residual_p50,
             "residual_p90": residual_p90,
         },
+        "historical_game_play_budget": {
+            "mean": float(game_shape_dict["game_total_plays"]["historical_mean"]),
+            "sd": float(game_shape_dict["game_total_plays"]["historical_sd"]),
+            "p10": float(game_shape_dict["game_total_plays"]["historical_p10"]),
+            "p50": float(game_shape_dict["game_total_plays"]["historical_p50"]),
+            "p90": float(game_shape_dict["game_total_plays"]["historical_p90"]),
+            "mean_team_imbalance": float(game_shape_dict["play_imbalance"]["historical_mean"]),
+            "imbalance_p90": float(game_shape_dict["play_imbalance"]["historical_p90"]),
+        },
         "diagnosis": diagnosis,
         "market_blind": True,
-        "principle": "Diagnose opportunity mean and shape before modifying player shares or fantasy translation.",
+        "principle": "One game clock governs both possession supply and play supply; diagnose shared budgets before player allocation.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(league)
-    print(game_drive_summary)
+    print(game_shape_summary)
     print(conditional_play_model)
     print(comparison.sort("league_total_yards_z", descending=True))
     print(json.dumps(manifest, indent=2))
