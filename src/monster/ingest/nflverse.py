@@ -10,6 +10,7 @@ import requests
 PBP_COLUMNS = [
     "game_id",
     "season",
+    "season_type",
     "week",
     "home_team",
     "away_team",
@@ -178,4 +179,11 @@ def load_reference_inputs(
 
 
 def load_week_inputs(season: int, cache_dir: Path) -> dict:
-    return load_reference_inputs([season], season, cache_dir)
+    """Load current-week inputs that can update independently of heavy history."""
+    configure_cache(cache_dir)
+    return {
+        "schedules": nfl.load_schedules([season]),
+        "rosters": _load_weekly_rosters(season),
+        "injuries": _load_optional_current(nfl.load_injuries, season),
+        "depth_charts": _load_optional_current(nfl.load_depth_charts, season),
+    }
