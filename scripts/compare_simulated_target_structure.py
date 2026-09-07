@@ -63,7 +63,7 @@ def main() -> None:
             pl.len().alias("target_earners"),
             pl.col("targets").sum().alias("team_targets"),
             (pl.col("targets") == 1).sum().alias("one_target_earners"),
-            (pl.col("targets") <= 2).sum().alias("one_two_target_earners"),
+            ((pl.col("targets") > 0) & (pl.col("targets") <= 2)).sum().alias("one_two_target_earners"),
             pl.col("targets").filter(pl.col("targets") <= 2).sum().alias("peripheral_targets"),
         )
         .join(rank_pivot, on=["game_id", "posteam"], how="left")
@@ -98,10 +98,19 @@ def main() -> None:
         "rank1_share": float(sim["target_rank1_share_world_mean"].mean()),
         "rank2_share": float(sim["target_rank2_share_world_mean"].mean()),
         "rank3_share": float(sim["target_rank3_share_world_mean"].mean()),
+        "one_target_earners": float(sim["one_target_earners_per_world_mean"].mean()),
+        "one_two_target_earners": float(sim["one_two_target_earners_per_world_mean"].mean()),
+        "peripheral_targets": float(sim["peripheral_targets_per_world_mean"].mean()),
+        "peripheral_share": float(sim["peripheral_target_share_world_mean"].mean()),
     }
 
+    metrics = (
+        "target_earners", "rank1_targets", "rank2_targets", "rank3_targets",
+        "rank1_share", "rank2_share", "rank3_share", "one_target_earners",
+        "one_two_target_earners", "peripheral_targets", "peripheral_share",
+    )
     rows = []
-    for metric in ("target_earners", "rank1_targets", "rank2_targets", "rank3_targets", "rank1_share", "rank2_share", "rank3_share"):
+    for metric in metrics:
         rows.append({
             "metric": metric,
             "historical": historical[metric],
@@ -109,12 +118,17 @@ def main() -> None:
             "delta": simulated[metric] - historical[metric],
         })
     comparison = pl.DataFrame(rows)
+
     realized_rank_structure_within_candidate_band = (
         abs(simulated["rank1_share"] - historical["rank1_share"]) <= 0.04
         and abs(simulated["rank2_share"] - historical["rank2_share"]) <= 0.035
         and abs(simulated["rank3_share"] - historical["rank3_share"]) <= 0.03
     )
     breadth_within_candidate_band = abs(simulated["target_earners"] - historical["target_earners"]) <= 0.75
+    peripheral_tail_within_candidate_band = (
+        abs(simulated["one_two_target_earners"] - historical["one_two_target_earners"]) <= 0.60
+        and abs(simulated["peripheral_share"] - historical["peripheral_share"]) <= 0.035
+    )
 
     args.out.mkdir(parents=True, exist_ok=True)
     comparison.write_csv(args.out / "target_structure_comparison.csv")
@@ -128,8 +142,9 @@ def main() -> None:
         "simulated": simulated,
         "realized_rank_structure_within_candidate_band": bool(realized_rank_structure_within_candidate_band),
         "breadth_within_candidate_band": bool(breadth_within_candidate_band),
+        "peripheral_tail_within_candidate_band": bool(peripheral_tail_within_candidate_band),
         "market_blind": True,
-        "principle": "Validate receiving anatomy inside simulated worlds before tuning cross-world player projection concentration. Realized rank structure and role-identity uncertainty are separate objects.",
+        "principle": "Validate receiving anatomy inside simulated worlds before tuning cross-world player projection concentration. Primary-read concentration and peripheral target breadth are distinct structures and must be diagnosed separately.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(comparison)
