@@ -108,10 +108,13 @@ def _attach_snap_priors(
         return roster.with_columns(
             *[pl.lit(None, dtype=pl.Float64).alias(c) for c in _SNAP_OUTPUTS[:-1]],
             pl.lit(0, dtype=pl.Int64).alias("snap_games_observed"),
+            pl.lit(None, dtype=pl.Utf8).alias("prior_team_id"),
+            pl.lit(0, dtype=pl.Int64).alias("snap_team_count"),
+            pl.lit(False).alias("changed_team_since_snap_history"),
         )
 
     snaps = canonicalize_team_column(snaps).with_columns(pl.col("team_id").alias("team"))
-    priors = compile_snap_priors(snaps, recent_games=recent_games).rename({"team": "team_id"})
+    priors = compile_snap_priors(snaps, recent_games=recent_games)
 
     roster_pfr = "pfr_id" if "pfr_id" in roster.columns else None
     if roster_pfr is None and "pfr_player_id" in roster.columns:
@@ -120,14 +123,28 @@ def _attach_snap_priors(
         return roster.with_columns(
             *[pl.lit(None, dtype=pl.Float64).alias(c) for c in _SNAP_OUTPUTS[:-1]],
             pl.lit(0, dtype=pl.Int64).alias("snap_games_observed"),
+            pl.lit(None, dtype=pl.Utf8).alias("prior_team_id"),
+            pl.lit(0, dtype=pl.Int64).alias("snap_team_count"),
+            pl.lit(False).alias("changed_team_since_snap_history"),
         )
 
-    return roster.join(
+    joined = roster.join(
         priors,
-        left_on=["team_id", roster_pfr],
-        right_on=["team_id", "pfr_player_id"],
+        left_on=roster_pfr,
+        right_on="pfr_player_id",
         how="left",
-    ).with_columns(pl.col("snap_games_observed").fill_null(0))
+        suffix="_snap",
+    ).with_columns(
+        pl.col("snap_games_observed").fill_null(0),
+        pl.col("snap_team_count").fill_null(0),
+    )
+    return joined.with_columns(
+        (
+            (pl.col("snap_games_observed") > 0)
+            & pl.col("prior_team_id").is_not_null()
+            & (pl.col("team_id") != pl.col("prior_team_id"))
+        ).alias("changed_team_since_snap_history")
+    )
 
 
 def build_league_personnel_snapshot(
@@ -165,6 +182,7 @@ def league_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
     expressions: list[pl.Expr] = [
         pl.len().alias("roster_players"),
         (pl.col("snap_games_observed") > 0).sum().alias("players_with_snap_prior"),
+        pl.col("changed_team_since_snap_history").sum().alias("players_changed_team"),
     ]
     for column, alias in [
         ("height", "players_with_height"),
