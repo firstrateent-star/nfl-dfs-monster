@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import polars as pl
 
+from monster.teams import NFL_TEAMS, TEAM_ALIASES
+
+_TEAM_MAP = {**{team: team for team in NFL_TEAMS}, **TEAM_ALIASES}
+
 
 def compile_latest_depth_chart(depth_charts: pl.DataFrame) -> pl.DataFrame:
-    """Reduce the 2025+ dated ESPN depth-chart feed to one current role per player.
+    """Reduce the 2025+ dated ESPN depth-chart feed to one current role per team/player.
 
-    The modern nflverse schema is dated (`dt`) and uses gsis_id plus positional rank.
-    We preserve the raw role fields and never interpret a depth rank as guaranteed snaps.
+    Players can appear in more than one team's historical daily charts after trades,
+    waivers or camp moves. Team identity is therefore part of the depth-chart key.
     """
     required = {"dt", "team", "gsis_id", "pos_grp", "pos_abb", "pos_slot", "pos_rank"}
     missing = required.difference(depth_charts.columns)
@@ -19,17 +23,22 @@ def compile_latest_depth_chart(depth_charts: pl.DataFrame) -> pl.DataFrame:
     frame = depth_charts.with_columns(
         pl.col("dt").cast(pl.Datetime, strict=False),
         pl.col("gsis_id").cast(pl.Utf8),
-        pl.col("team").cast(pl.Utf8).str.to_uppercase(),
+        pl.col("team")
+        .cast(pl.Utf8)
+        .str.to_uppercase()
+        .replace(_TEAM_MAP)
+        .alias("depth_team_id"),
         pl.col("pos_rank").cast(pl.Int64, strict=False),
-    ).filter(pl.col("gsis_id").is_not_null())
+    ).filter(
+        pl.col("gsis_id").is_not_null()
+        & pl.col("depth_team_id").is_in(list(NFL_TEAMS))
+    )
 
-    # A player can appear in more than one slot. Keep his most recent chart entry and,
-    # within the same timestamp, the best (lowest) positional rank.
     return (
         frame.sort(["dt", "pos_rank"], descending=[True, False])
-        .unique(subset=["team", "gsis_id"], keep="first")
+        .unique(subset=["depth_team_id", "gsis_id"], keep="first")
         .select(
-            pl.col("team").alias("depth_team_id"),
+            "depth_team_id",
             "gsis_id",
             pl.col("dt").alias("depth_chart_timestamp"),
             pl.col("pos_grp").alias("depth_position_group"),
@@ -48,9 +57,23 @@ def attach_depth_chart(personnel: pl.DataFrame, depth_charts: pl.DataFrame) -> p
             pl.lit(None, dtype=pl.Utf8).alias("depth_position"),
             pl.lit(None, dtype=pl.Utf8).alias("depth_slot"),
         )
-    if "gsis_id" not in personnel.columns:
-        raise ValueError("Personnel snapshot requires gsis_id for depth-chart join")
-    return personnel.join(depth, on="gsis_id", how="left")
+    required = {"gsis_id", "team_id"}
+    missing = required.difference(personnel.columns)
+    if missing:
+        raise ValueError(f"Personnel snapshot missing depth join keys: {sorted(missing)}")
+
+    before = personnel.height
+    joined = personnel.join(
+        depth,
+        left_on=["team_id", "gsis_id"],
+        right_on=["depth_team_id", "gsis_id"],
+        how="left",
+    )
+    if joined.height != before:
+        raise ValueError(
+            f"Depth-chart join changed personnel row count: before={before} after={joined.height}"
+        )
+    return joined
 
 
 def depth_role_multiplier(rank: pl.Expr) -> pl.Expr:
