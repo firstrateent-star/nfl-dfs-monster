@@ -22,10 +22,11 @@ class GameWorlds:
     # World-level OL/matchup states propagated into player allocation. Higher pass
     # disruption means a harder pressure/coverage environment. Higher run efficiency
     # means a better blocking/front environment for rushing production.
-    away_pass_disruption: np.ndarray
-    home_pass_disruption: np.ndarray
-    away_run_efficiency: np.ndarray
-    home_run_efficiency: np.ndarray
+    # Optional defaults preserve compatibility with historical/test GameWorlds objects.
+    away_pass_disruption: np.ndarray | None = None
+    home_pass_disruption: np.ndarray | None = None
+    away_run_efficiency: np.ndarray | None = None
+    home_run_efficiency: np.ndarray | None = None
 
     @property
     def total(self) -> np.ndarray:
@@ -78,9 +79,6 @@ def _simulate_team_drives(
     run_matchup = team.run_block_effect - opponent.run_defense_effect
     unit_matchup = team.neutral_pass_rate * pass_matchup + (1.0 - team.neutral_pass_rate) * run_matchup
 
-    # OL uncertainty is sampled as epistemic football state, not added to the mean.
-    # Rebuilt/poorly linked lines therefore get wider upside/downside pathways while
-    # current individual blocking capability remains the bounded mean effect above.
     if team.offensive_line_uncertainty <= 0.0:
         line_state = np.zeros(worlds, dtype=np.float32)
     else:
@@ -94,8 +92,6 @@ def _simulate_team_drives(
         )
         line_state = rng.normal(0.0, line_sigma, worlds).astype(np.float32)
 
-    # Preserve the causal pathway into the downstream player allocator. These are
-    # dimensionless bounded multipliers around 1.0, not extra fantasy-point bonuses.
     pass_disruption = np.clip(
         1.0
         + 1.10
@@ -139,8 +135,6 @@ def _simulate_team_drives(
     )
     state = _mean_one_lognormal(rng, epistemic_sigma, worlds)
 
-    # Use the same pass-disruption state that will later govern sacks/player efficiency,
-    # so turnover and player pathways cannot drift into separate football realities.
     turnover_multiplier = np.clip(1.0 + 0.55 * (pass_disruption - 1.0), 0.86, 1.14)
 
     td_p = _clip_probability(td_base * quality * state, 0.07, 0.48)
