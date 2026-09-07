@@ -24,20 +24,20 @@ def age_on_date(birth_date: date | None, game_date: date) -> float | None:
 
 
 def compile_player_usage(pbp: pl.DataFrame) -> pl.DataFrame:
-    """Compile player opportunity priors directly from football events."""
+    """Compile player opportunity and efficiency priors directly from football events."""
     required = {
         "posteam",
         "receiver_player_id",
         "rusher_player_id",
-        "passer_player_id",
         "pass_attempt",
         "rush_attempt",
-        "qb_scramble",
         "yardline_100",
         "touchdown",
         "yards_gained",
         "air_yards",
         "complete_pass",
+        "pass_touchdown",
+        "rush_touchdown",
     }
     missing = required.difference(pbp.columns)
     if missing:
@@ -55,15 +55,29 @@ def compile_player_usage(pbp: pl.DataFrame) -> pl.DataFrame:
             pl.col("complete_pass").sum().alias("receptions"),
             pl.col("air_yards").mean().alias("adot"),
             pl.col("yards_gained").sum().alias("receiving_yards"),
-            pl.col("touchdown").sum().alias("receiving_tds"),
+            pl.col("pass_touchdown").sum().alias("receiving_tds"),
             pl.col("red_zone_opportunity").sum().alias("red_zone_targets"),
             pl.col("explosive_play").sum().alias("explosive_receptions"),
         )
         .rename({"receiver_player_id": "player_id", "posteam": "team_id"})
     )
-    team_targets = targets.group_by("team_id").agg(pl.col("targets").sum().alias("team_targets"))
+    team_targets = targets.group_by("team_id").agg(
+        pl.col("targets").sum().alias("team_targets"),
+        pl.col("red_zone_targets").sum().alias("team_red_zone_targets"),
+        pl.col("receiving_tds").sum().alias("team_receiving_tds"),
+    )
     targets = targets.join(team_targets, on="team_id", how="left").with_columns(
-        (pl.col("targets") / pl.col("team_targets").clip(lower_bound=1)).alias("target_share")
+        (pl.col("targets") / pl.col("team_targets").clip(lower_bound=1)).alias("target_share"),
+        (pl.col("red_zone_targets") / pl.col("team_red_zone_targets").clip(lower_bound=1)).alias(
+            "red_zone_target_share"
+        ),
+        (pl.col("receiving_tds") / pl.col("team_receiving_tds").clip(lower_bound=1)).alias(
+            "receiving_td_share"
+        ),
+        (pl.col("receptions") / pl.col("targets").clip(lower_bound=1)).alias("catch_rate"),
+        (pl.col("receiving_yards") / pl.col("receptions").clip(lower_bound=1)).alias(
+            "yards_per_reception"
+        ),
     )
 
     rushes = (
@@ -76,15 +90,28 @@ def compile_player_usage(pbp: pl.DataFrame) -> pl.DataFrame:
         .agg(
             pl.len().alias("rushes"),
             pl.col("yards_gained").sum().alias("rushing_yards"),
-            pl.col("touchdown").sum().alias("rushing_tds"),
+            pl.col("rush_touchdown").sum().alias("rushing_tds"),
             pl.col("red_zone_opportunity").sum().alias("red_zone_rushes"),
             pl.col("explosive_rush").sum().alias("explosive_rushes"),
         )
         .rename({"rusher_player_id": "player_id", "posteam": "team_id"})
     )
-    team_rushes = rushes.group_by("team_id").agg(pl.col("rushes").sum().alias("team_rushes"))
+    team_rushes = rushes.group_by("team_id").agg(
+        pl.col("rushes").sum().alias("team_rushes"),
+        pl.col("red_zone_rushes").sum().alias("team_red_zone_rushes"),
+        pl.col("rushing_tds").sum().alias("team_rushing_tds"),
+    )
     rushes = rushes.join(team_rushes, on="team_id", how="left").with_columns(
-        (pl.col("rushes") / pl.col("team_rushes").clip(lower_bound=1)).alias("rush_share")
+        (pl.col("rushes") / pl.col("team_rushes").clip(lower_bound=1)).alias("rush_share"),
+        (pl.col("red_zone_rushes") / pl.col("team_red_zone_rushes").clip(lower_bound=1)).alias(
+            "red_zone_rush_share"
+        ),
+        (pl.col("rushing_tds") / pl.col("team_rushing_tds").clip(lower_bound=1)).alias(
+            "rushing_td_share"
+        ),
+        (pl.col("rushing_yards") / pl.col("rushes").clip(lower_bound=1)).alias(
+            "yards_per_carry"
+        ),
     )
 
     return targets.join(rushes, on=["team_id", "player_id"], how="full", coalesce=True).fill_null(0)

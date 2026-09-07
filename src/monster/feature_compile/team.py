@@ -32,6 +32,8 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
         "epa",
         "success",
         "touchdown",
+        "pass_touchdown",
+        "rush_touchdown",
         "interception",
         "fumble_lost",
         "sack",
@@ -93,11 +95,17 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
             (pl.col("qb_hit").sum() / pl.col("qb_dropback").sum().clip(lower_bound=1)).alias(
                 "qb_hit_rate_allowed"
             ),
+            pl.col("pass_touchdown").sum().alias("pass_touchdowns"),
+            pl.col("rush_touchdown").sum().alias("rush_touchdowns"),
         )
         .with_columns(
             (pl.col("scrimmage_plays") / pl.col("games_observed").clip(lower_bound=1)).alias(
                 "plays_per_game"
-            )
+            ),
+            (
+                pl.col("pass_touchdowns")
+                / (pl.col("pass_touchdowns") + pl.col("rush_touchdowns")).clip(lower_bound=1)
+            ).alias("pass_td_share"),
         )
         .rename({"posteam": "team_id"})
     )
