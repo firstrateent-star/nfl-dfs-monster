@@ -114,4 +114,25 @@ def compile_player_usage(pbp: pl.DataFrame) -> pl.DataFrame:
         ),
     )
 
-    return targets.join(rushes, on=["team_id", "player_id"], how="full", coalesce=True).fill_null(0)
+    result = targets.join(rushes, on=["team_id", "player_id"], how="full", coalesce=True)
+
+    # QB pass share is a role-state variable rather than a skill-position allocation.
+    # Compile it when the source provides passer IDs; older/synthetic tests can omit it.
+    if "passer_player_id" in pbp.columns:
+        passers = (
+            pbp.filter((pl.col("pass_attempt") == 1) & pl.col("passer_player_id").is_not_null())
+            .group_by(["posteam", "passer_player_id"])
+            .agg(pl.len().alias("pass_attempts"))
+            .rename({"passer_player_id": "player_id", "posteam": "team_id"})
+        )
+        team_passes = passers.group_by("team_id").agg(
+            pl.col("pass_attempts").sum().alias("team_pass_attempts")
+        )
+        passers = passers.join(team_passes, on="team_id", how="left").with_columns(
+            (pl.col("pass_attempts") / pl.col("team_pass_attempts").clip(lower_bound=1)).alias(
+                "qb_pass_share"
+            )
+        )
+        result = result.join(passers, on=["team_id", "player_id"], how="full", coalesce=True)
+
+    return result.fill_null(0)
