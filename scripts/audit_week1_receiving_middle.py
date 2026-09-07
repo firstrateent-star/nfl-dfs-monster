@@ -2,28 +2,53 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 
 from monster.feature_compile.health_pools import apply_health_to_skill_pools
+from monster.feature_compile.league_units import compile_league_unit_player_map
+from monster.feature_compile.ol_simulation import compile_ol_simulation_context
 from monster.feature_compile.skill_pools import compile_current_skill_pools, compile_player_physical_inputs
+from monster.feature_compile.units import apply_team_unit_effects, compile_team_unit_effects
 from monster.sim.pipeline import simulate_monster_game
 from monster.snapshot.league import compile_team_state_map
 from monster.snapshot.model import GameState
-from scripts.run_week1_full_monster import (
-    GAME_DATE,
-    MATCHUPS,
-    _read,
-    _strengthened_state,
-    _unit_context,
+
+MATCHUPS = (
+    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAC"),
+    ("TB", "CIN"), ("ATL", "PIT"), ("NYJ", "TEN"), ("BAL", "IND"),
+    ("ARI", "LAC"), ("WAS", "PHI"), ("MIA", "LV"), ("GB", "MIN"),
 )
+GAME_DATE = date(2026, 9, 13)
 
 
-def _q(values: np.ndarray, q: float) -> float:
-    return float(np.quantile(values.astype(float), q))
+def _read(path: Path) -> pl.DataFrame:
+    return pl.read_parquet(path) if path.suffix == ".parquet" else pl.read_csv(path)
+
+
+def _unit_context(personnel: pl.DataFrame, historical_ol: pl.DataFrame | None):
+    unit_map = compile_league_unit_player_map(personnel)
+    rows = []
+    for team_id, players in unit_map.items():
+        effects, _ = compile_team_unit_effects(players)
+        rows.append({"team_id": team_id, **effects.__dict__})
+    effects_frame = pl.DataFrame(rows)
+    ol = compile_ol_simulation_context(personnel, effects_frame, historical_ol)
+    return unit_map, {str(row["team_id"]): row for row in ol.to_dicts()}
+
+
+def _strengthened_state(base, unit_players, ol_row):
+    effects, _ = compile_team_unit_effects(unit_players)
+    state = apply_team_unit_effects(base, effects)
+    return replace(
+        state,
+        offensive_line_continuity=float(ol_row["offensive_line_continuity"]),
+        offensive_line_uncertainty=float(ol_row["offensive_line_uncertainty"]),
+    )
 
 
 def _historical_target_tiers(season: int) -> dict[str, float]:
@@ -149,7 +174,6 @@ def main() -> None:
     ]
     comparison = pl.DataFrame(rows)
 
-    # Candidate bands are deliberately broad enough to validate structure without fitting Week 1.
     middle_tier_within_candidate_band = (
         abs(simulated["middle_earners"] - historical["middle_earners"]) <= 0.45
         and abs(simulated["middle_share"] - historical["middle_share"]) <= 0.045
