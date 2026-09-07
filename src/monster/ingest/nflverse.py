@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import nflreadpy as nfl
 import polars as pl
+import requests
 
 PBP_COLUMNS = [
     "game_id",
@@ -60,12 +62,34 @@ def configure_cache(cache_dir: Path) -> None:
     )
 
 
+def _read_public_parquet(url: str) -> pl.DataFrame:
+    response = requests.get(url, timeout=60)
+    response.raise_for_status()
+    return pl.read_parquet(BytesIO(response.content))
+
+
+def _load_weekly_rosters(season: int) -> pl.DataFrame:
+    """Use nflreadpy when current; otherwise read nflverse's release asset directly."""
+    try:
+        return nfl.load_rosters_weekly([season])
+    except ValueError:
+        url = (
+            "https://github.com/nflverse/nflverse-data/releases/download/weekly_rosters/"
+            f"roster_weekly_{season}.parquet"
+        )
+        return _read_public_parquet(url)
+
+
+def _load_optional_current(loader, current_season: int) -> pl.DataFrame:
+    try:
+        return loader([current_season])
+    except (OSError, RuntimeError, ValueError, requests.RequestException):
+        return pl.DataFrame()
+
+
 def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
     """Current-season snap files may not exist before Week 1; fail neutral, not hard."""
-    try:
-        return nfl.load_snap_counts([current_season])
-    except (OSError, RuntimeError, ValueError):
-        return pl.DataFrame()
+    return _load_optional_current(nfl.load_snap_counts, current_season)
 
 
 def load_league_personnel_inputs(
@@ -80,12 +104,12 @@ def load_league_personnel_inputs(
     return {
         "players": nfl.load_players(),
         "teams": nfl.load_teams(),
-        "current_rosters": nfl.load_rosters_weekly([current_season]),
-        "injuries": nfl.load_injuries([current_season]),
+        "current_rosters": _load_weekly_rosters(current_season),
+        "injuries": _load_optional_current(nfl.load_injuries, current_season),
         "historical_snap_counts": nfl.load_snap_counts(history_seasons),
         "current_snap_counts": _load_current_snap_counts(current_season),
         "combine": nfl.load_combine(),
-        "depth_charts": nfl.load_depth_charts([current_season]),
+        "depth_charts": _load_optional_current(nfl.load_depth_charts, current_season),
         "pfr_defense_weekly": nfl.load_pfr_advstats(
             history_seasons,
             stat_type="def",
