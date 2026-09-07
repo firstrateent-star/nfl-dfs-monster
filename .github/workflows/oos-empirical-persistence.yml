@@ -1,0 +1,41 @@
+name: Empirical feature persistence OOS
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_empirical_persistence.py
+      - scripts/validate_oos_regressed_team_state.py
+      - src/monster/feature_compile/team.py
+      - src/monster/snapshot/league.py
+      - src/monster/sim/game.py
+      - .github/workflows/oos-empirical-persistence.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run empirical persistence ablation
+        run: >-
+          uv run python scripts/validate_oos_empirical_persistence.py
+          --worlds 2500 --seed 2026090751
+          --out artifacts/oos-empirical-persistence
+      - name: Show result
+        if: always()
+        run: cat artifacts/oos-empirical-persistence/manifest.json
+      - name: Enforce empirical persistence gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-empirical-persistence/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-empirical-persistence
+          path: artifacts/oos-empirical-persistence/
+          retention-days: 7
