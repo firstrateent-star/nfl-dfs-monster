@@ -227,11 +227,13 @@ def _allocate_team(
             worlds,
         )
         qb_pass_attempts = _allocate_integer_counts(rng, team_pass_attempts, qb_shares)
-        qb_completions = _allocate_integer_counts(
-            rng,
-            np.sum(receptions, axis=1).astype(np.int16),
-            qb_shares,
-        )
+        total_receptions = np.sum(
+            np.column_stack(
+                [player_stats[player.player_id]["receptions"] for player in players]
+            ),
+            axis=1,
+        ).astype(np.int16)
+        qb_completions = _allocate_integer_counts(rng, total_receptions, qb_shares)
         qb_passing_tds = _allocate_integer_counts(rng, passing_tds, qb_shares)
         total_receiving_yards = np.sum(
             np.column_stack(
