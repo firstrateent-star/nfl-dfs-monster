@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 
 from monster.ingest.nflverse import configure_cache
@@ -101,6 +102,23 @@ def main() -> None:
         )
     )
 
+    # Diagnose the remaining play-shape variance after possession count is known. This is the
+    # quantity the allocation layer should reproduce; sampling another Poisson at ~60 plays can
+    # double-count variance already supplied by the drive process.
+    x = team_games.get_column("drives").cast(pl.Float64).to_numpy()
+    y = team_games.get_column("plays").cast(pl.Float64).to_numpy()
+    slope, intercept = np.polyfit(x, y, 1)
+    fitted = intercept + slope * x
+    residual = y - fitted
+    residual_sd = float(np.std(residual, ddof=1))
+    residual_p10 = float(np.quantile(residual, 0.10))
+    residual_p50 = float(np.quantile(residual, 0.50))
+    residual_p90 = float(np.quantile(residual, 0.90))
+    conditional_play_model = pl.DataFrame({
+        "metric": ["intercept", "plays_per_drive_slope", "residual_sd", "residual_p10", "residual_p50", "residual_p90"],
+        "value": [float(intercept), float(slope), residual_sd, residual_p10, residual_p50, residual_p90],
+    })
+
     metrics = [
         "drives", "plays", "dropbacks", "pass_attempts", "rush_attempts", "sacks",
         "total_yards", "yards_per_play",
@@ -179,6 +197,7 @@ def main() -> None:
     game_drives.write_csv(args.out / "historical_game_drives.csv")
     league.write_csv(args.out / "historical_league_distribution.csv")
     game_drive_summary.write_csv(args.out / "historical_game_drive_distribution.csv")
+    conditional_play_model.write_csv(args.out / "historical_plays_given_drives.csv")
     comparison.write_csv(args.out / "sim_vs_historical.csv")
 
     manifest = {
@@ -197,6 +216,14 @@ def main() -> None:
         "historical_play_p10": historical_play_p10,
         "historical_play_p90": historical_play_p90,
         "play_tail_width_ratio": play_tail_width_ratio,
+        "historical_plays_given_drives": {
+            "intercept": float(intercept),
+            "slope": float(slope),
+            "residual_sd": residual_sd,
+            "residual_p10": residual_p10,
+            "residual_p50": residual_p50,
+            "residual_p90": residual_p90,
+        },
         "diagnosis": diagnosis,
         "market_blind": True,
         "principle": "Diagnose opportunity mean and shape before modifying player shares or fantasy translation.",
@@ -204,6 +231,7 @@ def main() -> None:
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(league)
     print(game_drive_summary)
+    print(conditional_play_model)
     print(comparison.sort("league_total_yards_z", descending=True))
     print(json.dumps(manifest, indent=2))
 
