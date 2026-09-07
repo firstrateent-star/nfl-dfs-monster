@@ -1,0 +1,38 @@
+name: Build 32-team league baseline
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - 'src/monster/teams.py'
+      - 'src/monster/ingest/nflverse.py'
+      - 'src/monster/ingest/league.py'
+      - 'src/monster/feature_compile/participation.py'
+      - 'scripts/build_league_baseline.py'
+      - '.github/workflows/build-league-baseline.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build all-32-team personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/league-baseline
+      - name: Show coverage
+        run: cat artifacts/league-baseline/coverage_by_team.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-2026-league-baseline
+          path: artifacts/league-baseline/
+          retention-days: 7
+          compression-level: 6
