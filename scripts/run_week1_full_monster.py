@@ -19,13 +19,13 @@ from monster.snapshot.league import compile_team_state_map
 from monster.snapshot.model import GameState
 
 MATCHUPS = (
-    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAX"),
+    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAC"),
     ("TB", "CIN"), ("ATL", "PIT"), ("NYJ", "TEN"), ("BAL", "IND"),
     ("ARI", "LAC"), ("WAS", "PHI"), ("MIA", "LV"), ("GB", "MIN"),
 )
 GAME_DATE = date(2026, 9, 13)
 PARENT_TOTAL_REFERENCE = {
-    "CHI@CAR": 48.7, "BUF@HOU": 49.0, "NO@DET": 49.2, "CLE@JAX": 40.265085,
+    "CHI@CAR": 48.7, "BUF@HOU": 49.0, "NO@DET": 49.2, "CLE@JAC": 40.265085,
     "TB@CIN": 50.8, "ATL@PIT": 42.009865, "NYJ@TEN": 40.467785,
     "BAL@IND": 49.6, "ARI@LAC": 48.1, "WAS@PHI": 45.41134,
     "MIA@LV": 39.939785, "GB@MIN": 41.2,
