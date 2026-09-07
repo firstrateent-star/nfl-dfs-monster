@@ -21,6 +21,11 @@ class PlayerState:
     active_probability: float = 1.0
     effectiveness_if_active: float = 1.0
     role_uncertainty: float = 0.08
+    # Game-day availability and game-plan participation are distinct. A healthy skill player can
+    # dress without receiving a designed carry. This probability governs whether a player enters
+    # the rushing opportunity pool in a simulated world; target participation remains unchanged
+    # until its separate concentration/breadth problem is understood.
+    rush_role_probability: float = 1.0
     explosive_modifier: float = 1.0
     catchpoint_modifier: float = 1.0
     rushing_efficiency_modifier: float = 1.0
