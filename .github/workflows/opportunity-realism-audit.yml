@@ -5,6 +5,7 @@ on:
     branches:
       - feature/slate-simulator-v1
     paths:
+      - "src/monster/sim/game.py"
       - "src/monster/feature_compile/team.py"
       - "scripts/audit_opportunity_realism.py"
       - "scripts/run_week1_full_monster.py"
