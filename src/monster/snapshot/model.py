@@ -26,6 +26,16 @@ class TeamState:
     defensive_explosive_rate_allowed: float = 0.10
     defensive_sack_rate: float = 0.07
     defensive_qb_hit_rate: float = 0.18
+
+    # Snap-weighted all-player unit mechanisms. These are compiled from offense,
+    # defense and special-teams personnel before the game is simulated.
+    pass_protection_effect: float = 0.0
+    run_block_effect: float = 0.0
+    pass_rush_effect: float = 0.0
+    coverage_effect: float = 0.0
+    run_defense_effect: float = 0.0
+    special_teams_effect: float = 0.0
+
     continuity: float = 0.5
     injury_effect: float = 0.0
     weather_effect: float = 0.0
