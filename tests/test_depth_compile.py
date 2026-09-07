@@ -10,7 +10,7 @@ def test_latest_depth_chart_uses_best_current_role():
     depth = pl.DataFrame(
         {
             "dt": ["2026-09-01T10:00:00", "2026-09-06T10:00:00", "2026-09-06T10:00:00"],
-            "team": ["A", "A", "A"],
+            "team": ["ARI", "ARI", "ARI"],
             "gsis_id": ["p1", "p1", "p1"],
             "pos_grp": ["WR", "WR", "WR"],
             "pos_abb": ["WR", "WR", "WR"],
@@ -23,10 +23,28 @@ def test_latest_depth_chart_uses_best_current_role():
     assert row["depth_slot"] == "SWR"
 
 
+def test_depth_join_uses_current_team_and_does_not_duplicate_player():
+    personnel = pl.DataFrame({"team_id": ["ARI"], "gsis_id": ["p1"]})
+    depth = pl.DataFrame(
+        {
+            "dt": ["2026-08-01T10:00:00", "2026-09-06T10:00:00"],
+            "team": ["ATL", "ARI"],
+            "gsis_id": ["p1", "p1"],
+            "pos_grp": ["WR", "WR"],
+            "pos_abb": ["WR", "WR"],
+            "pos_slot": ["WR", "WR"],
+            "pos_rank": [1, 2],
+        }
+    )
+    out = attach_depth_chart(personnel, depth)
+    assert out.height == 1
+    assert out.row(0, named=True)["depth_rank"] == 2
+
+
 def test_depth_rank_refines_no_history_role_but_not_observed_snap_prior():
     personnel = pl.DataFrame(
         {
-            "team_id": ["A", "A"],
+            "team_id": ["ARI", "ARI"],
             "gsis_id": ["rook", "vet"],
             "status": ["ACT", "ACT"],
             "position_group": ["WR", "WR"],
@@ -42,7 +60,7 @@ def test_depth_rank_refines_no_history_role_but_not_observed_snap_prior():
     depth = pl.DataFrame(
         {
             "dt": ["2026-09-06T10:00:00", "2026-09-06T10:00:00"],
-            "team": ["A", "A"],
+            "team": ["ARI", "ARI"],
             "gsis_id": ["rook", "vet"],
             "pos_grp": ["WR", "WR"],
             "pos_abb": ["WR", "WR"],
