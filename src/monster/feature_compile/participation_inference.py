@@ -52,6 +52,22 @@ def _conditional_share(prior: str, group: str, defaults: dict[str, float]) -> pl
     )
 
 
+def _conserve_unit(frame: pl.DataFrame, raw_column: str, output_column: str) -> pl.DataFrame:
+    """Rescale independent player priors toward 11 player-equivalents per team.
+
+    Football constrains every ordinary unit to 11 players on the field. Independent
+    player priors can sum above/below that because of transfers and missing history.
+    Conservation redistributes role mass within the team instead of mistaking source
+    coverage for extra/missing players. Individual expected shares remain capped <1.
+    """
+    if "team_id" not in frame.columns:
+        return frame.with_columns(pl.col(raw_column).alias(output_column))
+    total = pl.col(raw_column).sum().over("team_id").clip(lower_bound=0.01)
+    return frame.with_columns(
+        (pl.col(raw_column) * (11.0 / total)).clip(0.0, 0.995).alias(output_column)
+    )
+
+
 def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.DataFrame:
     """Infer expected game-day participation for every league roster row.
 
@@ -60,10 +76,9 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
     2. conditional snap share if active;
     3. uncertainty about that role.
 
-    Final expected snap influence is P(active) × conditional snap share. A player
-    changing teams keeps his prior-season snap evidence but receives additional role
-    uncertainty. Rookies and players with no recent snaps are uncertain rather than
-    automatically considered poor players.
+    Raw expected influence is P(active) × conditional snap share. When team identity
+    is present, a conservation pass then rescales each unit toward the structural
+    11-player constraint. Raw shares are retained for audit.
     """
     required = {
         "status",
@@ -116,15 +131,25 @@ def infer_game_day_participation(snapshot: pl.DataFrame, season: int) -> pl.Data
     frame = frame.with_columns(
         (
             pl.col("game_day_active_probability") * pl.col("conditional_offense_snap_share")
-        ).alias("projected_offense_snap_share"),
+        ).alias("raw_projected_offense_snap_share"),
         (
             pl.col("game_day_active_probability") * pl.col("conditional_defense_snap_share")
-        ).alias("projected_defense_snap_share"),
+        ).alias("raw_projected_defense_snap_share"),
         (
             pl.col("game_day_active_probability")
             * pl.col("conditional_special_teams_snap_share")
-        ).alias("projected_special_teams_snap_share"),
-    ).with_columns(
+        ).alias("raw_projected_special_teams_snap_share"),
+    )
+    frame = _conserve_unit(
+        frame, "raw_projected_offense_snap_share", "projected_offense_snap_share"
+    )
+    frame = _conserve_unit(
+        frame, "raw_projected_defense_snap_share", "projected_defense_snap_share"
+    )
+    frame = _conserve_unit(
+        frame, "raw_projected_special_teams_snap_share", "projected_special_teams_snap_share"
+    )
+    frame = frame.with_columns(
         pl.max_horizontal(
             "projected_offense_snap_share",
             "projected_defense_snap_share",
