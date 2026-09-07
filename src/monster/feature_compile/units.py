@@ -21,7 +21,6 @@ class UnitPlayerInputs:
     active_probability: float = 1.0
     effectiveness_if_active: float = 1.0
 
-    # Raw capability/proxy fields. Missing values are neutral.
     madden_pass_block: float | None = None
     madden_run_block: float | None = None
     madden_pass_rush: float | None = None
@@ -32,7 +31,6 @@ class UnitPlayerInputs:
     madden_kick_accuracy: float | None = None
     madden_return: float | None = None
 
-    # Non-Madden football-derived standardized signals may be supplied later.
     pass_block_signal: float | None = None
     run_block_signal: float | None = None
     pass_rush_signal: float | None = None
@@ -101,13 +99,25 @@ def _weighted_average(values: list[tuple[float, float]]) -> tuple[float, float]:
     return float(sum(value * weight for value, weight in values) / total_weight), float(total_weight)
 
 
-def compile_team_unit_effects(players: tuple[UnitPlayerInputs, ...]) -> tuple[TeamUnitEffects, UnitTrace]:
-    """Aggregate every participating player's evidence using expected snap share.
+def _position_group(position: str) -> str:
+    p = position.upper().strip()
+    if p in {"OT", "T", "LT", "RT", "OG", "G", "LG", "RG", "C", "OL"}:
+        return "OL"
+    if p in {"DE", "DT", "NT", "DL", "EDGE"}:
+        return "DL"
+    if p in {"LB", "ILB", "OLB", "MLB"}:
+        return "LB"
+    if p in {"CB", "DB", "S", "FS", "SS"}:
+        return "DB"
+    if p in {"K", "P", "LS", "SPEC"}:
+        return "SPEC"
+    return p
 
-    The unit layer is deliberately small and bounded. It turns player personnel into
-    football mechanisms (protection, rush, coverage, run defense, special teams),
-    never directly into points or fantasy projections.
-    """
+
+def compile_team_unit_effects(
+    players: tuple[UnitPlayerInputs, ...],
+) -> tuple[TeamUnitEffects, UnitTrace]:
+    """Aggregate participating players only into mechanisms their positions can inform."""
     pass_block_values: list[tuple[float, float]] = []
     run_block_values: list[tuple[float, float]] = []
     pass_rush_values: list[tuple[float, float]] = []
@@ -117,38 +127,72 @@ def compile_team_unit_effects(players: tuple[UnitPlayerInputs, ...]) -> tuple[Te
     uncertainty_values: list[tuple[float, float]] = []
 
     offense_players = defense_players = special_players = 0
+    offense_trace_weight = defense_trace_weight = special_trace_weight = 0.0
 
     for player in players:
+        group = _position_group(player.position)
         offense_weight = _availability_weight(player, player.offense_snap_share)
         defense_weight = _availability_weight(player, player.defense_snap_share)
         special_weight = _availability_weight(player, player.special_teams_snap_share)
 
         if offense_weight > 0.0:
             offense_players += 1
-            pass_block_values.append(
-                (_blend(player.pass_block_signal, player.madden_pass_block), offense_weight)
-            )
-            run_block_values.append(
-                (_blend(player.run_block_signal, player.madden_run_block), offense_weight)
-            )
+            offense_trace_weight += offense_weight
+            # Protection is dominated by OL, with TE/RB secondary blocking jurisdiction.
+            if group in {"OL", "TE", "RB"}:
+                jurisdiction = 1.0 if group == "OL" else 0.35
+                pass_block_values.append(
+                    (
+                        _blend(player.pass_block_signal, player.madden_pass_block),
+                        offense_weight * jurisdiction,
+                    )
+                )
+            # Run blocking also includes TE/WR edge blocking, but at lower authority.
+            if group in {"OL", "TE", "WR"}:
+                jurisdiction = 1.0 if group == "OL" else (0.40 if group == "TE" else 0.15)
+                run_block_values.append(
+                    (
+                        _blend(player.run_block_signal, player.madden_run_block),
+                        offense_weight * jurisdiction,
+                    )
+                )
             uncertainty_values.append((player.snap_share_uncertainty, offense_weight))
 
         if defense_weight > 0.0:
             defense_players += 1
-            pass_rush_values.append(
-                (_blend(player.pass_rush_signal, player.madden_pass_rush), defense_weight)
-            )
-            coverage_proxy = player.madden_coverage
-            if coverage_proxy is None and player.madden_speed is not None:
-                coverage_proxy = 0.70 * 78.0 + 0.30 * player.madden_speed
-            coverage_values.append((_blend(player.coverage_signal, coverage_proxy), defense_weight))
-            run_defense_values.append(
-                (_blend(player.run_defense_signal, player.madden_tackle), defense_weight)
-            )
+            defense_trace_weight += defense_weight
+            if group in {"DL", "LB"}:
+                jurisdiction = 1.0 if group == "DL" else 0.55
+                pass_rush_values.append(
+                    (
+                        _blend(player.pass_rush_signal, player.madden_pass_rush),
+                        defense_weight * jurisdiction,
+                    )
+                )
+            if group in {"DB", "LB"}:
+                jurisdiction = 1.0 if group == "DB" else 0.55
+                coverage_proxy = player.madden_coverage
+                if coverage_proxy is None and player.madden_speed is not None:
+                    coverage_proxy = 0.70 * 78.0 + 0.30 * player.madden_speed
+                coverage_values.append(
+                    (
+                        _blend(player.coverage_signal, coverage_proxy),
+                        defense_weight * jurisdiction,
+                    )
+                )
+            if group in {"DL", "LB", "DB"}:
+                jurisdiction = 1.0 if group in {"DL", "LB"} else 0.45
+                run_defense_values.append(
+                    (
+                        _blend(player.run_defense_signal, player.madden_tackle),
+                        defense_weight * jurisdiction,
+                    )
+                )
             uncertainty_values.append((player.snap_share_uncertainty, defense_weight))
 
         if special_weight > 0.0:
             special_players += 1
+            special_trace_weight += special_weight
             kick_signal = 0.0
             if player.madden_kick_accuracy is not None or player.madden_kick_power is not None:
                 kick_signal = 0.60 * _rating_signal(player.madden_kick_accuracy) + 0.40 * _rating_signal(
@@ -156,16 +200,18 @@ def compile_team_unit_effects(players: tuple[UnitPlayerInputs, ...]) -> tuple[Te
                 )
             return_signal = _rating_signal(player.madden_return)
             explicit = _bounded_signal(player.special_teams_signal)
-            signal = float(np.clip(0.55 * explicit + 0.30 * kick_signal + 0.15 * return_signal, -1.0, 1.0))
+            signal = float(
+                np.clip(0.55 * explicit + 0.30 * kick_signal + 0.15 * return_signal, -1.0, 1.0)
+            )
             special_values.append((signal, special_weight))
             uncertainty_values.append((player.snap_share_uncertainty, special_weight))
 
-    pass_block, offense_weight = _weighted_average(pass_block_values)
+    pass_block, _ = _weighted_average(pass_block_values)
     run_block, _ = _weighted_average(run_block_values)
-    pass_rush, defense_weight = _weighted_average(pass_rush_values)
+    pass_rush, _ = _weighted_average(pass_rush_values)
     coverage, _ = _weighted_average(coverage_values)
     run_defense, _ = _weighted_average(run_defense_values)
-    special, special_weight = _weighted_average(special_values)
+    special, _ = _weighted_average(special_values)
     uncertainty, _ = _weighted_average(uncertainty_values)
 
     effects = TeamUnitEffects(
@@ -178,9 +224,9 @@ def compile_team_unit_effects(players: tuple[UnitPlayerInputs, ...]) -> tuple[Te
         personnel_uncertainty=float(np.clip(uncertainty, 0.0, 0.20)),
     )
     trace = UnitTrace(
-        offense_snap_weight=offense_weight,
-        defense_snap_weight=defense_weight,
-        special_teams_snap_weight=special_weight,
+        offense_snap_weight=offense_trace_weight,
+        defense_snap_weight=defense_trace_weight,
+        special_teams_snap_weight=special_trace_weight,
         players_with_offense_weight=offense_players,
         players_with_defense_weight=defense_players,
         players_with_special_teams_weight=special_players,
