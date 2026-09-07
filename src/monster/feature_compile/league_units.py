@@ -29,6 +29,15 @@ def unit_player_from_personnel_row(row: dict) -> UnitPlayerInputs:
         snap_share_uncertainty=float(_value(row, "participation_uncertainty", 0.0)),
         active_probability=1.0,
         effectiveness_if_active=1.0,
+        madden_pass_block=_value(row, "madden_pass_block"),
+        madden_run_block=_value(row, "madden_run_block"),
+        madden_pass_rush=_value(row, "madden_pass_rush"),
+        madden_coverage=_value(row, "madden_coverage"),
+        madden_tackle=_value(row, "madden_tackle"),
+        madden_speed=_value(row, "madden_speed"),
+        madden_kick_power=_value(row, "madden_kick_power"),
+        madden_kick_accuracy=_value(row, "madden_kick_accuracy"),
+        madden_return=_value(row, "madden_return"),
         pass_block_signal=_value(row, "observed_pass_block_signal"),
         run_block_signal=_value(row, "observed_run_block_signal"),
         pass_rush_signal=_value(row, "observed_pass_rush_signal"),
@@ -60,6 +69,12 @@ def compile_league_unit_player_map(
     return result
 
 
+def _count_signal(team: pl.DataFrame, column: str) -> int:
+    if column not in team.columns:
+        return 0
+    return int(team.select(pl.col(column).is_not_null().sum()).item())
+
+
 def compile_league_unit_effects(snapshot: pl.DataFrame) -> pl.DataFrame:
     """Compile one auditable six-mechanism unit-effect row for every NFL team.
 
@@ -77,21 +92,14 @@ def compile_league_unit_effects(snapshot: pl.DataFrame) -> pl.DataFrame:
                 **asdict(effects),
                 **asdict(trace),
                 "roster_rows": team.height,
-                "defenders_with_pass_rush_signal": int(
-                    team.select(pl.col("observed_pass_rush_signal").is_not_null().sum()).item()
-                    if "observed_pass_rush_signal" in team.columns
-                    else 0
-                ),
-                "defenders_with_coverage_signal": int(
-                    team.select(pl.col("observed_coverage_signal").is_not_null().sum()).item()
-                    if "observed_coverage_signal" in team.columns
-                    else 0
-                ),
-                "defenders_with_run_defense_signal": int(
-                    team.select(pl.col("observed_run_defense_signal").is_not_null().sum()).item()
-                    if "observed_run_defense_signal" in team.columns
-                    else 0
-                ),
+                "linemen_with_pass_block_signal": _count_signal(team, "observed_pass_block_signal"),
+                "linemen_with_run_block_signal": _count_signal(team, "observed_run_block_signal"),
+                "linemen_with_madden_pass_block": _count_signal(team, "madden_pass_block"),
+                "linemen_with_madden_run_block": _count_signal(team, "madden_run_block"),
+                "defenders_with_pass_rush_signal": _count_signal(team, "observed_pass_rush_signal"),
+                "defenders_with_coverage_signal": _count_signal(team, "observed_coverage_signal"),
+                "defenders_with_run_defense_signal": _count_signal(team, "observed_run_defense_signal"),
+                "specialists_with_observed_signal": _count_signal(team, "observed_special_teams_signal"),
             }
         )
     return pl.DataFrame(rows).sort("team_id")
