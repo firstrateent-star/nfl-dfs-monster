@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Iterable
 
 import polars as pl
@@ -97,6 +99,68 @@ def _combine_snap_history(
     return pl.concat(frames, how="diagonal_relaxed")
 
 
+def _normalize_player_name(value: str | None) -> str:
+    if value is None:
+        return ""
+    text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    text = text.lower()
+    text = re.sub(r"\b(jr|sr|ii|iii|iv|v)\b", "", text)
+    return re.sub(r"[^a-z0-9]", "", text)
+
+
+def _fill_pfr_ids_from_unique_snap_names(roster: pl.DataFrame, snaps: pl.DataFrame) -> pl.DataFrame:
+    """Recover missing PFR IDs from exact normalized names when the mapping is unique.
+
+    This is deterministic identity recovery, not fuzzy matching. It is valuable for OL,
+    whose current nflverse player rows can lack PFR IDs even though PFR snap counts contain
+    the player's full name and PFR ID. Ambiguous names remain unresolved and neutral.
+    """
+    if (
+        "player" not in snaps.columns
+        or "pfr_player_id" not in snaps.columns
+        or "pfr_id" not in roster.columns
+    ):
+        return roster
+
+    roster_name = "display_name" if "display_name" in roster.columns else None
+    if roster_name is None:
+        return roster
+
+    snap_map = (
+        snaps.select("player", "pfr_player_id")
+        .drop_nulls(["player", "pfr_player_id"])
+        .with_columns(
+            pl.col("player")
+            .map_elements(_normalize_player_name, return_dtype=pl.Utf8)
+            .alias("_snap_name_key")
+        )
+        .filter(pl.col("_snap_name_key") != "")
+        .group_by("_snap_name_key")
+        .agg(
+            pl.col("pfr_player_id").n_unique().alias("_pfr_count"),
+            pl.col("pfr_player_id").first().alias("_pfr_from_snap_name"),
+        )
+        .filter(pl.col("_pfr_count") == 1)
+        .drop("_pfr_count")
+    )
+
+    return (
+        roster.with_columns(
+            pl.col(roster_name)
+            .map_elements(_normalize_player_name, return_dtype=pl.Utf8)
+            .alias("_snap_name_key")
+        )
+        .join(snap_map, on="_snap_name_key", how="left")
+        .with_columns(
+            pl.coalesce([pl.col("pfr_id"), pl.col("_pfr_from_snap_name")]).alias("pfr_id"),
+            (
+                pl.col("pfr_id").is_null() & pl.col("_pfr_from_snap_name").is_not_null()
+            ).alias("pfr_id_recovered_from_snap_name"),
+        )
+        .drop("_snap_name_key", "_pfr_from_snap_name")
+    )
+
+
 def _attach_snap_priors(
     roster: pl.DataFrame,
     historical_snap_counts: pl.DataFrame,
@@ -111,9 +175,13 @@ def _attach_snap_priors(
             pl.lit(None, dtype=pl.Utf8).alias("prior_team_id"),
             pl.lit(0, dtype=pl.Int64).alias("snap_team_count"),
             pl.lit(False).alias("changed_team_since_snap_history"),
+            pl.lit(False).alias("pfr_id_recovered_from_snap_name"),
         )
 
     snaps = canonicalize_team_column(snaps).with_columns(pl.col("team_id").alias("team"))
+    roster = _fill_pfr_ids_from_unique_snap_names(roster, snaps)
+    if "pfr_id_recovered_from_snap_name" not in roster.columns:
+        roster = roster.with_columns(pl.lit(False).alias("pfr_id_recovered_from_snap_name"))
     priors = compile_snap_priors(snaps, recent_games=recent_games)
 
     roster_pfr = "pfr_id" if "pfr_id" in roster.columns else None
@@ -184,6 +252,10 @@ def league_coverage_report(snapshot: pl.DataFrame) -> pl.DataFrame:
         (pl.col("snap_games_observed") > 0).sum().alias("players_with_snap_prior"),
         pl.col("changed_team_since_snap_history").sum().alias("players_changed_team"),
     ]
+    if "pfr_id_recovered_from_snap_name" in snapshot.columns:
+        expressions.append(
+            pl.col("pfr_id_recovered_from_snap_name").sum().alias("pfr_ids_recovered_from_snap_name")
+        )
     for column, alias in [
         ("height", "players_with_height"),
         ("weight", "players_with_weight"),
