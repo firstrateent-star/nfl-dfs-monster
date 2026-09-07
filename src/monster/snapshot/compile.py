@@ -13,7 +13,7 @@ from monster.feature_compile.mechanisms import (
 )
 from monster.registry import FeatureRegistry
 from monster.snapshot.guard import assert_market_blind
-from monster.snapshot.model import GameState
+from monster.snapshot.model import GameState, TeamState
 from monster.snapshot.player import TeamPlayerPool
 
 
@@ -42,6 +42,15 @@ def _compile_pool(
     return replace(pool, players=tuple(compiled_players)), traces
 
 
+def _neutral_team_trace(team: TeamState) -> TeamMechanismTrace:
+    return TeamMechanismTrace(
+        personnel_signal=0.0,
+        weather_effect=0.0,
+        continuity_signal=0.0,
+        coaching_entropy=team.coaching_entropy,
+    )
+
+
 def compile_game_snapshot(
     game: GameState,
     away_pool: TeamPlayerPool,
@@ -56,6 +65,7 @@ def compile_game_snapshot(
 
     The database/source layer may contain many raw facts. This function is the
     narrow seam that turns only approved football features into simulation state.
+    No new team inputs means the existing team/pool priors pass through unchanged.
     """
     if registry is not None:
         assert_market_blind(set(game.feature_names), registry)
@@ -64,16 +74,25 @@ def compile_game_snapshot(
     away_pool, away_player_traces = _compile_pool(away_pool, player_inputs)
     home_pool, home_player_traces = _compile_pool(home_pool, player_inputs)
 
-    away_team, away_pool, away_team_trace = compile_team_mechanisms(
-        game.away,
-        away_pool,
-        away_team_inputs or TeamMechanismInputs(dome=game.dome),
-    )
-    home_team, home_pool, home_team_trace = compile_team_mechanisms(
-        game.home,
-        home_pool,
-        home_team_inputs or TeamMechanismInputs(dome=game.dome),
-    )
+    if away_team_inputs is None:
+        away_team = game.away
+        away_team_trace = _neutral_team_trace(game.away)
+    else:
+        away_team, away_pool, away_team_trace = compile_team_mechanisms(
+            game.away,
+            away_pool,
+            away_team_inputs,
+        )
+
+    if home_team_inputs is None:
+        home_team = game.home
+        home_team_trace = _neutral_team_trace(game.home)
+    else:
+        home_team, home_pool, home_team_trace = compile_team_mechanisms(
+            game.home,
+            home_pool,
+            home_team_inputs,
+        )
 
     compiled_game = replace(game, away=away_team, home=home_team)
     traces = {**away_player_traces, **home_player_traces}
