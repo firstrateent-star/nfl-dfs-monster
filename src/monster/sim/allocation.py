@@ -62,8 +62,14 @@ def _sample_role_shares(
     players: tuple[PlayerState, ...],
     base_values: np.ndarray,
     worlds: int,
+    role_probability: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Sample uncertain role shares without inventing opportunity for structural zeros."""
+    """Sample uncertain role shares without inventing opportunity for structural zeros.
+
+    ``role_probability`` is optional because health availability and football participation are
+    different state variables. When supplied (currently for designed rushing work), a healthy
+    active player can still be absent from that world's role tree.
+    """
     raw = np.clip(base_values.astype(float), 0.0, None)
     positive = raw > 0.0
     if not positive.any():
@@ -87,6 +93,14 @@ def _sample_role_shares(
     effectiveness = np.array([p.effectiveness_if_active for p in players], dtype=float)
     active = rng.random((worlds, len(players))) < np.clip(active_probability, 0.0, 1.0)
     weights *= active
+
+    if role_probability is not None:
+        role_probability = np.clip(np.asarray(role_probability, dtype=float), 0.0, 1.0)
+        if role_probability.shape != (len(players),):
+            raise ValueError("role_probability must have one value per player")
+        role_active = rng.random((worlds, len(players))) < role_probability[None, :]
+        weights *= role_active
+
     weights *= np.clip(effectiveness, 0.25, 1.25)
 
     row_sum = weights.sum(axis=1)
@@ -162,17 +176,12 @@ def _shared_game_play_budget(
     home_center = float(np.mean(home_raw))
     game_center = float(np.clip(away_center + home_center, 105.0, 137.0))
 
-    # One 60-minute game owns the variance budget. The normal is empirical, bounded only at
-    # implausible extremes; it replaces two independent team Poisson play lotteries.
     total_plays = np.rint(rng.normal(game_center, 8.56, worlds))
     total_plays = np.clip(total_plays, 90, 150).astype(np.int16)
 
     base_away_share = away_center / max(game_center, 1e-9)
     total_drives = np.maximum(away_drives + home_drives, 1).astype(float)
     away_drive_share = away_drives.astype(float) / total_drives
-
-    # Drive count contains some information about play share, but only weakly. A small latent
-    # possession-efficiency term allows real team play imbalance while conserving the game total.
     drive_signal = 0.20 * (away_drive_share - 0.50)
     split_sigma = float(
         np.clip(
@@ -236,11 +245,16 @@ def _allocate_team(
     rush_td_base = np.array(
         [max(p.rushing_td_share, p.red_zone_rush_share) for p in players], dtype=float
     )
+    rush_role_probability = np.array([p.rush_role_probability for p in players], dtype=float)
 
     target_shares = _sample_role_shares(rng, players, target_base, worlds)
-    rush_shares = _sample_role_shares(rng, players, rush_base, worlds)
+    rush_shares = _sample_role_shares(
+        rng, players, rush_base, worlds, role_probability=rush_role_probability
+    )
     rec_td_shares = _sample_role_shares(rng, players, rec_td_base, worlds)
-    rush_td_shares = _sample_role_shares(rng, players, rush_td_base, worlds)
+    rush_td_shares = _sample_role_shares(
+        rng, players, rush_td_base, worlds, role_probability=rush_role_probability
+    )
 
     targets = _allocate_integer_counts(rng, team_targets, target_shares)
     rushes = _allocate_integer_counts(rng, team_rush_attempts, rush_shares)
