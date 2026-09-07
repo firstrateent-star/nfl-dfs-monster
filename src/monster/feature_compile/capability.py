@@ -159,6 +159,16 @@ def derive_defender_mechanism_signals(snapshot: pl.DataFrame) -> pl.DataFrame:
         ((pass_defended + 2.0 * interceptions) / games).alias("raw_coverage_play_rate"),
         ((tfl + 0.20 * tackles) / games).alias("raw_run_defense_event_rate"),
     )
+
+    # Jurisdiction is required to compare players with meaningful positional peers.
+    # If it is absent, preserve the raw evidence and fail neutral rather than guessing.
+    if "position_group" not in frame.columns:
+        return frame.with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("observed_pass_rush_signal"),
+            pl.lit(None, dtype=pl.Float64).alias("observed_coverage_signal"),
+            pl.lit(None, dtype=pl.Float64).alias("observed_run_defense_signal"),
+        )
+
     has_stats = pl.col("def_stat_games_observed").fill_null(0) > 0
     group = pl.col("position_group").cast(pl.Utf8)
     return frame.with_columns(
