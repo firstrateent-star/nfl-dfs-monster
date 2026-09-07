@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from io import BytesIO
 import re
 import unicodedata
+from io import BytesIO
 
-import numpy as np
 import polars as pl
 import requests
 
@@ -113,7 +112,10 @@ def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
 
     ol = ratings.filter(pl.col("position").cast(pl.Utf8).is_in(sorted(_OL_POSITIONS)))
     ol = ol.with_columns(
-        pl.col("team_name").cast(pl.Utf8).replace_strict(_TEAM_NAME_TO_ID, default=None).alias("madden_team_id"),
+        pl.col("team_name")
+        .cast(pl.Utf8)
+        .replace_strict(_TEAM_NAME_TO_ID, default=None)
+        .alias("madden_team_id"),
         *[
             pl.col(c).cast(pl.Float64, strict=False)
             for c in [
@@ -153,9 +155,9 @@ def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
         run_composite.alias("madden_run_block_composite_raw"),
         _low_authority_rating(pass_composite).alias("madden_pass_block"),
         _low_authority_rating(run_composite).alias("madden_run_block"),
-        (
-            0.55 * pl.col("injury_rating") + 0.45 * pl.col("stamina_rating")
-        ).alias("madden_ol_durability_proxy"),
+        (0.55 * pl.col("injury_rating") + 0.45 * pl.col("stamina_rating")).alias(
+            "madden_ol_durability_proxy"
+        ),
     ).select(
         "_name_key",
         "full_name",
