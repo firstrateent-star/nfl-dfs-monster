@@ -1,0 +1,14 @@
+team_id,display_name,health_availability_probability,health_effectiveness_if_active,health_uncertainty,health_state,health_evidence,health_injury,source_url,as_of_date,notes
+HOU,Jayden Higgins,0.0,0.50,0.01,out_season,verified_news,torn ACL,https://www.nfl.com/news/texans-wr-jayden-higgins-torn-acl-out-2026-season,2026-09-07,Out for 2026 season
+NO,Alvin Kamara,0.05,0.88,0.05,out_multiweek,verified_news,lower-body injury,https://www.nfl.com/injuries/,2026-09-07,NFL injury news says out at least a month
+NO,Jordyn Tyson,0.05,0.88,0.05,out_multiweek,verified_news,hamstring,https://www.nfl.com/injuries/,2026-09-07,Expected to miss about two months
+LAC,Tyler Biadasz,0.05,0.88,0.05,out_indefinite,verified_news,ACL,https://www.nfl.com/injuries/,2026-09-07,Out indefinitely after ACL injury
+IND,Alec Pierce,0.74,0.92,0.24,returning_from_surgery,verified_news,ankle/heel,https://www.nfl.com/news/colts-activate-wr-alec-pierce-off-pup-list,2026-09-07,Activated from PUP and ramping toward Week 1
+GB,Tucker Kraft,0.78,0.91,0.23,returning_from_acl,verified_news,knee ACL recovery,https://www.nfl.com/news/packers-tucker-kraft-knee-fine-with-ramping-up-to-full-speed-sans-extension-i-don-t-come-with-brakes,2026-09-07,Returned to practice/team drills with managed ramp-up
+NYJ,Breece Hall,0.95,0.97,0.08,expected_ready,verified_news,groin,https://www.nfl.com/news/breece-hall-groin-expected-to-be-ready-for-jets-week-1-game-vs-titans,2026-09-07,Coach said expected ready for Week 1
+BUF,Keon Coleman,0.84,0.95,0.18,recovering_sprain,verified_news,foot/toe sprain,https://www.nfl.com/news/wr-keon-coleman-suffered-sprained-foot-toe-in-bills-preseason-opener-vs-panthers,2026-09-07,Preseason sprain; no final Week 1 designation yet
+LV,Ashton Jeanty,0.72,0.93,0.24,ankle_uncertain,verified_news,ankle sprain,https://www.nfl.com/injuries/,2026-09-07,Believed to have sprained ankle; final Week 1 status unresolved
+ARI,Jeremiyah Love,0.68,0.91,0.26,high_ankle_uncertain,verified_news,high ankle sprain,https://www.nfl.com/injuries/,2026-09-07,Preseason high ankle sprain; final Week 1 status unresolved
+IND,Tyler Warren,0.80,0.95,0.18,groin_uncertain,verified_news,groin,https://www.nfl.com/injuries/,2026-09-07,Groin injury reported in preseason; final Week 1 status unresolved
+BAL,Zay Flowers,0.96,0.99,0.06,returned_to_practice,verified_news,unspecified,https://www.nfl.com/teams/las-vegas-raiders/,2026-09-07,NFL roundup reports Flowers back at practice
+CIN,Ja'Marr Chase,0.92,0.97,0.11,limited_practice,verified_news,knee,https://www.nfl.com/news/nfl-news-roundup-latest-league-updates-from-tuesday-sept-1,2026-09-07,Limited in practice on Sept. 1; no final Week 1 designation yet
