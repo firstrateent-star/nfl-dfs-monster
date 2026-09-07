@@ -6,6 +6,7 @@ on:
       - feature/slate-simulator-v1
     paths:
       - 'src/monster/feature_compile/team.py'
+      - 'src/monster/feature_compile/offensive_line.py'
       - 'src/monster/ingest/nflverse.py'
       - 'src/monster/teams.py'
       - 'scripts/build_league_policy.py'
@@ -27,6 +28,8 @@ jobs:
           --out artifacts/league-policy
       - name: Show team policy
         run: cat artifacts/league-policy/team_policy.csv
+      - name: Show offensive-line outcome priors
+        run: cat artifacts/league-policy/offensive_line_outcomes.csv
       - uses: actions/upload-artifact@v4
         with:
           name: monster-2025-league-policy
