@@ -148,7 +148,6 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
             .max()
             .fill_null(False)
             .alias("drive_turnover"),
-            pl.len().alias("drive_plays"),
         )
     )
 
@@ -160,7 +159,6 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
             _safe_mean(pl.col("drive_td"), "td_drive_rate"),
             _safe_mean(pl.col("drive_fg"), "fg_drive_rate"),
             _safe_mean(pl.col("drive_turnover"), "turnover_drive_rate"),
-            pl.col("drive_plays").mean().alias("plays_per_drive"),
         )
         .with_columns(
             (pl.col("drives") / pl.col("drive_games").clip(lower_bound=1)).alias(
@@ -231,10 +229,19 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
         .rename({"defteam": "team_id"})
     )
 
+    # `plays_per_game` is computed from pass/run scrimmage plays. Derive plays/drive from
+    # that same population divided by observed drives/game so allocation volume cannot
+    # accidentally multiply scrimmage volume by timeout/penalty/no-play PBP rows.
     return (
         offense.join(neutral_policy, on="team_id", how="left")
         .join(pace, on="team_id", how="left")
         .join(drives, on="team_id", how="left")
+        .with_columns(
+            (
+                pl.col("plays_per_game")
+                / pl.col("drives_per_game").clip(lower_bound=1e-6)
+            ).alias("plays_per_drive")
+        )
         .join(red_zone, on="team_id", how="left")
         .join(defense, on="team_id", how="left")
         .join(defensive_drives, on="team_id", how="left")
