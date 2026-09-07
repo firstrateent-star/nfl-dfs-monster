@@ -96,15 +96,40 @@ def _player_distribution_rows(game_name: str, team_id: str, pool, side) -> list[
     return rows
 
 
+def _rank_world_metrics(matrix: np.ndarray, team_total: np.ndarray, prefix: str) -> dict[str, float]:
+    """Rank opportunity recipients inside each world before averaging.
+
+    This preserves the object comparable to a realized historical team-game. Ranking player
+    projection means across worlds is a separate epistemic summary and is intentionally not used
+    here.
+    """
+    ranked = np.sort(matrix, axis=1)[:, ::-1] if matrix.shape[1] else matrix
+    total = team_total.astype(float)
+    out: dict[str, float] = {}
+    for rank in range(3):
+        label = rank + 1
+        attempts = ranked[:, rank] if ranked.shape[1] > rank else np.zeros(matrix.shape[0], dtype=float)
+        share = np.divide(attempts, np.maximum(total, 1.0))
+        out[f"{prefix}_rank{label}_attempts_world_mean"] = float(attempts.mean())
+        out[f"{prefix}_rank{label}_attempts_world_p50"] = _q(attempts, 0.50)
+        out[f"{prefix}_rank{label}_attempts_world_p90"] = _q(attempts, 0.90)
+        out[f"{prefix}_rank{label}_share_world_mean"] = float(share.mean())
+        out[f"{prefix}_rank{label}_share_world_p50"] = _q(share, 0.50)
+        out[f"{prefix}_rank{label}_share_world_p90"] = _q(share, 0.90)
+    return out
+
+
 def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray) -> dict:
     plays = side.team_plays.astype(float)
     passing_yards = np.zeros(len(plays), dtype=float)
     rushing_yards = np.zeros(len(plays), dtype=float)
     rushing_columns = []
+    target_columns = []
     for stats in side.player_stats.values():
         passing_yards += stats["passing_yards"]
         rushing_yards += stats["rushing_yards"]
         rushing_columns.append(stats["rush_attempts"].astype(float))
+        target_columns.append(stats["targets"].astype(float))
     total_yards = passing_yards + rushing_yards
     yards_per_play = np.divide(total_yards, np.maximum(plays, 1.0))
 
@@ -113,25 +138,19 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
         if rushing_columns
         else np.zeros((len(plays), 0), dtype=float)
     )
+    target_matrix = (
+        np.column_stack(target_columns)
+        if target_columns
+        else np.zeros((len(plays), 0), dtype=float)
+    )
     rushers = (rushing_matrix > 0).sum(axis=1)
+    target_earners = (target_matrix > 0).sum(axis=1)
     core_rushers = (rushing_matrix >= 3).sum(axis=1)
     incidental_mask = (rushing_matrix > 0) & (rushing_matrix <= 2)
     incidental_rushers = incidental_mask.sum(axis=1)
     incidental_attempts = np.where(incidental_mask, rushing_matrix, 0.0).sum(axis=1)
     team_rush_attempts = side.team_rush_attempts.astype(float)
     incidental_share = np.divide(incidental_attempts, np.maximum(team_rush_attempts, 1.0))
-
-    # Historical rank shares are realized within one team-game. Preserve that same object here:
-    # rank players inside each simulated world before averaging. Do not rank players by their
-    # cross-world projection means, which mixes football randomness with epistemic role identity.
-    ranked = np.sort(rushing_matrix, axis=1)[:, ::-1] if rushing_matrix.shape[1] else rushing_matrix
-    rank_attempts: list[np.ndarray] = []
-    rank_shares: list[np.ndarray] = []
-    for rank in range(3):
-        attempts = ranked[:, rank] if ranked.shape[1] > rank else np.zeros(len(plays), dtype=float)
-        share = np.divide(attempts, np.maximum(team_rush_attempts, 1.0))
-        rank_attempts.append(attempts)
-        rank_shares.append(share)
 
     row = {
         "game": game_name,
@@ -145,6 +164,10 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
         "sacks_mean": float(side.team_sacks.mean()),
         "pass_attempts_mean": float(side.team_pass_attempts.mean()),
         "targets_mean": float(side.team_targets.mean()),
+        "target_earners_per_world_mean": float(target_earners.mean()),
+        "target_earners_per_world_p10": _q(target_earners, 0.10),
+        "target_earners_per_world_p50": _q(target_earners, 0.50),
+        "target_earners_per_world_p90": _q(target_earners, 0.90),
         "rush_attempts_mean": float(side.team_rush_attempts.mean()),
         "rushers_per_world_mean": float(rushers.mean()),
         "rushers_per_world_p10": _q(rushers, 0.10),
@@ -169,14 +192,8 @@ def _team_opportunity_row(game_name: str, team_id: str, side, drives: np.ndarray
         "yards_per_play_mean": float(yards_per_play.mean()),
         "yards_per_play_p90": _q(yards_per_play, 0.90),
     }
-    for rank in range(3):
-        label = rank + 1
-        row[f"rush_rank{label}_attempts_world_mean"] = float(rank_attempts[rank].mean())
-        row[f"rush_rank{label}_attempts_world_p50"] = _q(rank_attempts[rank], 0.50)
-        row[f"rush_rank{label}_attempts_world_p90"] = _q(rank_attempts[rank], 0.90)
-        row[f"rush_rank{label}_share_world_mean"] = float(rank_shares[rank].mean())
-        row[f"rush_rank{label}_share_world_p50"] = _q(rank_shares[rank], 0.50)
-        row[f"rush_rank{label}_share_world_p90"] = _q(rank_shares[rank], 0.90)
+    row.update(_rank_world_metrics(rushing_matrix, side.team_rush_attempts, "rush"))
+    row.update(_rank_world_metrics(target_matrix, side.team_targets, "target"))
     return row
 
 
@@ -277,6 +294,7 @@ def main() -> None:
         "player_participation_probabilities_enabled": True,
         "world_level_rushing_role_structure_enabled": True,
         "world_level_rushing_rank_audit_enabled": True,
+        "world_level_target_rank_audit_enabled": True,
         "fantasy_points_note": "FD subtotal excludes interception and fumble penalties because player-level turnover attribution is not yet modeled.",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
