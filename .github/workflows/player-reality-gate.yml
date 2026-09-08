@@ -80,3 +80,5 @@ jobs:
             artifacts/week1-health/manifest.json
             artifacts/continuity-policy/manifest.json
           retention-days: 7
+
+# orchestration-trigger: 2026-09-08 player-reality certification
