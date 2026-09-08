@@ -6,6 +6,7 @@ on:
       - feature/slate-simulator-v1
     paths:
       - scripts/apply_qb_season_mean_fix.py
+      - scripts/apply_qb_world_reservoir_fix.py
       - .github/workflows/qb-season-mean-repair.yml
   workflow_dispatch:
 
@@ -23,9 +24,11 @@ jobs:
       - run: uv sync --extra dev
       - name: Apply QB season-mean calibration candidate
         run: uv run python scripts/apply_qb_season_mean_fix.py
+      - name: Apply QB world-reservoir candidate
+        run: uv run python scripts/apply_qb_world_reservoir_fix.py
       - name: Lint and unit tests
         run: |
-          uv run ruff check src/monster/feature_compile/skill_pools.py
+          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
           uv run pytest -q
       - name: Build current personnel baseline
         run: >-
@@ -57,7 +60,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
-          --worlds 10000 --seed 2026090812
+          --worlds 10000 --seed 2026090813
           --out artifacts/qb-season-mean-sample
       - name: Enforce season-mean QB football gate
         run: |
@@ -103,18 +106,18 @@ jobs:
         run: |
           git config user.name "monster-evidence-bot"
           git config user.email "firstrateent@gmail.com"
-          git add src/monster/feature_compile/skill_pools.py
+          git add src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
           git diff --cached --quiet && exit 0
-          git commit -m "Calibrate QB rushing to season-level starter means"
+          git commit -m "Preserve QB rushing means with world-level reservoir"
           git push origin HEAD:feature/slate-simulator-v1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-qb-season-mean-repair
+          name: monster-qb-world-reservoir-repair
           path: |
             artifacts/qb-season-mean-audit/
             artifacts/qb-season-mean-sample/player_distributions.csv
             artifacts/qb-season-mean-sample/game_distribution_map.csv
           retention-days: 7
 
-# orchestration-trigger: 2026-09-08 autonomous validation
+# orchestration-trigger: 2026-09-08 world-reservoir validation
