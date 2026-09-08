@@ -1,0 +1,120 @@
+name: QB world-reservoir calibration repair
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/apply_qb_world_reservoir_fix.py
+      - .github/workflows/qb-world-reservoir-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/slate-simulator-v1
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Apply season-mean QB calibration candidate
+        run: uv run python scripts/apply_qb_season_mean_fix.py
+      - name: Apply world-level QB reservoir candidate
+        run: uv run python scripts/apply_qb_world_reservoir_fix.py
+      - name: Lint and unit tests
+        run: |
+          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
+          uv run pytest -q
+      - name: Build current personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build policy inputs
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run 10k Week 1 candidate
+        run: >-
+          uv run python scripts/run_week1_full_monster.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 10000 --seed 2026090813
+          --out artifacts/qb-world-reservoir-sample
+      - name: Enforce QB football gate
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import numpy as np
+          import polars as pl
+          p = pl.read_csv('artifacts/qb-world-reservoir-sample/player_distributions.csv')
+          q = p.filter((pl.col('position') == 'QB') & (pl.col('pass_attempts_mean') >= 15.0))
+          a = q.get_column('rush_attempts_mean').to_numpy()
+          t = q.get_column('rushing_tds_mean').to_numpy()
+          m = {
+              'starter_qb_count': q.height,
+              'rush_mean': float(np.mean(a)),
+              'rush_median': float(np.median(a)),
+              'rush_p90': float(np.quantile(a, .90)),
+              'rush_p95': float(np.quantile(a, .95)),
+              'rush_max': float(np.max(a)),
+              'rush_td_median': float(np.median(t)),
+              'rush_td_p90': float(np.quantile(t, .90)),
+              'rush_td_max': float(np.max(t)),
+          }
+          m['gate_pass'] = bool(
+              2.4 <= m['rush_median'] <= 4.6
+              and m['rush_p90'] <= 8.25
+              and m['rush_p95'] <= 10.0
+              and m['rush_max'] <= 11.5
+              and m['rush_td_median'] <= .22
+              and m['rush_td_p90'] <= .50
+              and m['rush_td_max'] <= .65
+          )
+          out = Path('artifacts/qb-world-reservoir-audit')
+          out.mkdir(parents=True, exist_ok=True)
+          q.sort('rush_attempts_mean', descending=True).write_csv(out / 'starting_qbs.csv')
+          (out / 'manifest.json').write_text(json.dumps(m, indent=2) + '\n')
+          print(q.sort('rush_attempts_mean', descending=True).select(['game','team_id','player','rush_attempts_mean','rushing_tds_mean']))
+          print(json.dumps(m, indent=2))
+          if not m['gate_pass']:
+              raise SystemExit(1)
+          PY
+      - name: Promote repair only after evidence gate passes
+        run: |
+          git config user.name "monster-evidence-bot"
+          git config user.email "firstrateent@gmail.com"
+          git add src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Preserve QB rushing means with world-level reservoir"
+          git push origin HEAD:feature/slate-simulator-v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-qb-world-reservoir-repair
+          path: |
+            artifacts/qb-world-reservoir-audit/
+            artifacts/qb-world-reservoir-sample/player_distributions.csv
+            artifacts/qb-world-reservoir-sample/game_distribution_map.csv
+          retention-days: 7
