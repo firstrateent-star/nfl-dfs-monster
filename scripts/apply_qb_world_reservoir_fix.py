@@ -14,6 +14,12 @@ def main() -> None:
         raise RuntimeError("gamma anchor not found")
     text = text.replace(anchor, helper + anchor, 1)
 
+    old = '''    target_shares = _sample_role_shares(rng, players, target_base, worlds)\n    rush_shares = _sample_role_shares(\n        rng, players, rush_base, worlds, role_probability=rush_role_probability\n    )\n    rec_td_shares = _sample_role_shares(rng, players, rec_td_base, worlds)\n'''
+    new = '''    target_shares = _sample_role_shares(rng, players, target_base, worlds)\n    rec_td_shares = _sample_role_shares(rng, players, rec_td_base, worlds)\n'''
+    if old not in text:
+        raise RuntimeError("rush share sampling anchor not found")
+    text = text.replace(old, new, 1)
+
     old = '''    targets = _allocate_integer_counts(rng, team_targets, target_shares)\n    rushes = _allocate_integer_counts(rng, team_rush_attempts, rush_shares)\n'''
     new = '''    targets = _allocate_integer_counts(rng, team_targets, target_shares)\n    # QB expected carry share is a reservoir against TEAM rush attempts. Do not allow\n    # non-QB role dropout/renormalization to inflate the QB's expected state.\n    rushes = _allocate_rush_counts(\n        rng, team_rush_attempts, players, rush_base, rush_role_probability\n    )\n'''
     if old not in text:
