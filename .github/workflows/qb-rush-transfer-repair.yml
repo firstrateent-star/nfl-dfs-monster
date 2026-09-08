@@ -21,7 +21,7 @@ jobs:
         with:
           ref: feature/slate-simulator-v1
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync
+      - run: uv sync --extra dev
       - name: Apply transfer-safe QB rushing prior
         run: uv run python scripts/apply_qb_rush_transfer_fix.py
       - name: Lint and unit tests
