@@ -8,6 +8,7 @@ on:
       - scripts/apply_qb_season_mean_fix.py
       - scripts/apply_qb_world_reservoir_fix.py
       - scripts/apply_qb_rushing_role_reservoir_fix.py
+      - scripts/run_player_reality_gate.py
       - .github/workflows/qb-season-mean-repair.yml
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
         run: uv run python scripts/apply_qb_rushing_role_reservoir_fix.py
       - name: Lint and unit tests
         run: |
-          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py src/monster/sim/rushing_roles.py
+          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py src/monster/sim/rushing_roles.py scripts/run_player_reality_gate.py
           uv run pytest -q
       - name: Build current personnel baseline
         run: >-
@@ -56,23 +57,23 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Run 10k Week 1 candidate
+      - name: Run fresh 10k Week 1 Player Reality sample
         run: >-
           uv run python scripts/run_week1_full_monster.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
-          --worlds 10000 --seed 2026090814
-          --out artifacts/qb-season-mean-sample
-      - name: Enforce season-mean QB football gate
+          --worlds 10000 --seed 2026090815
+          --out artifacts/player-reality-sample
+      - name: Reconfirm QB football gate
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
           import numpy as np
           import polars as pl
-          p = pl.read_csv('artifacts/qb-season-mean-sample/player_distributions.csv')
+          p = pl.read_csv('artifacts/player-reality-sample/player_distributions.csv')
           q = p.filter((pl.col('position') == 'QB') & (pl.col('pass_attempts_mean') >= 15.0))
           a = q.get_column('rush_attempts_mean').to_numpy()
           t = q.get_column('rushing_tds_mean').to_numpy()
@@ -100,27 +101,32 @@ jobs:
           out.mkdir(parents=True, exist_ok=True)
           q.sort('rush_attempts_mean', descending=True).write_csv(out / 'starting_qbs.csv')
           (out / 'manifest.json').write_text(json.dumps(m, indent=2) + '\n')
-          print(q.sort('rush_attempts_mean', descending=True).select(['game','team_id','player','rush_attempts_mean','rushing_tds_mean']))
           print(json.dumps(m, indent=2))
           if not m['gate_pass']:
               raise SystemExit(1)
           PY
-      - name: Promote repair only after evidence gate passes
-        run: |
-          git config user.name "monster-evidence-bot"
-          git config user.email "firstrateent@gmail.com"
-          git add src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py src/monster/sim/rushing_roles.py
-          git diff --cached --quiet && exit 0
-          git commit -m "Preserve QB rushing reservoir through role hierarchy"
-          git push origin HEAD:feature/slate-simulator-v1
+      - name: Enforce broad Player Reality gate
+        run: >-
+          uv run python scripts/run_player_reality_gate.py
+          --players artifacts/player-reality-sample/player_distributions.csv
+          --teams artifacts/player-reality-sample/team_opportunity_map.csv
+          --out artifacts/player-reality-audit
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-qb-role-reservoir-repair
+          name: monster-player-reality-gate
           path: |
             artifacts/qb-season-mean-audit/
-            artifacts/qb-season-mean-sample/player_distributions.csv
-            artifacts/qb-season-mean-sample/game_distribution_map.csv
+            artifacts/player-reality-audit/
+            artifacts/player-reality-sample/manifest.json
+            artifacts/player-reality-sample/game_distribution_map.csv
+            artifacts/player-reality-sample/player_distributions.csv
+            artifacts/player-reality-sample/qb_state_audit.csv
+            artifacts/player-reality-sample/team_opportunity_map.csv
+            artifacts/player-reality-sample/health_states_used.csv
+            artifacts/league-baseline/manifest.json
+            artifacts/week1-health/manifest.json
+            artifacts/continuity-policy/manifest.json
           retention-days: 7
 
-# orchestration-trigger: 2026-09-08 downstream-role-reservoir validation
+# orchestration-trigger: 2026-09-08 broader-player-reality-certification
