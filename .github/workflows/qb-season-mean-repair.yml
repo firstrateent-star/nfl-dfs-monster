@@ -81,9 +81,6 @@ jobs:
               'rush_td_p90': float(np.quantile(t, .90)),
               'rush_td_max': float(np.max(t)),
           }
-          # Historical QB-season targets: median 3.35, p90 7.0, p95 9.17;
-          # TD median .125, p90 .418, p95 .561. Allow modest Week-1/context elasticity,
-          # but reject a systematically inflated mean-state distribution.
           m['gate_pass'] = bool(
               2.4 <= m['rush_median'] <= 4.6
               and m['rush_p90'] <= 8.25
@@ -119,3 +116,5 @@ jobs:
             artifacts/qb-season-mean-sample/player_distributions.csv
             artifacts/qb-season-mean-sample/game_distribution_map.csv
           retention-days: 7
+
+# orchestration-trigger: 2026-09-08 autonomous validation
