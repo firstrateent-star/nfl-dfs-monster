@@ -63,9 +63,6 @@ jobs:
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
           --worlds 5000 --seed 2026090705
           --out artifacts/health-pressure-test
-      - name: Enforce health guardrail
-        run: >-
-          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
       - name: Audit health propagation into units, scores, and player allocation
         run: >-
           uv run python scripts/audit_health_propagation.py
@@ -74,6 +71,9 @@ jobs:
           --game-health-ab artifacts/health-pressure-test/game_health_ab.csv
           --player-health-ab artifacts/health-pressure-test/player_health_ab.csv
           --out artifacts/health-propagation-audit
+      - name: Enforce health guardrail
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
       - name: Run 60000-world continuity-conditioned Week 1 football simulation
         run: >-
           uv run python scripts/run_week1_full_monster.py
@@ -84,17 +84,19 @@ jobs:
           --worlds 60000 --seed 2026090710
           --out artifacts/week1-full-monster
       - name: Show key results
+        if: always()
         run: |
-          cat artifacts/continuity-policy/manifest.json
-          cat artifacts/continuity-policy/continuity_audit.csv
-          cat artifacts/week1-health/manifest.json
-          cat artifacts/health-pressure-test/manifest.json
-          cat artifacts/health-propagation-audit/manifest.json
-          cat artifacts/health-propagation-audit/team_health_propagation.csv
-          cat artifacts/week1-full-monster/game_distribution_map.csv
-          cat artifacts/week1-full-monster/qb_state_audit.csv
-          cat artifacts/week1-full-monster/manifest.json
+          test -f artifacts/continuity-policy/manifest.json && cat artifacts/continuity-policy/manifest.json || true
+          test -f artifacts/continuity-policy/continuity_audit.csv && cat artifacts/continuity-policy/continuity_audit.csv || true
+          test -f artifacts/week1-health/manifest.json && cat artifacts/week1-health/manifest.json || true
+          test -f artifacts/health-pressure-test/manifest.json && cat artifacts/health-pressure-test/manifest.json || true
+          test -f artifacts/health-propagation-audit/manifest.json && cat artifacts/health-propagation-audit/manifest.json || true
+          test -f artifacts/health-propagation-audit/team_health_propagation.csv && cat artifacts/health-propagation-audit/team_health_propagation.csv || true
+          test -f artifacts/week1-full-monster/game_distribution_map.csv && cat artifacts/week1-full-monster/game_distribution_map.csv || true
+          test -f artifacts/week1-full-monster/qb_state_audit.csv && cat artifacts/week1-full-monster/qb_state_audit.csv || true
+          test -f artifacts/week1-full-monster/manifest.json && cat artifacts/week1-full-monster/manifest.json || true
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: monster-week1-continuity-health-full-simulation
           path: |
