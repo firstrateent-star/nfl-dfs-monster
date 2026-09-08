@@ -74,7 +74,7 @@ def _team_health_summary(personnel: pl.DataFrame) -> pl.DataFrame:
             .cast(pl.Utf8)
             .unique()
             .sort()
-            .implode()
+            .str.join("|")
             .alias("concern_positions"),
             uncertainty.mean().alias("mean_health_uncertainty"),
         )
