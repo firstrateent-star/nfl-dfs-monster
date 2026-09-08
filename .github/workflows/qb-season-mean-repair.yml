@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/apply_qb_season_mean_fix.py
       - scripts/apply_qb_world_reservoir_fix.py
+      - scripts/apply_qb_rushing_role_reservoir_fix.py
       - .github/workflows/qb-season-mean-repair.yml
   workflow_dispatch:
 
@@ -26,9 +27,11 @@ jobs:
         run: uv run python scripts/apply_qb_season_mean_fix.py
       - name: Apply QB world-reservoir candidate
         run: uv run python scripts/apply_qb_world_reservoir_fix.py
+      - name: Preserve QB reservoir through rushing-role hierarchy
+        run: uv run python scripts/apply_qb_rushing_role_reservoir_fix.py
       - name: Lint and unit tests
         run: |
-          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
+          uv run ruff check src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py src/monster/sim/rushing_roles.py
           uv run pytest -q
       - name: Build current personnel baseline
         run: >-
@@ -60,7 +63,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
-          --worlds 10000 --seed 2026090813
+          --worlds 10000 --seed 2026090814
           --out artifacts/qb-season-mean-sample
       - name: Enforce season-mean QB football gate
         run: |
@@ -106,18 +109,18 @@ jobs:
         run: |
           git config user.name "monster-evidence-bot"
           git config user.email "firstrateent@gmail.com"
-          git add src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py
+          git add src/monster/feature_compile/skill_pools.py src/monster/sim/allocation.py src/monster/sim/rushing_roles.py
           git diff --cached --quiet && exit 0
-          git commit -m "Preserve QB rushing means with world-level reservoir"
+          git commit -m "Preserve QB rushing reservoir through role hierarchy"
           git push origin HEAD:feature/slate-simulator-v1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-qb-world-reservoir-repair
+          name: monster-qb-role-reservoir-repair
           path: |
             artifacts/qb-season-mean-audit/
             artifacts/qb-season-mean-sample/player_distributions.csv
             artifacts/qb-season-mean-sample/game_distribution_map.csv
           retention-days: 7
 
-# orchestration-trigger: 2026-09-08 lint-fixed world-reservoir validation
+# orchestration-trigger: 2026-09-08 downstream-role-reservoir validation
