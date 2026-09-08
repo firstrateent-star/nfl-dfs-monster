@@ -136,6 +136,52 @@ def _allocate_integer_counts(
     return out
 
 
+def _allocate_rush_counts(
+    rng: np.random.Generator,
+    counts: np.ndarray,
+    players: tuple[PlayerState, ...],
+    base_values: np.ndarray,
+    role_probability: np.ndarray,
+) -> np.ndarray:
+    """Allocate a finite QB rushing reservoir before distributing non-QB carries.
+
+    The compiled QB share is an expected share of TEAM rush attempts. Sampling all rushers
+    in one Dirichlet-like tree can renormalize that reservoir upward whenever other rushers
+    miss the role tree. Preserve the QB mean at the team-rush denominator, then allow
+    world-level variance around that mean and allocate the remainder among non-QBs.
+    """
+    qb_mask = np.array([p.position == "QB" for p in players], dtype=bool)
+    if not qb_mask.any() or qb_mask.all():
+        shares = _sample_role_shares(
+            rng, players, base_values, len(counts), role_probability=role_probability
+        )
+        return _allocate_integer_counts(rng, counts, shares)
+
+    qb_mean_share = float(np.clip(base_values[qb_mask].sum(), 0.0, 0.45))
+    # Mean-one multiplicative noise creates mobile-QB tail worlds without redefining the mean.
+    qb_world_share = np.clip(
+        qb_mean_share * _mean_one_lognormal(rng, 0.32, len(counts)), 0.0, 0.45
+    )
+    qb_counts = rng.binomial(counts.astype(np.int64), qb_world_share).astype(np.int16)
+    non_qb_counts = (counts.astype(np.int64) - qb_counts.astype(np.int64)).astype(np.int16)
+
+    qb_base = np.where(qb_mask, base_values, 0.0)
+    non_qb_base = np.where(qb_mask, 0.0, base_values)
+    qb_roles = np.where(qb_mask, role_probability, 0.0)
+    non_qb_roles = np.where(qb_mask, 0.0, role_probability)
+
+    qb_shares = _sample_role_shares(
+        rng, players, qb_base, len(counts), role_probability=qb_roles
+    )
+    non_qb_shares = _sample_role_shares(
+        rng, players, non_qb_base, len(counts), role_probability=non_qb_roles
+    )
+    return (
+        _allocate_integer_counts(rng, qb_counts, qb_shares)
+        + _allocate_integer_counts(rng, non_qb_counts, non_qb_shares)
+    )
+
+
 def _gamma_sum(
     rng: np.random.Generator,
     counts: np.ndarray,
@@ -248,16 +294,17 @@ def _allocate_team(
     rush_role_probability = np.array([p.rush_role_probability for p in players], dtype=float)
 
     target_shares = _sample_role_shares(rng, players, target_base, worlds)
-    rush_shares = _sample_role_shares(
-        rng, players, rush_base, worlds, role_probability=rush_role_probability
-    )
     rec_td_shares = _sample_role_shares(rng, players, rec_td_base, worlds)
     rush_td_shares = _sample_role_shares(
         rng, players, rush_td_base, worlds, role_probability=rush_role_probability
     )
 
     targets = _allocate_integer_counts(rng, team_targets, target_shares)
-    rushes = _allocate_integer_counts(rng, team_rush_attempts, rush_shares)
+    # QB expected carry share is a reservoir against TEAM rush attempts. Do not allow
+    # non-QB role dropout/renormalization to inflate the QB's expected state.
+    rushes = _allocate_rush_counts(
+        rng, team_rush_attempts, players, rush_base, rush_role_probability
+    )
     rec_tds = _allocate_integer_counts(rng, passing_tds, rec_td_shares)
     rush_tds = _allocate_integer_counts(rng, rushing_tds, rush_td_shares)
 

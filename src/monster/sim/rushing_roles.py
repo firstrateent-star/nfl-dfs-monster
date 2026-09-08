@@ -140,6 +140,19 @@ def _redistribute_team_rushing(
         * np.clip(effectiveness, 0.25, 1.25)
     )
 
+    # The generic rushing hierarchy is downstream of the calibrated QB reservoir.
+    # Preserve QB attempts/TDs already allocated against finite TEAM rush supply; the
+    # A/B/C role tree may reshape only the remaining non-QB opportunity. Otherwise a
+    # mobile QB can be promoted to generic Role A and inherit ~62% of core carries.
+    qb_indices = np.array([idx for idx, p in enumerate(players) if p.position == "QB"], dtype=int)
+    non_qb_indices = np.array([idx for idx, p in enumerate(players) if p.position != "QB"], dtype=int)
+    reserved_qb_attempts = np.zeros((worlds, n_players), dtype=np.int16)
+    reserved_qb_tds = np.zeros((worlds, n_players), dtype=np.int16)
+    for idx in qb_indices:
+        stats = side.player_stats[players[idx].player_id]
+        reserved_qb_attempts[:, idx] = stats["rush_attempts"].astype(np.int16)
+        reserved_qb_tds[:, idx] = stats["rushing_tds"].astype(np.int16)
+
     attempts_out = np.zeros((worlds, n_players), dtype=np.int16)
     rush_td_out = np.zeros((worlds, n_players), dtype=np.int16)
     team_rushes = side.team_rush_attempts.astype(int)
@@ -212,6 +225,47 @@ def _redistribute_team_rushing(
                 td_weight = attempts_out[w].astype(float)
             td_weight /= td_weight.sum()
             rush_td_out[w] = rng.multinomial(td_total, td_weight).astype(np.int16)
+
+    # Re-impose the upstream QB reservoir, then proportionally compress the generic
+    # non-QB hierarchy into the exact residual team carry/TD supply. This preserves
+    # conservation and the validated RB/WR/TE role ordering without allowing that tree
+    # to redefine QB expected state.
+    for w in range(worlds):
+        qb_carries = int(reserved_qb_attempts[w].sum())
+        qb_tds = int(reserved_qb_tds[w].sum())
+        residual_carries = max(int(team_rushes[w]) - qb_carries, 0)
+        residual_tds = max(int(team_rush_tds[w]) - qb_tds, 0)
+
+        non_qb_weights = attempts_out[w, non_qb_indices].astype(float)
+        if len(non_qb_indices) and residual_carries > 0:
+            if non_qb_weights.sum() <= 0:
+                non_qb_weights = np.clip(base[non_qb_indices], 0.0, None)
+            if non_qb_weights.sum() <= 0:
+                non_qb_weights = np.ones(len(non_qb_indices), dtype=float)
+            non_qb_weights /= non_qb_weights.sum()
+            attempts_out[w, non_qb_indices] = rng.multinomial(
+                residual_carries, non_qb_weights
+            ).astype(np.int16)
+        elif len(non_qb_indices):
+            attempts_out[w, non_qb_indices] = 0
+
+        attempts_out[w, qb_indices] = reserved_qb_attempts[w, qb_indices]
+
+        if len(non_qb_indices) and residual_tds > 0:
+            td_weights = attempts_out[w, non_qb_indices].astype(float) * np.array(
+                [max(players[idx].red_zone_rush_share, players[idx].rushing_td_share, 0.01)
+                 for idx in non_qb_indices],
+                dtype=float,
+            )
+            if td_weights.sum() <= 0:
+                td_weights = np.ones(len(non_qb_indices), dtype=float)
+            td_weights /= td_weights.sum()
+            rush_td_out[w, non_qb_indices] = rng.multinomial(
+                residual_tds, td_weights
+            ).astype(np.int16)
+        elif len(non_qb_indices):
+            rush_td_out[w, non_qb_indices] = 0
+        rush_td_out[w, qb_indices] = reserved_qb_tds[w, qb_indices]
 
     for idx, player in enumerate(players):
         stats = side.player_stats[player.player_id]
