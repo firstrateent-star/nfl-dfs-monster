@@ -118,3 +118,5 @@ jobs:
             artifacts/qb-world-reservoir-sample/player_distributions.csv
             artifacts/qb-world-reservoir-sample/game_distribution_map.csv
           retention-days: 7
+
+# orchestration-trigger: 2026-09-08T13:38 ET
