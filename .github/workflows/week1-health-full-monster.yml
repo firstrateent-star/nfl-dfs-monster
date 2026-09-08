@@ -12,6 +12,7 @@ on:
       - "scripts/build_health_snapshot.py"
       - "scripts/build_continuity_conditioned_policy.py"
       - "scripts/pressure_test_health.py"
+      - "scripts/audit_health_propagation.py"
       - "scripts/run_week1_full_monster.py"
       - ".github/workflows/week1-health-full-monster.yml"
   workflow_dispatch:
@@ -65,6 +66,14 @@ jobs:
       - name: Enforce health guardrail
         run: >-
           uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
+      - name: Audit health propagation into units, scores, and player allocation
+        run: >-
+          uv run python scripts/audit_health_propagation.py
+          --control-personnel artifacts/league-baseline/league_personnel.parquet
+          --health-personnel artifacts/week1-health/health_personnel.parquet
+          --game-health-ab artifacts/health-pressure-test/game_health_ab.csv
+          --player-health-ab artifacts/health-pressure-test/player_health_ab.csv
+          --out artifacts/health-propagation-audit
       - name: Run 60000-world continuity-conditioned Week 1 football simulation
         run: >-
           uv run python scripts/run_week1_full_monster.py
@@ -80,6 +89,8 @@ jobs:
           cat artifacts/continuity-policy/continuity_audit.csv
           cat artifacts/week1-health/manifest.json
           cat artifacts/health-pressure-test/manifest.json
+          cat artifacts/health-propagation-audit/manifest.json
+          cat artifacts/health-propagation-audit/team_health_propagation.csv
           cat artifacts/week1-full-monster/game_distribution_map.csv
           cat artifacts/week1-full-monster/qb_state_audit.csv
           cat artifacts/week1-full-monster/manifest.json
@@ -90,5 +101,6 @@ jobs:
             artifacts/continuity-policy/
             artifacts/week1-health/
             artifacts/health-pressure-test/
+            artifacts/health-propagation-audit/
             artifacts/week1-full-monster/
           retention-days: 7
