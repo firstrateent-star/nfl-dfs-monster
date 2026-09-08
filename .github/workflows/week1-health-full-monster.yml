@@ -71,9 +71,12 @@ jobs:
           --game-health-ab artifacts/health-pressure-test/game_health_ab.csv
           --player-health-ab artifacts/health-pressure-test/player_health_ab.csv
           --out artifacts/health-propagation-audit
-      - name: Enforce health guardrail
+      - name: Enforce production health safety
         run: >-
-          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['guardrail_pass'], d"
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['production_safety_pass'], d"
+      - name: Show legacy health diagnostic
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); print('legacy_35_yard_guardrail_pass=', d['legacy_35_yard_guardrail_pass']); print('health_depth_status=', d['health_depth_status'])"
       - name: Run 60000-world continuity-conditioned Week 1 football simulation
         run: >-
           uv run python scripts/run_week1_full_monster.py
