@@ -1,0 +1,37 @@
+name: Receiving eligibility rolling OOS audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_receiving_eligibility_oos.py
+      - .github/workflows/receiving-eligibility-oos.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run rolling OOS eligibility audit
+        run: >-
+          uv run python scripts/audit_receiving_eligibility_oos.py
+          --seasons 2020 2021 2022 2023 2024 2025
+          --train-window 2
+          --replicates 32 --seed 2026090718
+          --out artifacts/receiving-eligibility-oos
+      - name: Show result
+        run: |
+          cat artifacts/receiving-eligibility-oos/manifest.json
+          cat artifacts/receiving-eligibility-oos/fold_results.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: receiving-eligibility-oos
+          path: artifacts/receiving-eligibility-oos/
+          retention-days: 7
