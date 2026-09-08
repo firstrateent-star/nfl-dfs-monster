@@ -1,0 +1,38 @@
+name: Matchup and health elasticity audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/sim/game.py"
+      - "src/monster/snapshot/model.py"
+      - "scripts/audit_matchup_health_elasticity.py"
+      - ".github/workflows/matchup-health-elasticity.yml"
+  workflow_dispatch:
+
+jobs:
+  elasticity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run controlled matchup and health elasticity audit
+        run: >-
+          uv run python scripts/audit_matchup_health_elasticity.py
+          --worlds 50000 --seed 2026090801
+          --out artifacts/matchup-health-elasticity
+      - name: Enforce mechanism-direction sanity
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/matchup-health-elasticity/manifest.json')); assert d['monotonic_pass'], d"
+      - name: Show results
+        run: |
+          cat artifacts/matchup-health-elasticity/manifest.json
+          cat artifacts/matchup-health-elasticity/elasticity.csv
+          cat artifacts/matchup-health-elasticity/monotonic_checks.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-matchup-health-elasticity
+          path: artifacts/matchup-health-elasticity/
+          retention-days: 7
