@@ -120,4 +120,4 @@ jobs:
             artifacts/qb-season-mean-sample/game_distribution_map.csv
           retention-days: 7
 
-# orchestration-trigger: 2026-09-08 world-reservoir validation
+# orchestration-trigger: 2026-09-08 lint-fixed world-reservoir validation
