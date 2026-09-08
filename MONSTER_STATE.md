@@ -7,16 +7,13 @@ Branch: `feature/slate-simulator-v1`
 The Monster is an independent NFL slate simulator. Its primary job is to simulate coherent football worlds from football/context evidence before any sportsbook, salary, ownership, or DFS optimization information is introduced.
 
 Canonical path:
-
 NFL information -> personnel reality -> team reality -> game reality -> player reality -> simulated Sundays -> blind freeze -> DFS scoring -> salary -> player value -> ownership -> lineup value -> portfolio -> actual-results calibration.
 
 ## Primary objective
 Predict distributions of NFL game and player outcomes by simulating finite, correlated worlds. DFS value is downstream of football reality; the optimizer must never decide what football reality looks like.
 
 ## Current production game state
-Monster Beta22 v0.6.3 — Market-Blind Game Reality.
-
-Upstream game-score inputs include 2025 offense scoring/yards, opponent defense points/yards allowed, TD composition, home-field margin shift, continuity-conditioned team identity, current personnel/health context, and documented role adjustments. Sportsbook totals/spreads are excluded upstream.
+Monster Beta22 v0.6.3 — Market-Blind Game Reality, with promoted QB rushing-reservoir repair and passing broad Player Reality structural gate.
 
 ## Passed / retained components
 - Market-blind game-score architecture.
@@ -26,67 +23,91 @@ Upstream game-score inputs include 2025 offense scoring/yards, opponent defense 
 - Rushing anatomy / role structure.
 - Health as separate availability/effectiveness/uncertainty state.
 - Opportunity-conservation architecture.
-- Evidence-gated promotion: failed football candidates are not promoted.
+- Evidence-gated promotion.
 - QB season-mean rushing calibration.
 - World-level QB rushing reservoir against finite TEAM rush attempts.
-- Downstream rushing-role hierarchy now preserves the upstream QB carry/TD reservoir.
+- Downstream rushing-role hierarchy preserves upstream QB carry/TD reservoir.
+- Broad Player Reality structural gate passed on fresh 10K Week 1 sample.
 
-## Latest completed evidence
-GitHub Actions run `34258951529`, workflow `QB season-mean calibration repair`, seed `2026090814`, 10,000 worlds per Week 1 game, completed successfully on 2026-09-08.
+## Latest completed evidence — Player Reality
+GitHub Actions run `34291763174`, seed `2026090815`, 10,000 worlds per Week 1 game.
 
-The workflow itself rebuilt current-season personnel with `--season 2026 --history 2025`, rebuilt 2025 and 2024 policy inputs, applied the dated Week 1 health override snapshot, compiled continuity-conditioned policy, ran the full Week 1 Monster simulator, enforced the football gate, and promoted only after the gate passed.
+Run rebuilt current 2026 personnel (`--season 2026 --history 2025`), 2025/2024 football priors, Week 1 health snapshot, continuity-conditioned policy, and then simulated the 12-game Week 1 slate. Market data, salary and ownership were excluded.
 
-QB starter rushing results from the passing run:
+### QB reconfirmation — PASS
 - starter QB count: 24
-- rush mean: 3.75245
-- rush median: 3.52935 (PASS; gate 2.4-4.6)
-- rush p90: 6.31247 (PASS; gate <= 8.25)
-- rush p95: 7.08962 (PASS; gate <= 10.0)
-- rush max: 7.70420 (PASS; gate <= 11.5)
-- rushing-TD median: 0.08360 (PASS; gate <= 0.22)
-- rushing-TD p90: 0.45716 (PASS; gate <= 0.50)
-- rushing-TD max: 0.54670 (PASS; gate <= 0.65)
+- rush mean: 3.82736
+- rush median: 3.50250
+- rush p90: 6.24007
+- rush p95: 7.26819
+- rush max: 7.88290
+- rushing-TD median: 0.13655
+- rushing-TD p90: 0.41941
+- rushing-TD max: 0.52300
+- gate_pass: true
 
-Promotion commit: `97d55bf719d41e19496e54a4c57a7037b652e768` — `Preserve QB rushing reservoir through role hierarchy`.
-Artifact: `monster-qb-role-reservoir-repair`, artifact id `10069106913`.
+### Broad Player Reality structural gate — PASS
+All 20 checks passed:
+- finite player outputs
+- team plays sane
+- team pass attempts sane
+- team rush attempts sane
+- team targets <= pass attempts
+- yards/play sane
+- target ranks 1/2/3 sane
+- rush ranks 1/2/3 sane
+- target breadth sane
+- core-rusher breadth sane
+- starter QB count sane
+- starter QB attempts/yards/TDs sane
+- RB outputs nonnegative
+- WR/TE outputs nonnegative
 
-## What "current" means for this run
-- Current roster/depth/personnel layer: 2026 data loaded during the GitHub Actions run through the nflverse/nflreadpy ingestion path.
-- Historical behavioral priors: primarily 2025, with 2024 used in continuity-conditioned team identity.
-- Week 1 health overrides: explicit snapshot dated 2026-09-07.
-- Week 1 slate encoded in the runner for games on 2026-09-13.
-- Market data, DFS salary and ownership are excluded from football simulation.
+Observed structural metrics:
+- player rows: 514
+- team rows: 24
+- team plays min/median/max: 53.10 / 60.44 / 65.19
+- team pass attempts min/median/max: 26.14 / 30.73 / 35.98
+- team rush attempts min/median/max: 23.25 / 27.46 / 31.45
+- team targets min/median/max: 24.52 / 28.84 / 33.72
+- yards/play min/median/max: 4.80 / 5.67 / 6.36
+- mean target rank shares: 0.332 / 0.222 / 0.158
+- mean rush rank shares: 0.631 / 0.225 / 0.102
+- mean target earners/world: 7.21
+- mean core rushers/world: 2.53
+- starter QB pass-attempt median / p90: 29.95 / 33.26
+- starter QB passing-yards median / p90: 219.19 / 237.75
+- starter QB passing-TD median / p90: 1.399 / 1.677
 
-Important limitation: `current` does not mean every real-world input is guaranteed updated to the exact second. Provider data can lag, and the explicit health override file is dated 2026-09-07. Therefore the next certification stage must include a current-state/personnel freshness audit before final football freeze.
+Artifact: `monster-player-reality-gate`, artifact id `10081639259`.
+
+## Current-data caveat
+The run's personnel layer is current-season 2026 provider data, but provider injury rows were 0 in this run. Health therefore relied on the explicit Week 1 override snapshot dated 2026-09-07 (13 override rows). This is not a football-gate failure, but it is a freshness limitation that must be audited before final freeze.
 
 ## Personnel audit correction
-The earlier suspicion that Jacoby Brissett/Arizona and Tua Tagovailoa/Atlanta represented bad team mappings was incorrect. Current 2026 evidence supports Brissett as Arizona's Week 1 starter/presumed starter and Atlanta officially named Tagovailoa its Week 1 starter on 2026-09-07. Do not treat those assignments as roster bugs.
+Jacoby Brissett/Arizona and Tua Tagovailoa/Atlanta were previously suspected as mapping errors. Current 2026 evidence supported those Week 1 assignments at the time of audit. Do not alter them merely because they look surprising; reverify current personnel before freeze.
 
 ## Resolved blocker: QB rushing
-The prior failure was caused by two downstream normalization layers. First, generic allocation could inflate a compiled QB share when non-QB roles disappeared. Second, the later A/B/C rushing hierarchy could overwrite the calibrated QB reservoir and promote a mobile QB into generic Role A. The promoted repair now:
-1. calibrates QB expected rushing from QB-season starter behavior;
-2. interprets QB rush share against total TEAM rush attempts;
-3. samples a finite QB reservoir at the world level;
-4. allocates the residual carry supply among non-QBs;
-5. preserves the QB reservoir through the final A/B/C rushing-role refinement;
-6. conserves exact team rushing attempts and rushing TDs.
+The generic allocation and downstream A/B/C rushing hierarchy had been able to inflate/overwrite QB expected state. The promoted repair calibrates QB expected rushing from QB-season behavior, samples a finite QB reservoir against total team rush attempts, allocates residual carries among non-QBs, preserves the reservoir through final rushing-role refinement, and conserves exact team rush attempts/TDs.
 
-## Current blocker / certification target
-QB Reality has cleared its evidence gate. The next blocker is broader Player Reality certification, including conservation, passing coherence, receiving hierarchy, RB opportunity structure, participation/health behavior, and distribution/tail sanity. A pass here is required before the 60,000-world final blind rehearsal.
+## Current certification target
+Broad Player Reality structure has passed. Before football freeze, the remaining certification path is:
+1. deeper distribution/conservation/tail audit where current outputs permit it;
+2. current-state personnel/health freshness audit;
+3. 60,000-world final blind Week 1 rehearsal;
+4. freeze only if those gates pass.
 
 ## Next actions
-1. Run broader player-reality/conservation audit against the promoted branch.
-2. Diagnose and repair only evidence-backed failures.
-3. Audit current-state/personnel/health freshness before final freeze.
-4. Run 60,000-world final blind Week 1 rehearsal.
-5. Freeze football model if gates pass.
-6. Reveal market only after football freeze for audit/calibration; do not tune upstream toward market.
-7. Join FanDuel salary/player file only after football freeze.
-8. Produce Monster Player Value Board: mean/median/tails, boom probabilities, salary efficiency, threshold probability, correlations, and optimal-lineup rate.
-9. Build the first Monster 150 as a portfolio across valuable simulated Sunday states rather than 150 near-identical projection-max lineups.
+1. Audit player distributions/tails and role extremes from run `34291763174`; repair only evidence-backed failures.
+2. Reverify Week 1 current personnel and health freshness, especially because provider injury feed returned 0 rows.
+3. Run 60,000-world final blind Week 1 rehearsal.
+4. Freeze as `Monster Football v1 — Week 1 FROZEN` only if final gates pass.
+5. Reveal market only after freeze for audit/calibration; never tune upstream toward market.
+6. Join FanDuel salary/player file after football freeze.
+7. Produce Monster Player Value Board and then Monster 150 portfolio.
 
 ## DFS constitutional boundary
-Football reality must be generated without sportsbook lines, DFS salaries, ownership, or optimizer feedback. Those layers are revealed only downstream after the football worlds are frozen.
+Football reality must be generated without sportsbook lines, DFS salaries, ownership, or optimizer feedback. Those layers are revealed only downstream after football worlds are frozen.
 
 ## Do not confuse with current state
-Older v0.1/v0.2/v0.6.1 artifacts and prior Week 1 score maps are historical experiments, not the current production state. Run `34258951529` and promotion commit `97d55bf719d41e19496e54a4c57a7037b652e768` are the latest QB-rushing evidence. The broader player-reality layer is not yet frozen.
+Older v0.1/v0.2/v0.6.1 artifacts and prior Week 1 score maps are historical experiments. Run `34291763174` is the latest broad Player Reality evidence. Passing a structural gate means the tested invariants survived; it does not prove the forecasts are correct or eliminate the need for final freshness/tail/60K certification.
