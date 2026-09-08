@@ -26,3 +26,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# Orchestration trigger only: 2026-09-08 Player Reality certification.
