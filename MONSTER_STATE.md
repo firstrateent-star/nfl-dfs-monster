@@ -23,65 +23,64 @@ Upstream game-score inputs include 2025 offense scoring/yards, opponent defense 
 - Continuity-conditioned team identity.
 - Shared finite game play supply.
 - Receiving hierarchy and eligibility gates.
-- Rushing anatomy / role structure except current QB mean-carry calibration.
+- Rushing anatomy / role structure.
 - Health as separate availability/effectiveness/uncertainty state.
 - Opportunity-conservation architecture.
-- QB rushing-TD calibration in the latest 10k test.
 - Evidence-gated promotion: failed football candidates are not promoted.
+- QB season-mean rushing calibration.
+- World-level QB rushing reservoir against finite TEAM rush attempts.
+- Downstream rushing-role hierarchy now preserves the upstream QB carry/TD reservoir.
 
-## Current evidence
-Latest completed 10k Week 1 validation: GitHub Actions run `34256283755`, seed `2026090812`.
+## Latest completed evidence
+GitHub Actions run `34258951529`, workflow `QB season-mean calibration repair`, seed `2026090814`, 10,000 worlds per Week 1 game, completed successfully on 2026-09-08.
 
-QB starter rushing results:
-- historical 2022-25 QB-season median carries/start: 3.35
-- Monster median mean carries: 6.79 (FAIL)
-- historical p90: 7.0
-- Monster p90 mean: 9.99 (FAIL)
-- Monster p95 mean: 10.59 (FAIL)
-- Monster maximum mean: 12.03 (FAIL)
-- rushing-TD median: 0.083 (PASS)
-- rushing-TD p90: 0.460 (PASS)
-- rushing-TD max: 0.545 (PASS)
+The workflow itself rebuilt current-season personnel with `--season 2026 --history 2025`, rebuilt 2025 and 2024 policy inputs, applied the dated Week 1 health override snapshot, compiled continuity-conditioned policy, ran the full Week 1 Monster simulator, enforced the football gate, and promoted only after the gate passed.
 
-The failed repair was not promoted.
+QB starter rushing results from the passing run:
+- starter QB count: 24
+- rush mean: 3.75245
+- rush median: 3.52935 (PASS; gate 2.4-4.6)
+- rush p90: 6.31247 (PASS; gate <= 8.25)
+- rush p95: 7.08962 (PASS; gate <= 10.0)
+- rush max: 7.70420 (PASS; gate <= 11.5)
+- rushing-TD median: 0.08360 (PASS; gate <= 0.22)
+- rushing-TD p90: 0.45716 (PASS; gate <= 0.50)
+- rushing-TD max: 0.54670 (PASS; gate <= 0.65)
+
+Promotion commit: `97d55bf719d41e19496e54a4c57a7037b652e768` — `Preserve QB rushing reservoir through role hierarchy`.
+Artifact: `monster-qb-role-reservoir-repair`, artifact id `10069106913`.
+
+## What "current" means for this run
+- Current roster/depth/personnel layer: 2026 data loaded during the GitHub Actions run through the nflverse/nflreadpy ingestion path.
+- Historical behavioral priors: primarily 2025, with 2024 used in continuity-conditioned team identity.
+- Week 1 health overrides: explicit snapshot dated 2026-09-07.
+- Week 1 slate encoded in the runner for games on 2026-09-13.
+- Market data, DFS salary and ownership are excluded from football simulation.
+
+Important limitation: `current` does not mean every real-world input is guaranteed updated to the exact second. Provider data can lag, and the explicit health override file is dated 2026-09-07. Therefore the next certification stage must include a current-state/personnel freshness audit before final football freeze.
 
 ## Personnel audit correction
 The earlier suspicion that Jacoby Brissett/Arizona and Tua Tagovailoa/Atlanta represented bad team mappings was incorrect. Current 2026 evidence supports Brissett as Arizona's Week 1 starter/presumed starter and Atlanta officially named Tagovailoa its Week 1 starter on 2026-09-07. Do not treat those assignments as roster bugs.
 
-## Current blocker
-QB expected rushing attempts remain too high. Diagnosis: the compiled QB reservoir can be inflated downstream because all rushing roles are sampled/renormalized together. When non-QB rushers drop from a world's role tree, the QB share can expand above its intended expected share of TEAM rush attempts.
+## Resolved blocker: QB rushing
+The prior failure was caused by two downstream normalization layers. First, generic allocation could inflate a compiled QB share when non-QB roles disappeared. Second, the later A/B/C rushing hierarchy could overwrite the calibrated QB reservoir and promote a mobile QB into generic Role A. The promoted repair now:
+1. calibrates QB expected rushing from QB-season starter behavior;
+2. interprets QB rush share against total TEAM rush attempts;
+3. samples a finite QB reservoir at the world level;
+4. allocates the residual carry supply among non-QBs;
+5. preserves the QB reservoir through the final A/B/C rushing-role refinement;
+6. conserves exact team rushing attempts and rushing TDs.
 
-## Current experiment
-Candidate world-level QB reservoir repair:
-1. retain season-level QB tendency calibration in `skill_pools.py`;
-2. interpret compiled QB rush share explicitly against total team rush attempts;
-3. sample a finite QB rushing reservoir at the world level;
-4. allocate remaining carries only among non-QBs;
-5. preserve world-level QB tail variance without allowing role-tree renormalization to redefine the mean;
-6. leave the already-passing QB rushing-TD mechanism unchanged.
-
-Candidate patch script: `scripts/apply_qb_world_reservoir_fix.py`.
-Evidence workflow: `.github/workflows/qb-world-reservoir-repair.yml`.
-
-## Evidence gate for current experiment
-10,000 Week 1 worlds, new seed `2026090813`.
-Promotion only if:
-- QB median mean carries: 2.4 to 4.6
-- p90 <= 8.25
-- p95 <= 10.0
-- max <= 11.5
-- rushing-TD median <= 0.22
-- rushing-TD p90 <= 0.50
-- rushing-TD max <= 0.65
-- lint/tests pass.
+## Current blocker / certification target
+QB Reality has cleared its evidence gate. The next blocker is broader Player Reality certification, including conservation, passing coherence, receiving hierarchy, RB opportunity structure, participation/health behavior, and distribution/tail sanity. A pass here is required before the 60,000-world final blind rehearsal.
 
 ## Next actions
-1. Run the QB world-reservoir 10k evidence gate.
-2. If it fails, diagnose the mechanism from evidence and do not promote.
-3. If it passes, promote only the verified repair.
-4. Run broader player-reality/conservation audit.
-5. Run 60,000-world final blind Week 1 rehearsal.
-6. Freeze football model if gates pass.
+1. Run broader player-reality/conservation audit against the promoted branch.
+2. Diagnose and repair only evidence-backed failures.
+3. Audit current-state/personnel/health freshness before final freeze.
+4. Run 60,000-world final blind Week 1 rehearsal.
+5. Freeze football model if gates pass.
+6. Reveal market only after football freeze for audit/calibration; do not tune upstream toward market.
 7. Join FanDuel salary/player file only after football freeze.
 8. Produce Monster Player Value Board: mean/median/tails, boom probabilities, salary efficiency, threshold probability, correlations, and optimal-lineup rate.
 9. Build the first Monster 150 as a portfolio across valuable simulated Sunday states rather than 150 near-identical projection-max lineups.
@@ -90,4 +89,4 @@ Promotion only if:
 Football reality must be generated without sportsbook lines, DFS salaries, ownership, or optimizer feedback. Those layers are revealed only downstream after the football worlds are frozen.
 
 ## Do not confuse with current state
-Older v0.1/v0.2/v0.6.1 artifacts and prior Week 1 score maps are historical experiments, not the current production state. The latest validated evidence and this file take precedence.
+Older v0.1/v0.2/v0.6.1 artifacts and prior Week 1 score maps are historical experiments, not the current production state. Run `34258951529` and promotion commit `97d55bf719d41e19496e54a4c57a7037b652e768` are the latest QB-rushing evidence. The broader player-reality layer is not yet frozen.
