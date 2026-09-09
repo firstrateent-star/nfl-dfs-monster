@@ -21,6 +21,7 @@ class DefensiveIdentity:
     run_defense: float = 1.0
     tackling: float = 1.0
     ball_hawk: float = 1.0
+    snap_weight: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,8 @@ class PassMatchup:
     completion_probability: float
     yards_multiplier: float
     primary_defender_id: str | None
+    coverage_strength: float = 1.0
+    ball_hawk_strength: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -47,12 +50,28 @@ class RunMatchup:
     primary_defender_id: str | None
 
 
-def _weighted_defender(
+def _unit_strength(
+    defenders: tuple[DefensiveIdentity, ...], attribute: str
+) -> float:
+    """Return exposure-weighted unit strength instead of letting one star represent a unit."""
+    if not defenders:
+        return 1.0
+    weights = np.asarray([max(defender.snap_weight, 0.001) for defender in defenders], dtype=float)
+    values = np.asarray([float(getattr(defender, attribute)) for defender in defenders], dtype=float)
+    return float(np.average(values, weights=weights))
+
+
+def _representative_defender(
     defenders: tuple[DefensiveIdentity, ...], attribute: str
 ) -> DefensiveIdentity | None:
+    """Choose a stable attribution representative without granting them full unit strength."""
     if not defenders:
         return None
-    return max(defenders, key=lambda defender: getattr(defender, attribute))
+    return max(
+        defenders,
+        key=lambda defender: max(defender.snap_weight, 0.001)
+        * max(float(getattr(defender, attribute)), 0.001),
+    )
 
 
 def resolve_pass_matchup(
@@ -62,10 +81,10 @@ def resolve_pass_matchup(
     pass_protection: float,
     quarterback_efficiency: float,
 ) -> PassMatchup:
-    cover = _weighted_defender(defense.coverage, "coverage")
-    rusher = _weighted_defender(defense.front, "pass_rush")
-    coverage_strength = 1.0 if cover is None else cover.coverage
-    rush_strength = 1.0 if rusher is None else rusher.pass_rush
+    cover = _representative_defender(defense.coverage, "coverage")
+    coverage_strength = _unit_strength(defense.coverage, "coverage")
+    ball_hawk = _unit_strength(defense.coverage, "ball_hawk")
+    rush_strength = _unit_strength(defense.front, "pass_rush")
     pressure = float(
         np.clip(defense.pressure_rate * rush_strength / max(pass_protection, 0.55), 0.12, 0.50)
     )
@@ -76,7 +95,6 @@ def resolve_pass_matchup(
             0.84,
         )
     )
-    ball_hawk = 1.0 if cover is None else cover.ball_hawk
     interception = float(
         np.clip(0.022 * ball_hawk * coverage_strength / max(quarterback_efficiency, 0.55), 0.006, 0.07)
     )
@@ -87,6 +105,8 @@ def resolve_pass_matchup(
         completion_probability=completion,
         yards_multiplier=yards_multiplier,
         primary_defender_id=None if cover is None else cover.player_id,
+        coverage_strength=coverage_strength,
+        ball_hawk_strength=ball_hawk,
     )
 
 
@@ -96,8 +116,8 @@ def resolve_run_matchup(
     *,
     run_blocking: float,
 ) -> RunMatchup:
-    defender = _weighted_defender(defense.front, "run_defense")
-    front_strength = 1.0 if defender is None else defender.run_defense
+    defender = _representative_defender(defense.front, "run_defense")
+    front_strength = _unit_strength(defense.front, "run_defense")
     stuff = float(
         np.clip(defense.run_stuff_rate * front_strength / max(run_blocking, 0.55), 0.06, 0.42)
     )
