@@ -12,102 +12,105 @@ NFL information -> personnel reality -> team reality -> game reality -> player r
 ## Primary objective
 Predict distributions of NFL game and player outcomes by simulating finite, correlated worlds. DFS value is downstream of football reality; the optimizer must never decide what football reality looks like.
 
-## Current production game state
-Monster Beta22 v0.6.3 — Market-Blind Game Reality, with promoted QB rushing-reservoir repair and passing broad Player Reality structural gate.
+## FROZEN FOOTBALL ARCHITECTURE
+**Monster Football v1 — Week 1 ARCHITECTURE FROZEN**
 
-## Passed / retained components
-- Market-blind game-score architecture.
+Freeze evidence: GitHub Actions run `34292058208`, commit `f33b6d693730443facce9a9e2f2f709c6c46976a`, seed `2026090816`, 60,000 worlds/game across 12 games = 720,000 simulated game-worlds.
+
+The architecture is frozen before sportsbook, FanDuel salary, ownership, or optimizer information is introduced. Football-only current-state inputs (personnel, injuries/health, weather/conditions) may still be refreshed before slate lock, but each refresh must be versioned and may not use DFS/market information to alter football mechanisms.
+
+## Retained architecture
+- Monster Beta22 v0.6.3 market-blind Game Reality.
 - Continuity-conditioned team identity.
 - Shared finite game play supply.
 - Receiving hierarchy and eligibility gates.
 - Rushing anatomy / role structure.
-- Health as separate availability/effectiveness/uncertainty state.
-- Opportunity-conservation architecture.
-- Evidence-gated promotion.
+- Health separated into availability, effectiveness-if-active, and uncertainty.
+- Opportunity conservation.
 - QB season-mean rushing calibration.
-- World-level QB rushing reservoir against finite TEAM rush attempts.
-- Downstream rushing-role hierarchy preserves upstream QB carry/TD reservoir.
-- Broad Player Reality structural gate passed on fresh 10K Week 1 sample.
+- Finite world-level QB rushing reservoir.
+- Downstream rushing hierarchy preserves QB carry/TD reservoir.
+- World-level rushing and target rank audits.
+- Current personnel, OL, physical-mechanism and participation state.
+- Evidence-gated promotion.
 
-## Latest completed evidence — Player Reality
-GitHub Actions run `34291763174`, seed `2026090815`, 10,000 worlds per Week 1 game.
+## Final 60K blind certification — PASS
+Run `34292058208` completed successfully. Market/contaminated references loaded: false. Salary used in football simulation: false. Ownership used in football simulation: false.
 
-Run rebuilt current 2026 personnel (`--season 2026 --history 2025`), 2025/2024 football priors, Week 1 health snapshot, continuity-conditioned policy, and then simulated the 12-game Week 1 slate. Market data, salary and ownership were excluded.
-
-### QB reconfirmation — PASS
-- starter QB count: 24
-- rush mean: 3.82736
-- rush median: 3.50250
-- rush p90: 6.24007
-- rush p95: 7.26819
-- rush max: 7.88290
-- rushing-TD median: 0.13655
-- rushing-TD p90: 0.41941
-- rushing-TD max: 0.52300
-- gate_pass: true
-
-### Broad Player Reality structural gate — PASS
-All 20 checks passed:
-- finite player outputs
-- team plays sane
-- team pass attempts sane
-- team rush attempts sane
-- team targets <= pass attempts
-- yards/play sane
-- target ranks 1/2/3 sane
-- rush ranks 1/2/3 sane
-- target breadth sane
-- core-rusher breadth sane
-- starter QB count sane
-- starter QB attempts/yards/TDs sane
-- RB outputs nonnegative
-- WR/TE outputs nonnegative
-
-Observed structural metrics:
+### Broad Player Reality — PASS 20/20
 - player rows: 514
 - team rows: 24
-- team plays min/median/max: 53.10 / 60.44 / 65.19
-- team pass attempts min/median/max: 26.14 / 30.73 / 35.98
-- team rush attempts min/median/max: 23.25 / 27.46 / 31.45
-- team targets min/median/max: 24.52 / 28.84 / 33.72
-- yards/play min/median/max: 4.80 / 5.67 / 6.36
-- mean target rank shares: 0.332 / 0.222 / 0.158
-- mean rush rank shares: 0.631 / 0.225 / 0.102
-- mean target earners/world: 7.21
-- mean core rushers/world: 2.53
-- starter QB pass-attempt median / p90: 29.95 / 33.26
-- starter QB passing-yards median / p90: 219.19 / 237.75
-- starter QB passing-TD median / p90: 1.399 / 1.677
+- starter QB count: 24
+- team plays min/median/max: 53.038 / 60.393 / 65.189
+- pass attempts min/median/max: 26.118 / 30.760 / 36.009
+- rush attempts min/median/max: 23.232 / 27.445 / 31.384
+- targets min/median/max: 24.498 / 28.855 / 33.765
+- yards/play min/median/max: 4.802 / 5.665 / 6.380
+- target rank shares mean: 0.3316 / 0.2216 / 0.1579
+- rush rank shares mean: 0.6310 / 0.2243 / 0.1016
+- target earners/world mean: 7.212
+- core rushers/world mean: 2.530
+- starter QB pass attempts median/p90: 29.999 / 33.202
+- starter QB passing yards median/p90: 219.893 / 238.010
+- starter QB passing TD median/p90: 1.409 / 1.689
 
-Artifact: `monster-player-reality-gate`, artifact id `10081639259`.
+### QB Reality reconfirmation — PASS
+- rush mean: 3.81953
+- rush median: 3.50910
+- rush p90: 6.20358
+- rush p95: 7.23580
+- rush max: 7.81245
+- rushing-TD median: 0.13567
+- rushing-TD p90: 0.41596
+- rushing-TD max: 0.51717
 
-## Current-data caveat
-The run's personnel layer is current-season 2026 provider data, but provider injury rows were 0 in this run. Health therefore relied on the explicit Week 1 override snapshot dated 2026-09-07 (13 override rows). This is not a football-gate failure, but it is a freshness limitation that must be audited before final freeze.
+### 60K game environment map
+- BAL@IND: mean 23.58–23.77, total 47.36, P90 total 70, P(60+) 22.95%
+- TB@CIN: 23.83–23.09, total 46.92, P90 70, P(60+) 22.06%
+- WAS@PHI: 20.56–24.19, total 44.74, P90 67
+- NO@DET: 19.93–24.68, total 44.61, P90 67
+- CHI@CAR: 23.52–21.03, total 44.55, P90 67
+- BUF@HOU: 23.22–21.08, total 44.30, P90 66
+- ATL@PIT: 21.44–22.20, total 43.64, P90 65
+- ARI@LAC: 19.58–22.97, total 42.55, P90 64
+- GB@MIN: 21.39–20.77, total 42.15, P90 63
+- NYJ@TEN: 20.66–21.41, total 42.07, P90 63
+- MIA@LV: 21.83–18.98, total 40.81, P90 62
+- CLE@JAC: 18.18–21.97, total 40.15, P90 61
 
-## Personnel audit correction
-Jacoby Brissett/Arizona and Tua Tagovailoa/Atlanta were previously suspected as mapping errors. Current 2026 evidence supported those Week 1 assignments at the time of audit. Do not alter them merely because they look surprising; reverify current personnel before freeze.
+60K distributions were stable relative to the prior 10K structural sample; no evidence-backed tail catastrophe was found that warrants changing football architecture before freeze.
 
-## Resolved blocker: QB rushing
-The generic allocation and downstream A/B/C rushing hierarchy had been able to inflate/overwrite QB expected state. The promoted repair calibrates QB expected rushing from QB-season behavior, samples a finite QB reservoir against total team rush attempts, allocates residual carries among non-QBs, preserves the reservoir through final rushing-role refinement, and conserves exact team rush attempts/TDs.
+Artifact: `monster-week1-60k-final-blind`, artifact id `10081863532`.
 
-## Current certification target
-Broad Player Reality structure has passed. Before football freeze, the remaining certification path is:
-1. deeper distribution/conservation/tail audit where current outputs permit it;
-2. current-state personnel/health freshness audit;
-3. 60,000-world final blind Week 1 rehearsal;
-4. freeze only if those gates pass.
+## Performance baseline
+Run `34292058208` runner execution was about 6m10s. The 720,000-game-world simulation consumed ~339.8s (5m39.8s), approximately 2,119 game-worlds/sec and ~92% of runner time. Detailed timing is retained in `docs/PERFORMANCE_LEDGER.md`.
 
-## Next actions
-1. Audit player distributions/tails and role extremes from run `34291763174`; repair only evidence-backed failures.
-2. Reverify Week 1 current personnel and health freshness, especially because provider injury feed returned 0 rows.
-3. Run 60,000-world final blind Week 1 rehearsal.
-4. Freeze as `Monster Football v1 — Week 1 FROZEN` only if final gates pass.
-5. Reveal market only after freeze for audit/calibration; never tune upstream toward market.
-6. Join FanDuel salary/player file after football freeze.
-7. Produce Monster Player Value Board and then Monster 150 portfolio.
+## Current-data policy
+Provider injury rows were 0 on Sep 8; the Week 1 health snapshot used 13 explicit Sep 7 overrides. Official Sunday injury reporting had not yet populated when audited. This does not invalidate the architecture freeze. Personnel/health/weather must be refreshed from football-only evidence before slate lock and recorded as a new current-state snapshot.
 
-## DFS constitutional boundary
-Football reality must be generated without sportsbook lines, DFS salaries, ownership, or optimizer feedback. Those layers are revealed only downstream after football worlds are frozen.
+Jacoby Brissett/Arizona and Tua Tagovailoa/Atlanta were previously suspected as mapping errors but current evidence supported those assignments at audit time. Reverify rather than changing surprising personnel by intuition.
 
-## Do not confuse with current state
-Older v0.1/v0.2/v0.6.1 artifacts and prior Week 1 score maps are historical experiments. Run `34291763174` is the latest broad Player Reality evidence. Passing a structural gate means the tested invariants survived; it does not prove the forecasts are correct or eliminate the need for final freshness/tail/60K certification.
+## DFS transition
+The blind football architecture is now frozen. Downstream work may begin without feeding results back upstream:
+1. apply complete FanDuel scoring, including player-level turnover penalties once attribution is modeled;
+2. join the FanDuel slate identity/salary file;
+3. build multidimensional Monster Player Value distributions;
+4. compute conditional-world/correlation evidence;
+5. add ownership only downstream;
+6. build and evaluate legal lineups/world portfolios;
+7. eventually produce Monster 150.
+
+## Constitutional boundary
+Football reality must remain independent of sportsbook lines, DFS salaries, ownership, or optimizer feedback. Market reveal is an audit/calibration layer, never an upstream target.
+
+## Status
+- Game Reality: PASS / frozen architecture
+- QB Reality: PASS
+- Player Reality: PASS structural certification
+- 60K Final Blind: PASS
+- Football Architecture Freeze: PASS
+- Current football input refresh before lock: pending as reports evolve
+- Complete FanDuel scoring: next
+- FanDuel salary join: pending
+- Monster Player Values: pending
+- Lineup engine / Monster 150: pending
