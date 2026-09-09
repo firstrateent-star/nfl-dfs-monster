@@ -23,6 +23,8 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
     Expensive historical evaluation happens once here; Monte Carlo consumes a compact team state.
     Team identifiers are normalized before aggregation, and touchdown-drive labels represent
     offensive scoring only rather than generic touchdown events such as pick-sixes.
+    Neutral pass tendency is defined by quarterback dropback family so historical scrambles
+    remain pass-family intent rather than being mislabeled as designed runs.
     """
     required = {
         "game_id",
@@ -57,6 +59,7 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
         (pl.col("pass_touchdown").fill_null(0) == 1)
         | (pl.col("rush_touchdown").fill_null(0) == 1)
     )
+    dropback_family = pl.col("qb_dropback").fill_null(0).cast(pl.Float64) == 1.0
 
     scrimmage = pbp.filter(
         pl.col("posteam").is_not_null() & pl.col("play_type").is_in(SCRIMMAGE_TYPES)
@@ -124,7 +127,7 @@ def compile_team_policy(pbp: pl.DataFrame) -> pl.DataFrame:
     )
 
     neutral_policy = (
-        neutral.with_columns((pl.col("play_type") == "pass").cast(pl.Float64).alias("is_pass"))
+        neutral.with_columns(dropback_family.cast(pl.Float64).alias("is_pass"))
         .group_by("posteam")
         .agg(
             pl.len().alias("neutral_plays"),
