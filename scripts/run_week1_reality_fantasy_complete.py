@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from monster.feature_compile.environment import apply_environment_to_pool
+
 
 def _load(name: str):
     path = Path(__file__).with_name(name)
@@ -23,27 +25,48 @@ def main() -> None:
     environment = reality._environment_map()
     disabled: set[str] = set()
     original_state = fantasy._state
+    original_pool_compile = fantasy.compile_current_skill_pools
 
     def full_inputs(personnel, *, game_date=None):
         if game_date is None:
             game_date = fantasy.GAME_DATE
         compiled = reality.compile_player_reality_inputs(personnel, game_date=game_date)
-        return {pid: reality._ablate_player_inputs(inputs, disabled) for pid, inputs in compiled.items()}
+        return {
+            pid: reality._ablate_player_inputs(inputs, disabled)
+            for pid, inputs in compiled.items()
+        }
 
-    def full_state(base, unit_players, ol_row):
-        state = original_state(base, unit_players, ol_row)
-        row = environment.get(str(state.team_id))
+    def environment_inputs(team_id: str):
+        row = environment.get(str(team_id))
         if row is None:
-            return state
-        inputs = reality.TeamMechanismInputs(
+            return None
+        return reality.TeamMechanismInputs(
             wind_mph=row.get("wind_mph"),
             precipitation_probability=row.get("precipitation_probability"),
             temperature_f=row.get("temperature_f"),
             dome=bool(row.get("dome", False)),
         )
+
+    def full_pool_compile(*args, **kwargs):
+        pools = original_pool_compile(*args, **kwargs)
+        return {
+            team_id: (
+                apply_environment_to_pool(pool, inputs)
+                if (inputs := environment_inputs(team_id)) is not None
+                else pool
+            )
+            for team_id, pool in pools.items()
+        }
+
+    def full_state(base, unit_players, ol_row):
+        state = original_state(base, unit_players, ol_row)
+        inputs = environment_inputs(str(state.team_id))
+        if inputs is None:
+            return state
         return reality.replace(state, weather_effect=reality._weather_effect(inputs))
 
     fantasy.compile_player_physical_inputs = full_inputs
+    fantasy.compile_current_skill_pools = full_pool_compile
     fantasy._state = full_state
     fantasy.main()
 
