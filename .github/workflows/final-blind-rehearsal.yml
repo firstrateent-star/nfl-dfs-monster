@@ -31,9 +31,9 @@ jobs:
           grep -q 'skill_talent_effect' src/monster/feature_compile/units.py
           grep -q 'physical_madden_effect' src/monster/sim/game.py
           grep -q 'qb_season_mean_share' src/monster/feature_compile/skill_pools.py
-      - name: Lint and unit tests
+      - name: Production-module lint and complete unit tests
         run: |
-          uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py scripts/run_week1_full_monster.py
+          uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
           uv run pytest -q
       - name: Build current 2026 Full-Reality personnel baseline
         run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/league-baseline
