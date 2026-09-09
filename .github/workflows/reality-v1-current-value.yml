@@ -1,4 +1,4 @@
-name: Monster Football Reality v1 current player value
+name: Monster Football Reality v1.1 current player value
 
 on:
   push:
@@ -7,7 +7,10 @@ on:
       - scripts/run_week1_reality_fantasy_complete.py
       - scripts/run_week1_reality_v1.py
       - src/monster/feature_compile/environment.py
+      - src/monster/sim/event_coupling.py
+      - src/monster/sim/pipeline_v11.py
       - tests/test_environment_propagation.py
+      - tests/test_event_coupling.py
       - .github/workflows/reality-v1-current-value.yml
   workflow_dispatch:
 
@@ -25,7 +28,7 @@ jobs:
         run: |
           uv run ruff check src tests scripts/run_week1_reality_fantasy_complete.py scripts/run_week1_reality_v1.py
           uv run pytest -q
-          uv run pytest -q tests/test_full_reality_counterfactuals.py tests/test_environment_propagation.py
+          uv run pytest -q tests/test_full_reality_counterfactuals.py tests/test_environment_propagation.py tests/test_event_coupling.py
       - name: Build current 2026 personnel baseline
         run: >-
           uv run python scripts/build_league_baseline.py
@@ -54,14 +57,14 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Run 20K post-audit Football Reality v1 fantasy-complete worlds
+      - name: Run 20K Monster v1.1 event-coupled fantasy-complete worlds
         run: >-
           uv run python scripts/run_week1_reality_fantasy_complete.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
-          --worlds 20000 --seed 2026090906
+          --worlds 20000 --seed 2026090907
           --interception-fraction 0.5922258892555923
           --out artifacts/current-reality-value
       - name: Verify current-state manifest
@@ -80,7 +83,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-football-reality-v1-post-flower-audit-20k
+          name: monster-football-reality-v1-1-event-coupled-20k
           path: |
             artifacts/current-reality-value/
             artifacts/full-reality-audit/
