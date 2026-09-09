@@ -1,0 +1,89 @@
+# Independent-seed certification launch: 2026-09-09
+name: Monster 60K Full Reality candidate
+
+on:
+  push:
+    branches: [feature/slate-simulator-v1]
+    paths:
+      - .github/workflows/final-blind-rehearsal.yml
+      - src/monster/ingest/madden_skill.py
+      - src/monster/ingest/madden_defense_special.py
+      - src/monster/feature_compile/units.py
+      - src/monster/feature_compile/reality_inputs.py
+      - src/monster/feature_compile/mechanisms.py
+      - tests/test_full_reality_counterfactuals.py
+      - scripts/build_league_baseline.py
+      - scripts/audit_full_reality_features.py
+      - scripts/run_week1_reality_v1.py
+      - config/environment/week1_2026_2026-09-09.csv
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  full-reality-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: feature/slate-simulator-v1}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Constitution and implementation gates
+        run: |
+          test -f MONSTER_CONSTITUTION.md
+          test -f docs/FEATURE_REALITY_AUDIT.md
+          grep -q 'madden_defense_special' scripts/build_league_baseline.py
+          grep -q 'skill_talent_effect' src/monster/feature_compile/units.py
+          grep -q 'physical_madden_effect' src/monster/sim/game.py
+          grep -q 'week1_2026_2026-09-09.csv' scripts/run_week1_reality_v1.py
+      - name: Production-module gates
+        run: |
+          uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
+          uv run pytest -q
+      - name: Counterfactual mechanism gates
+        run: uv run pytest -q tests/test_full_reality_counterfactuals.py
+      - name: Build current 2026 Full-Reality personnel baseline
+        run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/league-baseline
+      - name: Enforce Full-Reality source coverage
+        run: uv run python scripts/audit_full_reality_features.py --personnel artifacts/league-baseline/league_personnel.parquet --out artifacts/full-reality-feature-audit
+      - name: Build market-blind football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: uv run python scripts/build_health_snapshot.py --personnel artifacts/league-baseline/league_personnel.parquet --injuries artifacts/league-baseline/raw_injuries.parquet --overrides config/health/week1_2026_2026-09-07.csv --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: uv run python scripts/build_continuity_conditioned_policy.py --older-policy artifacts/league-policy-2024/team_policy.parquet --latest-policy artifacts/league-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --out artifacts/continuity-policy
+      - name: Run 60K blind Football Reality v1 candidate
+        run: uv run python scripts/run_week1_reality_v1.py --policy artifacts/continuity-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --player-usage artifacts/league-policy/player_usage.parquet --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet --worlds 60000 --seed 2026090904 --out artifacts/full-reality-candidate
+      - name: Verify market/DFS blindness
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/full-reality-candidate/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used_in_football_simulation'] is False; assert d['ownership_used_in_football_simulation'] is False; print('blind gate PASS')"
+      - name: Enforce broad Player Reality gate
+        run: uv run python scripts/run_player_reality_gate.py --players artifacts/full-reality-candidate/player_distributions.csv --teams artifacts/full-reality-candidate/team_opportunity_map.csv --out artifacts/full-reality-player-audit
+      - name: Reconfirm QB rushing gate
+        run: |
+          uv run python - <<'PY'
+          import json, numpy as np, polars as pl
+          from pathlib import Path
+          p=pl.read_csv('artifacts/full-reality-candidate/player_distributions.csv'); q=p.filter((pl.col('position')=='QB') & (pl.col('pass_attempts_mean')>=15.0))
+          a=q.get_column('rush_attempts_mean').to_numpy(); t=q.get_column('rushing_tds_mean').to_numpy()
+          m={'starter_qb_count':q.height,'rush_mean':float(np.mean(a)),'rush_median':float(np.median(a)),'rush_p90':float(np.quantile(a,.90)),'rush_p95':float(np.quantile(a,.95)),'rush_max':float(np.max(a)),'rush_td_median':float(np.median(t)),'rush_td_p90':float(np.quantile(t,.90)),'rush_td_max':float(np.max(t))}
+          m['gate_pass']=bool(2.4<=m['rush_median']<=4.6 and m['rush_p90']<=8.25 and m['rush_p95']<=10 and m['rush_max']<=11.5 and m['rush_td_median']<=.22 and m['rush_td_p90']<=.50 and m['rush_td_max']<=.65)
+          out=Path('artifacts/full-reality-qb-audit'); out.mkdir(parents=True,exist_ok=True); (out/'manifest.json').write_text(json.dumps(m,indent=2)+'\n'); print(json.dumps(m,indent=2))
+          if not m['gate_pass']: raise SystemExit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-week1-60k-full-reality-candidate
+          path: |
+            artifacts/full-reality-candidate/
+            artifacts/full-reality-player-audit/
+            artifacts/full-reality-qb-audit/
+            artifacts/full-reality-feature-audit/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-baseline/team_unit_effects.csv
+            artifacts/week1-health/manifest.json
+            artifacts/continuity-policy/manifest.json
+            config/environment/week1_2026_2026-09-09.csv
+          retention-days: 14

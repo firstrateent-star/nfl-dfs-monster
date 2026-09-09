@@ -1,0 +1,13 @@
+team_id,venue,dome,surface,temperature_f,wind_mph,precipitation_probability,source_note
+IND,Lucas Oil Stadium,true,turf,,,,retractable roof treated weather-neutral pending roof-status update
+CIN,Paycor Stadium,false,turf,87,,0.25,NWS Sep 13 forecast snapshot 2026-09-09
+PHI,Lincoln Financial Field,false,grass,85,,0.00,NWS Sep 13 mostly sunny snapshot 2026-09-09
+DET,Ford Field,true,turf,,,,indoor dome
+CAR,Bank of America Stadium,false,turf,86,6,0.56,Sep 13 forecast snapshot 2026-09-09
+HOU,NRG Stadium,true,turf,,,,retractable roof treated weather-neutral pending roof-status update
+PIT,Acrisure Stadium,false,grass,85,,0.00,Sep 13 forecast snapshot 2026-09-09; precipitation unavailable so neutral
+LAC,SoFi Stadium,true,turf,,,,covered stadium treated weather-neutral
+MIN,U.S. Bank Stadium,true,turf,,,,indoor dome
+TEN,Nissan Stadium,false,turf,93,3,0.21,Sep 13 forecast snapshot 2026-09-09
+LV,Allegiant Stadium,true,grass,,,,indoor dome
+JAC,EverBank Stadium,false,grass,92,8,0.65,Sep 13 forecast snapshot 2026-09-09

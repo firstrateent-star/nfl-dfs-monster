@@ -1,0 +1,31 @@
+name: Continuity-conditioned memory OOS
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - src/monster/sim/game.py
+      - scripts/validate_oos_continuity_conditioned_memory.py
+      - .github/workflows/oos-continuity-conditioned-memory.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run continuity-conditioned memory ablation
+        run: uv run python scripts/validate_oos_continuity_conditioned_memory.py --worlds 1800 --seed 2026090773 --out artifacts/oos-continuity-conditioned-memory
+      - name: Show result
+        run: cat artifacts/oos-continuity-conditioned-memory/manifest.json
+      - name: Enforce continuity-memory gate
+        run: uv run python -c "import json; d=json.load(open('artifacts/oos-continuity-conditioned-memory/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-continuity-conditioned-memory
+          path: artifacts/oos-continuity-conditioned-memory/
+          retention-days: 7

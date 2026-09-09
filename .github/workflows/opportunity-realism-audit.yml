@@ -1,0 +1,79 @@
+name: Opportunity realism audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/sim/game.py"
+      - "src/monster/sim/allocation.py"
+      - "src/monster/feature_compile/team.py"
+      - "scripts/audit_opportunity_realism.py"
+      - "scripts/run_week1_full_monster.py"
+      - ".github/workflows/opportunity-realism-audit.yml"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build current personnel
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build 2025 policy and usage
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025 --out artifacts/league-policy
+      - name: Build 2024 policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run diagnostic Week 1 simulation
+        run: >-
+          uv run python scripts/run_week1_full_monster.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 12000 --seed 2026090710
+          --out artifacts/week1-opportunity-diagnostic
+      - name: Compare opportunity supply with 2025 team-game reality
+        run: >-
+          uv run python scripts/audit_opportunity_realism.py
+          --sim-opportunity artifacts/week1-opportunity-diagnostic/team_opportunity_map.csv
+          --history 2025
+          --out artifacts/opportunity-realism
+      - name: Show diagnosis
+        run: |
+          cat artifacts/week1-opportunity-diagnostic/team_opportunity_map.csv
+          cat artifacts/opportunity-realism/historical_league_distribution.csv
+          cat artifacts/opportunity-realism/sim_vs_historical.csv
+          cat artifacts/opportunity-realism/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-opportunity-realism-audit
+          path: |
+            artifacts/week1-opportunity-diagnostic/team_opportunity_map.csv
+            artifacts/opportunity-realism/
+          retention-days: 7

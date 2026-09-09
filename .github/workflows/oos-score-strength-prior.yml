@@ -1,0 +1,40 @@
+name: Historical score-strength prior OOS
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_score_strength_prior.py
+      - scripts/validate_oos_regressed_team_state.py
+      - src/monster/snapshot/league.py
+      - src/monster/sim/game.py
+      - .github/workflows/oos-score-strength-prior.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run score-strength prior ablation
+        run: >-
+          uv run python scripts/validate_oos_score_strength_prior.py
+          --worlds 2500 --seed 2026090759
+          --out artifacts/oos-score-strength-prior
+      - name: Show result
+        if: always()
+        run: cat artifacts/oos-score-strength-prior/manifest.json
+      - name: Enforce score-strength gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-score-strength-prior/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-score-strength-prior
+          path: artifacts/oos-score-strength-prior/
+          retention-days: 7

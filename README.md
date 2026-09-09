@@ -15,7 +15,7 @@ The Monster's upstream job is **football only**:
 - **GitHub Actions** — light scheduled ingestion + manual heavy simulation; budgeted for the free allowance.
 - **Python + NumPy** — Monte Carlo.
 - **Polars + DuckDB + Parquet** — efficient analytical data processing and world-matrix queries.
-- **nflreadpy / nflverse** — primary free football data backbone.
+- **nflreadpy / nflverse** — primary free football data backbone, including rosters, depth charts, injuries, snap counts and defensive advanced statistics.
 - **NOAA/NWS API** — free U.S. weather/conditions.
 
 ## Key design law
@@ -33,6 +33,10 @@ CANONICAL SUPABASE STATE
     ↓
 FEATURE COMPILER
     ↓
+ALL-PLAYER PARTICIPATION + SNAP WEIGHTS
+    ↓
+OL / PASS RUSH / COVERAGE / RUN DEFENSE / SPECIAL TEAMS UNIT MECHANISMS
+    ↓
 SLATE SNAPSHOT (market blind)
     ↓
 12 INDEPENDENT GAME SIMULATORS
@@ -47,6 +51,36 @@ FROZEN FOOTBALL OUTPUTS
     ↓
 FanDuel / DraftKings decoders (later)
 ```
+
+## Full player universe + snap counts
+
+The Monster player universe comes from NFL/nflverse rosters, **not DFS player lists**. Offense, offensive line, defense and special teams are all eligible to influence the football simulation.
+
+Snap share is a first-class weighting layer:
+
+- offensive snap share weights offensive personnel / OL influence;
+- defensive snap share weights pass rush, coverage and run-defense influence;
+- special-teams snap share weights kicking/return/ST influence;
+- recent snap volatility contributes to personnel uncertainty.
+
+A player's size/Madden/statistical capability does not matter at full strength simply because he is on the roster. It matters in proportion to how often the model expects him to be on the field and whether he is active/effective.
+
+For Week 1, recent prior-season snap counts provide the baseline and current depth chart/injury/role evidence can update that prior. As the current season progresses, current-season snap counts become increasingly authoritative.
+
+## Mechanism-specific personnel model
+
+All-player evidence is aggregated into bounded team mechanisms before scoring:
+
+- pass protection
+- run blocking
+- pass rush
+- coverage
+- run defense
+- special teams
+
+These mechanisms affect drive success, touchdown/field-goal/turnover probabilities and uncertainty. They do **not** add fantasy points directly.
+
+For example, an elite edge rusher projected for 25% of defensive snaps has less influence than a slightly weaker edge projected for 90% of snaps. The same logic applies to OL, corners, safeties, linebackers and special-teamers.
 
 ## Market anti-leakage
 
@@ -71,7 +105,7 @@ uv run monster db-check
 
 ## Current build stage
 
-This repository is the permanent infrastructure spine. The next modeling milestone is **Monster Slate Simulator v1**: compile a rich market-blind Week 1 snapshot and run full team-score + player-allocation worlds.
+This repository is the permanent infrastructure spine. The current working milestone is **Monster Slate Simulator v1**: compile a rich market-blind Week 1 snapshot using the full NFL roster universe, snap-weighted personnel mechanisms, and then run team-score + player-allocation worlds.
 
 ## Live Supabase project
 - Project ID: `nuyvuwqvsgopapjbnndu`
@@ -81,4 +115,4 @@ This repository is the permanent infrastructure spine. The next modeling milesto
 - Private schema: `monster`
 - Public/anon access to `monster` is revoked.
 
-The canonical v0.6.3 market-blind run, 24 teams, 12 games, feature definitions, and dependency rules are already seeded in the live database.
+The canonical v0.6.3 market-blind run, 24 teams, 12 games, feature definitions, dependency rules, and snap/unit feature governance are seeded in the live database.

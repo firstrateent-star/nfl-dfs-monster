@@ -1,0 +1,41 @@
+name: Component-wise offseason regression OOS
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_component_regression.py
+      - scripts/validate_oos_regressed_team_state.py
+      - src/monster/feature_compile/team.py
+      - src/monster/snapshot/league.py
+      - src/monster/sim/game.py
+      - .github/workflows/oos-component-regression.yml
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run component-wise regression ablation
+        run: >-
+          uv run python scripts/validate_oos_component_regression.py
+          --worlds 2000 --seed 2026090743
+          --out artifacts/oos-component-regression
+      - name: Show result
+        if: always()
+        run: cat artifacts/oos-component-regression/manifest.json
+      - name: Enforce component regression gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-component-regression/manifest.json')); assert d['robustness_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-component-regression
+          path: artifacts/oos-component-regression/
+          retention-days: 7

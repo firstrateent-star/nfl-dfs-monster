@@ -1,0 +1,38 @@
+name: Historical game-script behavior audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_game_script_behavior.py
+      - src/monster/ingest/nflverse.py
+      - .github/workflows/game-script-behavior.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Measure historical score-state behavior
+        run: >-
+          uv run python scripts/audit_game_script_behavior.py
+          --seasons 2022,2023,2024,2025
+          --out artifacts/game-script-behavior
+      - name: Enforce structural game-script signal
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/game-script-behavior/manifest.json')); assert d['structural_script_signal_pass'], d"
+      - name: Show result
+        if: always()
+        run: |
+          cat artifacts/game-script-behavior/manifest.json
+          cat artifacts/game-script-behavior/season_direction_checks.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-game-script-behavior
+          path: artifacts/game-script-behavior/
+          retention-days: 7

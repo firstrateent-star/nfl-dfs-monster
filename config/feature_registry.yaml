@@ -1,37 +1,349 @@
 # Feature Registry — every feature has a job, update cadence, authority and leakage class.
 # Authority is an initial governance value, not a claim of predictive validity.
 features:
-  height_in: {family: physical, cadence: static, jurisdiction: [shape, allocation], authority: 0.80, market_derived: false}
-  weight_lbs: {family: physical, cadence: seasonal, jurisdiction: [shape, allocation], authority: 0.75, market_derived: false}
-  age_years: {family: biology, cadence: derived_per_game, jurisdiction: [shape, confidence], authority: 0.50, market_derived: false}
-  career_workload: {family: biology, cadence: weekly, jurisdiction: [shape, confidence], authority: 0.45, market_derived: false}
-  forty_time: {family: athletic, cadence: static, jurisdiction: [shape], authority: 0.60, market_derived: false}
-  wingspan_in: {family: physical, cadence: static, jurisdiction: [shape, allocation], authority: 0.45, market_derived: false}
-  madden_ovr: {family: madden, cadence: release_update, jurisdiction: [mean, shape], authority: 0.30, market_derived: false}
-  madden_speed: {family: madden, cadence: release_update, jurisdiction: [shape], authority: 0.35, market_derived: false}
-  madden_acceleration: {family: madden, cadence: release_update, jurisdiction: [shape], authority: 0.30, market_derived: false}
-  madden_route_running: {family: madden, cadence: release_update, jurisdiction: [allocation, shape], authority: 0.25, market_derived: false}
-  madden_catching: {family: madden, cadence: release_update, jurisdiction: [shape], authority: 0.25, market_derived: false}
-  madden_pass_block: {family: madden, cadence: release_update, jurisdiction: [mean, shape], authority: 0.25, market_derived: false}
-  madden_pass_rush: {family: madden, cadence: release_update, jurisdiction: [mean, shape], authority: 0.25, market_derived: false}
-  madden_coverage: {family: madden, cadence: release_update, jurisdiction: [mean, shape], authority: 0.25, market_derived: false}
-  neutral_pass_rate: {family: coaching_policy, cadence: weekly, jurisdiction: [allocation], authority: 0.85, market_derived: false}
-  situation_neutral_pace: {family: coaching_policy, cadence: weekly, jurisdiction: [mean, allocation], authority: 0.80, market_derived: false}
-  offensive_epa_per_play: {family: performance, cadence: weekly, jurisdiction: [mean], authority: 0.90, market_derived: false}
-  defensive_epa_per_play: {family: performance, cadence: weekly, jurisdiction: [mean], authority: 0.90, market_derived: false}
-  pressure_rate: {family: trench, cadence: weekly, jurisdiction: [mean, shape], authority: 0.80, market_derived: false}
-  route_participation: {family: role, cadence: weekly, jurisdiction: [allocation, confidence], authority: 0.90, market_derived: false}
-  target_share: {family: role, cadence: weekly, jurisdiction: [allocation], authority: 0.90, market_derived: false}
-  rush_share: {family: role, cadence: weekly, jurisdiction: [allocation], authority: 0.90, market_derived: false}
-  red_zone_share: {family: role, cadence: weekly, jurisdiction: [allocation, shape], authority: 0.85, market_derived: false}
-  active_probability: {family: injury, cadence: event_driven, jurisdiction: [mean, allocation, shape, confidence], authority: 0.95, market_derived: false}
-  effectiveness_if_active: {family: injury, cadence: event_driven, jurisdiction: [mean, shape, confidence], authority: 0.70, market_derived: false}
-  unit_continuity: {family: continuity, cadence: weekly, jurisdiction: [shape, confidence], authority: 0.50, market_derived: false}
-  coach_policy_entropy: {family: coaching_policy, cadence: weekly, jurisdiction: [shape, confidence], authority: 0.55, market_derived: false}
-  temperature_f: {family: weather, cadence: slate_dynamic, jurisdiction: [mean, shape], authority: 0.70, market_derived: false}
-  wind_mph: {family: weather, cadence: slate_dynamic, jurisdiction: [mean, shape], authority: 0.85, market_derived: false}
-  precipitation_probability: {family: weather, cadence: slate_dynamic, jurisdiction: [shape, confidence], authority: 0.60, market_derived: false}
-  dome_flag: {family: environment, cadence: static, jurisdiction: [mean, shape], authority: 0.95, market_derived: false}
+  # --- static / biological ---
+  height_in:
+    family: physical
+    cadence: static
+    jurisdiction: [shape, allocation]
+    authority: 0.80
+    market_derived: false
+  weight_lbs:
+    family: physical
+    cadence: seasonal
+    jurisdiction: [shape, allocation]
+    authority: 0.75
+    market_derived: false
+  age_years:
+    family: biology
+    cadence: derived_per_game
+    jurisdiction: [shape, confidence]
+    authority: 0.50
+    market_derived: false
+  career_workload:
+    family: biology
+    cadence: weekly
+    jurisdiction: [shape, confidence]
+    authority: 0.45
+    market_derived: false
+  forty_time:
+    family: athletic
+    cadence: static
+    jurisdiction: [shape]
+    authority: 0.60
+    market_derived: false
+  wingspan_in:
+    family: physical
+    cadence: static
+    jurisdiction: [shape, allocation]
+    authority: 0.45
+    market_derived: false
+
+  # --- Madden / proxy capability ---
+  madden_ovr:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.30
+    market_derived: false
+  madden_speed:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.35
+    market_derived: false
+  madden_acceleration:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.30
+    market_derived: false
+  madden_route_running:
+    family: madden
+    cadence: release_update
+    jurisdiction: [allocation, shape]
+    authority: 0.25
+    market_derived: false
+  madden_catching:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.25
+    market_derived: false
+  madden_pass_block:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_pass_rush:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_coverage:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+
+  # --- performance / scoring anatomy ---
+  drives_per_game:
+    family: pace
+    cadence: weekly
+    jurisdiction: [mean, allocation]
+    authority: 0.90
+    market_derived: false
+  plays_per_drive:
+    family: pace
+    cadence: weekly
+    jurisdiction: [mean, allocation]
+    authority: 0.85
+    market_derived: false
+  td_drive_rate:
+    family: scoring_anatomy
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.90
+    market_derived: false
+  fg_drive_rate:
+    family: scoring_anatomy
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  turnover_drive_rate:
+    family: turnover
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.85
+    market_derived: false
+  red_zone_td_rate:
+    family: scoring_anatomy
+    cadence: weekly
+    jurisdiction: [mean, allocation, shape]
+    authority: 0.85
+    market_derived: false
+  pass_td_share:
+    family: scoring_anatomy
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.80
+    market_derived: false
+  offensive_success_rate:
+    family: performance
+    cadence: weekly
+    jurisdiction: [mean, confidence]
+    authority: 0.85
+    market_derived: false
+  offensive_explosive_rate:
+    family: performance
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.85
+    market_derived: false
+  defensive_td_drive_rate_allowed:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.90
+    market_derived: false
+  defensive_fg_drive_rate_allowed:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  defensive_takeaway_drive_rate:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.85
+    market_derived: false
+  defensive_explosive_rate_allowed:
+    family: defense
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.85
+    market_derived: false
+  defensive_sack_rate:
+    family: trench
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.85
+    market_derived: false
+  defensive_qb_hit_rate:
+    family: trench
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  neutral_seconds_per_play:
+    family: coaching_policy
+    cadence: weekly
+    jurisdiction: [mean, allocation]
+    authority: 0.80
+    market_derived: false
+  early_down_pass_rate:
+    family: coaching_policy
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.80
+    market_derived: false
+  neutral_pass_rate:
+    family: coaching_policy
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.85
+    market_derived: false
+  situation_neutral_pace:
+    family: coaching_policy
+    cadence: weekly
+    jurisdiction: [mean, allocation]
+    authority: 0.80
+    market_derived: false
+  offensive_epa_per_play:
+    family: performance
+    cadence: weekly
+    jurisdiction: [mean]
+    authority: 0.90
+    market_derived: false
+  defensive_epa_per_play:
+    family: performance
+    cadence: weekly
+    jurisdiction: [mean]
+    authority: 0.90
+    market_derived: false
+  pressure_rate:
+    family: trench
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+
+  # --- player opportunity / efficiency ---
+  target_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.90
+    market_derived: false
+  rush_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation]
+    authority: 0.90
+    market_derived: false
+  route_participation:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, confidence]
+    authority: 0.90
+    market_derived: false
+  red_zone_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.85
+    market_derived: false
+  red_zone_target_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.85
+    market_derived: false
+  red_zone_rush_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.85
+    market_derived: false
+  receiving_td_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.75
+    market_derived: false
+  rushing_td_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, shape]
+    authority: 0.75
+    market_derived: false
+  catch_rate:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.80
+    market_derived: false
+  yards_per_reception:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.75
+    market_derived: false
+  yards_per_carry:
+    family: efficiency
+    cadence: weekly
+    jurisdiction: [shape]
+    authority: 0.75
+    market_derived: false
+
+  # --- health / continuity / coaching ---
+  active_probability:
+    family: injury
+    cadence: event_driven
+    jurisdiction: [mean, allocation, shape, confidence]
+    authority: 0.95
+    market_derived: false
+  effectiveness_if_active:
+    family: injury
+    cadence: event_driven
+    jurisdiction: [mean, shape, confidence]
+    authority: 0.70
+    market_derived: false
+  unit_continuity:
+    family: continuity
+    cadence: weekly
+    jurisdiction: [shape, confidence]
+    authority: 0.50
+    market_derived: false
+  coach_policy_entropy:
+    family: coaching_policy
+    cadence: weekly
+    jurisdiction: [shape, confidence]
+    authority: 0.55
+    market_derived: false
+
+  # --- environment ---
+  temperature_f:
+    family: weather
+    cadence: slate_dynamic
+    jurisdiction: [mean, shape]
+    authority: 0.70
+    market_derived: false
+  wind_mph:
+    family: weather
+    cadence: slate_dynamic
+    jurisdiction: [mean, shape]
+    authority: 0.85
+    market_derived: false
+  precipitation_probability:
+    family: weather
+    cadence: slate_dynamic
+    jurisdiction: [shape, confidence]
+    authority: 0.60
+    market_derived: false
+  dome_flag:
+    family: environment
+    cadence: static
+    jurisdiction: [mean, shape]
+    authority: 0.95
+    market_derived: false
+
+  # --- experimental shadow ---
   natal_sun_longitude:
     family: astrology
     cadence: static_derived
@@ -47,6 +359,23 @@ features:
     production_weight: 0.00
     market_derived: false
     promotion_gate: preregistered_out_of_sample_residual_test
-  sportsbook_total: {family: market, cadence: dynamic, jurisdiction: [audit_only], authority: 0.00, market_derived: true}
-  sportsbook_spread: {family: market, cadence: dynamic, jurisdiction: [audit_only], authority: 0.00, market_derived: true}
-  dfs_ownership: {family: market, cadence: dynamic, jurisdiction: [downstream_dfs_only], authority: 0.00, market_derived: true}
+
+  # --- forbidden upstream ---
+  sportsbook_total:
+    family: market
+    cadence: dynamic
+    jurisdiction: [audit_only]
+    authority: 0.00
+    market_derived: true
+  sportsbook_spread:
+    family: market
+    cadence: dynamic
+    jurisdiction: [audit_only]
+    authority: 0.00
+    market_derived: true
+  dfs_ownership:
+    family: market
+    cadence: dynamic
+    jurisdiction: [downstream_dfs_only]
+    authority: 0.00
+    market_derived: true

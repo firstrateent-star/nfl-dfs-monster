@@ -1,0 +1,35 @@
+name: Rush hierarchy stability audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_rush_hierarchy_stability.py
+      - .github/workflows/rush-hierarchy-stability.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Audit 2022-2025 rushing hierarchy stability
+        run: >-
+          uv run python scripts/audit_rush_hierarchy_stability.py
+          --seasons 2022 2023 2024 2025
+          --out artifacts/rush-hierarchy-stability
+      - name: Show result
+        run: |
+          cat artifacts/rush-hierarchy-stability/season_stability.csv
+          cat artifacts/rush-hierarchy-stability/manifest.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-rush-hierarchy-stability
+          path: artifacts/rush-hierarchy-stability/
+          retention-days: 7

@@ -1,0 +1,136 @@
+features:
+  offense_snap_share:
+    family: participation
+    cadence: weekly
+    jurisdiction: [allocation, confidence]
+    authority: 0.95
+    market_derived: false
+  defense_snap_share:
+    family: participation
+    cadence: weekly
+    jurisdiction: [mean, shape, confidence]
+    authority: 0.95
+    market_derived: false
+  special_teams_snap_share:
+    family: participation
+    cadence: weekly
+    jurisdiction: [mean, shape, confidence]
+    authority: 0.90
+    market_derived: false
+  primary_snap_share:
+    family: participation
+    cadence: weekly
+    jurisdiction: [mean, allocation, shape, confidence]
+    authority: 0.90
+    market_derived: false
+  snap_share_uncertainty:
+    family: participation
+    cadence: weekly
+    jurisdiction: [shape, confidence]
+    authority: 0.85
+    market_derived: false
+
+  madden_run_block:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_tackle:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_kick_power:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.20
+    market_derived: false
+  madden_kick_accuracy:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_return:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.20
+    market_derived: false
+
+  pass_block_signal:
+    family: trench
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  run_block_signal:
+    family: trench
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  pass_rush_signal:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.85
+    market_derived: false
+  coverage_signal:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  run_defense_signal:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.80
+    market_derived: false
+  special_teams_signal:
+    family: special_teams
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.65
+    market_derived: false
+
+  pass_protection_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false
+  run_block_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false
+  pass_rush_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false
+  coverage_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false
+  run_defense_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false
+  special_teams_effect:
+    family: derived_unit
+    cadence: slate_snapshot
+    jurisdiction: [mean, shape]
+    authority: 1.00
+    market_derived: false

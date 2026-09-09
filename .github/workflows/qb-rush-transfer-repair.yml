@@ -1,0 +1,84 @@
+name: QB rushing transfer-safe repair
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/apply_qb_rush_transfer_fix.py
+      - scripts/audit_current_qb_rush.py
+      - .github/workflows/qb-rush-transfer-repair.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/slate-simulator-v1
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Apply transfer-safe QB rushing prior
+        run: uv run python scripts/apply_qb_rush_transfer_fix.py
+      - name: Lint and unit tests
+        run: |
+          uv run ruff check src/monster/feature_compile/skill_pools.py
+          uv run pytest -q
+      - name: Build current personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build 2025 and 2024 policy inputs
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run current Week 1 QB-rush sample
+        run: >-
+          uv run python scripts/run_week1_full_monster.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 10000 --seed 2026090811
+          --out artifacts/qb-rush-sample
+      - name: Enforce current QB rushing distribution
+        run: >-
+          uv run python scripts/audit_current_qb_rush.py
+          --players artifacts/qb-rush-sample/player_distributions.csv
+          --out artifacts/current-qb-rush-audit
+      - name: Commit repair only after evidence gate passes
+        run: |
+          git config user.name "monster-evidence-bot"
+          git config user.email "firstrateent@gmail.com"
+          git add src/monster/feature_compile/skill_pools.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Make QB rushing transfer-safe"
+          git push origin HEAD:feature/slate-simulator-v1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-qb-rush-transfer-repair
+          path: |
+            artifacts/current-qb-rush-audit/
+            artifacts/qb-rush-sample/player_distributions.csv
+            artifacts/qb-rush-sample/game_distribution_map.csv
+          retention-days: 7

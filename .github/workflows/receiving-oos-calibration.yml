@@ -1,0 +1,36 @@
+name: Receiving role OOS calibration
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/calibrate_receiving_role_prior.py
+      - .github/workflows/receiving-oos-calibration.yml
+  workflow_dispatch:
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Fit latent receiving geometry on 2022-2024 and test 2025
+        run: >-
+          uv run python scripts/calibrate_receiving_role_prior.py
+          --train 2022 2023 2024 --test 2025
+          --replicates 48 --seed 2026090717
+          --out artifacts/receiving-oos-calibration
+      - name: Show result
+        run: |
+          cat artifacts/receiving-oos-calibration/manifest.json
+          head -12 artifacts/receiving-oos-calibration/candidate_grid.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: receiving-oos-calibration
+          path: artifacts/receiving-oos-calibration/
+          retention-days: 7

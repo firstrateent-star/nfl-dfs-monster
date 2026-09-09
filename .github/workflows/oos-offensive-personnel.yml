@@ -1,0 +1,42 @@
+name: Pre-Week-1 offensive personnel OOS ablation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_offensive_personnel.py
+      - src/monster/feature_compile/depth.py
+      - src/monster/ingest/league.py
+      - src/monster/ingest/nflverse.py
+      - src/monster/feature_compile/team.py
+      - src/monster/sim/game.py
+      - .github/workflows/oos-offensive-personnel.yml
+  workflow_dispatch:
+
+jobs:
+  ablation:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run offensive personnel ablation
+        run: >-
+          uv run python scripts/validate_oos_offensive_personnel.py
+          --worlds 2500 --seed 2026090723
+          --out artifacts/oos-offensive-personnel
+      - name: Show ablation result
+        if: always()
+        run: cat artifacts/oos-offensive-personnel/manifest.json
+      - name: Enforce offensive personnel gate
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/oos-offensive-personnel/manifest.json')); assert d['bridge_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-offensive-personnel
+          path: artifacts/oos-offensive-personnel/
+          retention-days: 7

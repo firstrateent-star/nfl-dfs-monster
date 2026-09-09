@@ -1,0 +1,27 @@
+name: Historical score component audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_score_components.py
+      - .github/workflows/score-component-audit.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Audit 2025 score anatomy and TD labels
+        run: uv run python scripts/audit_score_components.py --season 2025 --out artifacts/score-components
+      - name: Show audit
+        run: cat artifacts/score-components/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-score-component-audit
+          path: artifacts/score-components/
+          retention-days: 7

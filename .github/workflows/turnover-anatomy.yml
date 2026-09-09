@@ -1,0 +1,36 @@
+name: Monster turnover anatomy audit
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_turnover_anatomy.py
+      - src/monster/dfs/turnovers.py
+      - src/monster/dfs/fanduel.py
+      - tests/test_turnover_attribution.py
+      - tests/test_fanduel_scoring.py
+      - .github/workflows/turnover-anatomy.yml
+  workflow_dispatch:
+
+jobs:
+  turnover-anatomy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Gate downstream turnover attribution
+        run: uv run pytest -q tests/test_turnover_attribution.py tests/test_fanduel_scoring.py
+      - name: Lint downstream DFS layer
+        run: uv run ruff check src/monster/dfs tests/test_turnover_attribution.py tests/test_fanduel_scoring.py scripts/audit_turnover_anatomy.py
+      - name: Audit 2022-2025 football-only turnover anatomy
+        run: uv run python scripts/audit_turnover_anatomy.py --seasons 2022 2023 2024 2025 --out artifacts/turnover-anatomy
+      - name: Show turnover audit
+        run: cat artifacts/turnover-anatomy/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-turnover-anatomy
+          path: artifacts/turnover-anatomy/
+          retention-days: 14

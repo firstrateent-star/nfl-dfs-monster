@@ -1,0 +1,55 @@
+name: Pressure test player-level OL pathways
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/sim/game.py"
+      - "src/monster/sim/allocation.py"
+      - "src/monster/feature_compile/offensive_line.py"
+      - "src/monster/feature_compile/ol_simulation.py"
+      - "src/monster/feature_compile/skill_pools.py"
+      - "scripts/build_league_baseline.py"
+      - "scripts/build_league_policy.py"
+      - "scripts/pressure_test_player_ol.py"
+      - ".github/workflows/pressure-test-player-ol.yml"
+  workflow_dispatch:
+
+jobs:
+  pressure:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build current 32-team personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build historical policy, OL audit outcomes, and player usage
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025 --out artifacts/league-policy
+      - name: Run matched-seed player-level OL A/B
+        run: >-
+          uv run python scripts/pressure_test_player_ol.py
+          --policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 5000 --seed 2026090704
+          --out artifacts/player-ol-pressure-test
+      - name: Show pressure-test results
+        run: |
+          cat artifacts/player-ol-pressure-test/team_pathway_ab.csv
+          cat artifacts/player-ol-pressure-test/top_player_changes.csv
+          cat artifacts/player-ol-pressure-test/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-player-ol-pressure-test
+          path: artifacts/player-ol-pressure-test/
+          retention-days: 7

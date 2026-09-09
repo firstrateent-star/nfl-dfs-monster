@@ -1,0 +1,30 @@
+name: Historical QB season-level tendency
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/audit_historical_qb_season_tendency.py
+      - .github/workflows/historical-qb-season-tendency.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Measure QB season-level starter tendency
+        run: >-
+          uv run python scripts/audit_historical_qb_season_tendency.py
+          --seasons 2022,2023,2024,2025
+          --out artifacts/historical-qb-season-tendency
+      - name: Show calibration
+        run: cat artifacts/historical-qb-season-tendency/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-historical-qb-season-tendency
+          path: artifacts/historical-qb-season-tendency/
+          retention-days: 7

@@ -1,0 +1,42 @@
+name: Historical score anatomy calibration
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/sim/game.py"
+      - "src/monster/snapshot/league.py"
+      - "src/monster/feature_compile/team.py"
+      - "src/monster/ingest/nflverse.py"
+      - "scripts/build_league_policy.py"
+      - "scripts/calibrate_score_anatomy.py"
+      - ".github/workflows/score-calibration.yml"
+  workflow_dispatch:
+
+jobs:
+  calibration:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build 2025 policy artifact
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025 --out artifacts/league-policy
+      - name: Replay 2025 score anatomy
+        run: >-
+          uv run python scripts/calibrate_score_anatomy.py
+          --policy artifacts/league-policy/team_policy.parquet
+          --season 2025 --worlds 2500 --seed 2025090701
+          --out artifacts/score-calibration
+      - name: Show calibration result
+        run: cat artifacts/score-calibration/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-score-calibration
+          path: artifacts/score-calibration/
+          retention-days: 7

@@ -1,0 +1,39 @@
+name: Pre-Week-1 personnel bridge OOS ablation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - scripts/validate_oos_personnel_bridge.py
+      - src/monster/feature_compile/capability.py
+      - src/monster/feature_compile/league_units.py
+      - src/monster/feature_compile/participation_inference.py
+      - src/monster/feature_compile/team.py
+      - src/monster/feature_compile/units.py
+      - src/monster/ingest/league.py
+      - src/monster/ingest/nflverse.py
+      - src/monster/sim/game.py
+      - src/monster/snapshot/league.py
+      - .github/workflows/oos-personnel-bridge.yml
+  workflow_dispatch:
+
+jobs:
+  ablation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Run personnel bridge ablation
+        run: uv run python scripts/validate_oos_personnel_bridge.py --worlds 2000 --seed 2026090721 --out artifacts/oos-personnel-bridge
+      - name: Show ablation result
+        run: cat artifacts/oos-personnel-bridge/manifest.json
+      - name: Enforce bridge gate
+        run: uv run python -c "import json; d=json.load(open('artifacts/oos-personnel-bridge/manifest.json')); assert d['bridge_pass'], d"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-oos-personnel-bridge
+          path: artifacts/oos-personnel-bridge/
+          retention-days: 7

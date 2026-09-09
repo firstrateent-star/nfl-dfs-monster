@@ -1,0 +1,111 @@
+name: Week 1 health gate and full Monster simulation
+
+on:
+  push:
+    branches:
+      - feature/slate-simulator-v1
+    paths:
+      - "src/monster/feature_compile/health.py"
+      - "src/monster/feature_compile/health_pools.py"
+      - "src/monster/feature_compile/participation_inference.py"
+      - "config/health/week1_2026_2026-09-07.csv"
+      - "scripts/build_health_snapshot.py"
+      - "scripts/build_continuity_conditioned_policy.py"
+      - "scripts/pressure_test_health.py"
+      - "scripts/audit_health_propagation.py"
+      - "scripts/run_week1_full_monster.py"
+      - ".github/workflows/week1-health-full-monster.yml"
+  workflow_dispatch:
+
+jobs:
+  health-and-sim:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - name: Build current 32-team personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build 2025 historical policy and current player usage
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025 --out artifacts/league-policy
+      - name: Build 2024 historical policy for continuity memory
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile OOS-earned continuity-conditioned 2026 team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run matched-seed health A/B on promoted team policy
+        run: >-
+          uv run python scripts/pressure_test_health.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --control-personnel artifacts/league-baseline/league_personnel.parquet
+          --health-personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 5000 --seed 2026090705
+          --out artifacts/health-pressure-test
+      - name: Audit health propagation into units, scores, and player allocation
+        run: >-
+          uv run python scripts/audit_health_propagation.py
+          --control-personnel artifacts/league-baseline/league_personnel.parquet
+          --health-personnel artifacts/week1-health/health_personnel.parquet
+          --game-health-ab artifacts/health-pressure-test/game_health_ab.csv
+          --player-health-ab artifacts/health-pressure-test/player_health_ab.csv
+          --out artifacts/health-propagation-audit
+      - name: Enforce production health safety
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); assert d['production_safety_pass'], d"
+      - name: Show legacy health diagnostic
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/health-pressure-test/manifest.json')); print('legacy_35_yard_guardrail_pass=', d['legacy_35_yard_guardrail_pass']); print('health_depth_status=', d['health_depth_status'])"
+      - name: Run 60000-world continuity-conditioned Week 1 football simulation
+        run: >-
+          uv run python scripts/run_week1_full_monster.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 60000 --seed 2026090710
+          --out artifacts/week1-full-monster
+      - name: Show key results
+        if: always()
+        run: |
+          test -f artifacts/continuity-policy/manifest.json && cat artifacts/continuity-policy/manifest.json || true
+          test -f artifacts/continuity-policy/continuity_audit.csv && cat artifacts/continuity-policy/continuity_audit.csv || true
+          test -f artifacts/week1-health/manifest.json && cat artifacts/week1-health/manifest.json || true
+          test -f artifacts/health-pressure-test/manifest.json && cat artifacts/health-pressure-test/manifest.json || true
+          test -f artifacts/health-propagation-audit/manifest.json && cat artifacts/health-propagation-audit/manifest.json || true
+          test -f artifacts/health-propagation-audit/team_health_propagation.csv && cat artifacts/health-propagation-audit/team_health_propagation.csv || true
+          test -f artifacts/week1-full-monster/game_distribution_map.csv && cat artifacts/week1-full-monster/game_distribution_map.csv || true
+          test -f artifacts/week1-full-monster/qb_state_audit.csv && cat artifacts/week1-full-monster/qb_state_audit.csv || true
+          test -f artifacts/week1-full-monster/manifest.json && cat artifacts/week1-full-monster/manifest.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-week1-continuity-health-full-simulation
+          path: |
+            artifacts/continuity-policy/
+            artifacts/week1-health/
+            artifacts/health-pressure-test/
+            artifacts/health-propagation-audit/
+            artifacts/week1-full-monster/
+          retention-days: 7
