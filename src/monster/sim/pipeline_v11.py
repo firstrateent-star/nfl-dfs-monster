@@ -6,7 +6,8 @@ from monster.feature_compile.mechanisms import PlayerMechanismInputs, TeamMechan
 from monster.feature_compile.units import UnitPlayerInputs
 from monster.registry import FeatureRegistry
 from monster.sim.event_coupling import couple_touchdowns_to_events
-from monster.sim.pipeline import MonsterGameWorlds, simulate_monster_game as simulate_v1
+from monster.sim.pipeline import MonsterGameWorlds
+from monster.sim.pipeline import simulate_monster_game as simulate_v1
 from monster.snapshot.model import GameState
 from monster.snapshot.player import TeamPlayerPool
 
