@@ -157,6 +157,7 @@ def simulate_scrimmage_play(
         yards = anatomy.total_yards
         fumble_p = float(np.clip(0.012 / max(rusher.turnover_security, 0.5), 0.003, 0.04))
         turnover = rng.random() < fumble_p
+        touchdown = state.yardline_100 + yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
@@ -164,7 +165,7 @@ def simulate_scrimmage_play(
             rusher_id=rusher.player_id,
             primary_defender_id=primary_defender_id,
             run_lane=lane,
-            touchdown=state.yardline_100 + yards >= 100.0,
+            touchdown=touchdown,
             turnover=turnover,
             stuffed=anatomy.contact == ContactResult.STUFF,
             contact_result=anatomy.contact,
