@@ -1,0 +1,32 @@
+name: Pressure participation audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_pressure_participation.py
+      - .github/workflows/pressure-participation-audit.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code gates
+        run: |
+          uv run ruff check scripts/audit_pressure_participation.py
+          uv run pytest -q
+      - name: Audit 2025 play-level pressure response
+        run: >-
+          uv run python scripts/audit_pressure_participation.py
+          --season 2025 --out artifacts/pressure-participation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pressure-participation-2025
+          path: artifacts/pressure-participation/
+          retention-days: 14
