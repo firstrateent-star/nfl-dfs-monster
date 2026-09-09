@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 import numpy as np
+
+from monster.sim.football_state import FootballState, next_series_distance
 
 
 class PenaltySide(StrEnum):
@@ -42,6 +44,30 @@ def simulate_penalty(rng: np.random.Generator, *, base_rate: float = 0.055) -> P
     yards = 5 if rng.random() < 0.55 else 10
     automatic = rng.random() < 0.18
     return PenaltyEvent(PenaltySide.DEFENSE, yards, automatic_first_down=automatic)
+
+
+def enforce_penalty(state: FootballState, penalty: PenaltyEvent, elapsed_seconds: int = 0) -> FootballState:
+    """Apply a simplified accepted live-ball penalty to pre-snap state.
+
+    The v1.3 first penalty layer intentionally models aggregate accepted penalties rather than
+    pretending to know a foul subtype. Offensive penalties move the offense backward and replay
+    the down unless a future evidence-backed subtype carries loss of down. Defensive penalties
+    move the offense forward; automatic-first-down events and penalties reaching the line to gain
+    start a new series. Clock runoff is explicit and bounded by the event caller.
+    """
+    clock = max(state.seconds_remaining - max(int(elapsed_seconds), 0), 0)
+    if penalty.side == PenaltySide.OFFENSE:
+        enforced = min(float(penalty.yards), max(state.yardline_100 - 1.0, 0.0))
+        yardline = max(state.yardline_100 - enforced, 1.0)
+        down = min(state.down + int(penalty.loss_of_down), 4)
+        distance = max(state.distance + enforced, 1.0)
+    else:
+        enforced = min(float(penalty.yards), max(99.0 - state.yardline_100, 0.0))
+        yardline = min(state.yardline_100 + enforced, 99.0)
+        first_down = penalty.automatic_first_down or enforced >= state.distance
+        down = 1 if first_down else state.down
+        distance = next_series_distance(yardline) if first_down else max(state.distance - enforced, 1.0)
+    return replace(state, seconds_remaining=clock, yardline_100=yardline, down=down, distance=distance)
 
 
 def choose_two_point(*, quarter: int, seconds_remaining: int, score_margin_after_td: int) -> bool:
