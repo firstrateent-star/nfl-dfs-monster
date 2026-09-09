@@ -1,6 +1,11 @@
 import numpy as np
+import pytest
 
-from monster.dfs.defense import points_allowed_score, score_defense_partial_worlds
+from monster.dfs.defense import (
+    points_allowed_score,
+    require_complete_defense_authority,
+    score_defense_partial_worlds,
+)
 
 
 def test_points_allowed_bands() -> None:
@@ -19,11 +24,24 @@ def test_partial_defense_uses_same_world_takeaways() -> None:
 
 
 def test_partial_defense_rejects_misaligned_worlds() -> None:
-    try:
+    with pytest.raises(ValueError, match="correlated world shape"):
         score_defense_partial_worlds(
             opponent_points=np.array([10, 20]), opponent_turnovers=np.array([1])
         )
-    except ValueError as exc:
-        assert "correlated world shape" in str(exc)
-    else:
-        raise AssertionError("Expected shape mismatch to fail")
+
+
+def test_partial_defense_cannot_be_promoted_to_optimizer_authority() -> None:
+    with pytest.raises(RuntimeError, match="D/ST authority incomplete"):
+        require_complete_defense_authority(
+            sacks_modeled=False,
+            defensive_scores_modeled=False,
+            special_teams_scores_modeled=False,
+        )
+
+
+def test_complete_defense_authority_gate_opens_only_when_all_events_exist() -> None:
+    require_complete_defense_authority(
+        sacks_modeled=True,
+        defensive_scores_modeled=True,
+        special_teams_scores_modeled=True,
+    )
