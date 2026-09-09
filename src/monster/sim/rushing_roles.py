@@ -57,8 +57,6 @@ def _sample_core_roles(
 ) -> np.ndarray:
     if count <= 0 or len(eligible) == 0:
         return np.array([], dtype=int)
-    # Player-specific uncertainty perturbs only that player's latent role claim. It does not
-    # alter the finite carry supply or force a team-wide concentration parameter.
     sigma = 0.08 + 0.55 * np.clip(role_uncertainty[eligible], 0.0, 1.0)
     latent = np.log(np.clip(role_strength[eligible], 1e-9, None)) + rng.normal(0.0, sigma)
     order = eligible[np.argsort(latent)[::-1]]
@@ -102,8 +100,6 @@ def _redistribute_team_rushing(
     role_uncertainty = np.array([p.role_uncertainty for p in players], dtype=float)
     effectiveness = np.array([p.effectiveness_if_active for p in players], dtype=float)
 
-    # Role strength defines the center of latent A/B/C identity. Uncertainty governs how often
-    # nearby players can exchange ranks; it does not directly change the carry budget.
     role_strength = (
         np.sqrt(np.clip(base, 1e-9, None))
         * np.clip(role_probability, 0.01, 1.0)
@@ -115,9 +111,6 @@ def _redistribute_team_rushing(
         * np.clip(effectiveness, 0.25, 1.25)
     )
 
-    # The generic rushing hierarchy is downstream of the calibrated QB reservoir.
-    # Preserve QB attempts already allocated against finite TEAM rush supply. QB TD ownership
-    # is only a prior claim: event-first team rushing-TD supply is authoritative and may bound it.
     qb_indices = np.array([idx for idx, p in enumerate(players) if p.position == "QB"], dtype=int)
     non_qb_indices = np.array([idx for idx, p in enumerate(players) if p.position != "QB"], dtype=int)
     reserved_qb_attempts = np.zeros((worlds, n_players), dtype=np.int16)
@@ -158,7 +151,6 @@ def _redistribute_team_rushing(
             core_candidates = np.array([int(eligible[np.argmax(base[eligible])])], dtype=int)
 
         core_p = _core_role_probabilities(rng, core_candidates)
-
         guaranteed = min(core_n, len(core_candidates))
         attempts_out[w, core_candidates[:guaranteed]] += 1
         remaining_core = core_n - guaranteed
@@ -170,8 +162,11 @@ def _redistribute_team_rushing(
         peripheral = np.setdiff1d(eligible, core_candidates, assume_unique=False)
         incidental_count = _sample_incidental_count(rng, incidental_n, len(peripheral))
         if incidental_count > 0:
+            # Weight vectors passed to choice must describe exactly the candidate set.
+            # Using the full-roster vector here made small synthetic/player pools fail and,
+            # more importantly, could decouple incidental work from the actual eligible set.
             chosen = _weighted_choice_without_replacement(
-                rng, peripheral, peripheral_weight, incidental_count
+                rng, peripheral, peripheral_weight[peripheral], incidental_count
             )
             attempts_out[w, chosen] += 1
             remaining_incidental = incidental_n - len(chosen)
@@ -188,15 +183,9 @@ def _redistribute_team_rushing(
                 incidental_n, core_p
             ).astype(np.int16)
 
-    # Re-impose the upstream QB carry reservoir, then compress the generic non-QB hierarchy
-    # into the exact residual event-first supply. Event-first team TD anatomy has final authority.
     for w in range(worlds):
         qb_carries = int(reserved_qb_attempts[w].sum())
         team_td_supply = int(team_rush_tds[w])
-
-        # A legacy/player-allocation QB TD claim may exceed the newly simulated event-first
-        # rushing-TD supply. Bound it here rather than allowing downstream role code to rewrite
-        # football reality. When compression is required, preserve relative QB claims/carries.
         qb_td_claims = reserved_qb_tds[w, qb_indices].astype(int)
         qb_td_total = int(qb_td_claims.sum())
         if qb_td_total > team_td_supply and len(qb_indices):
