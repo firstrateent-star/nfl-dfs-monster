@@ -55,7 +55,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 250 --seed 2026090918
+          --worlds 250 --seed 2026090919
           --out artifacts/week1-v13-first-sim
       - name: Verify shadow manifest
         run: |
