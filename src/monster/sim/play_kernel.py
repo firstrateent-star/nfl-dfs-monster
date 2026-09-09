@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from monster.sim.decision_policy import FourthDownDecision, situation_policy
 from monster.sim.football_state import FootballState
+
+if TYPE_CHECKING:
+    from monster.sim.matchup_kernel import DefensiveUnit
 
 
 class PlayType(StrEnum):
@@ -50,6 +54,7 @@ class TeamIdentity:
     pass_efficiency: float = 1.0
     rush_efficiency: float = 1.0
     pass_protection: float = 1.0
+    run_blocking: float = 1.0
     field_goal_skill: float = 1.0
     punt_skill: float = 1.0
 
@@ -62,11 +67,14 @@ class PlayEvent:
     passer_id: str | None = None
     target_id: str | None = None
     rusher_id: str | None = None
+    primary_defender_id: str | None = None
     pass_result: PassResult | None = None
     run_lane: RunLane | None = None
     touchdown: bool = False
     turnover: bool = False
     field_goal_made: bool = False
+    pressured: bool = False
+    stuffed: bool = False
 
 
 def _weighted_player(players: tuple[PlayerIdentity, ...], rng: np.random.Generator) -> PlayerIdentity:
@@ -92,6 +100,7 @@ def simulate_scrimmage_play(
     offense: TeamIdentity,
     defense_strength: float,
     rng: np.random.Generator,
+    defense: DefensiveUnit | None = None,
 ) -> PlayEvent:
     play_type = choose_play_type(state, offense, rng)
     hurry = situation_policy(state, offense.neutral_pass_rate).hurry_probability
@@ -107,12 +116,22 @@ def simulate_scrimmage_play(
 
     if play_type == PlayType.RUN:
         rusher = _weighted_player(offense.rushers, rng)
-        if rusher.position == "QB":
-            lane = RunLane.QB
+        lane = RunLane.QB if rusher.position == "QB" else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
+        primary_defender_id = None
+        stuffed = False
+        if defense is not None:
+            from monster.sim.matchup_kernel import resolve_run_matchup
+
+            matchup = resolve_run_matchup(rusher, defense, run_blocking=offense.run_blocking)
+            primary_defender_id = matchup.primary_defender_id
+            stuffed = rng.random() < matchup.stuff_probability
+            mean = 4.2 * offense.rush_efficiency * matchup.yards_multiplier
         else:
-            lane = RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE
-        mean = 4.2 * offense.rush_efficiency * rusher.efficiency / max(defense_strength, 0.55)
-        yards = float(np.clip(rng.normal(mean, 4.8 * rusher.explosive), -8.0, 60.0))
+            mean = 4.2 * offense.rush_efficiency * rusher.efficiency / max(defense_strength, 0.55)
+        if stuffed:
+            yards = float(np.clip(rng.normal(-0.4, 1.4), -6.0, 2.0))
+        else:
+            yards = float(np.clip(rng.normal(mean, 4.8 * rusher.explosive), -8.0, 60.0))
         fumble_p = float(np.clip(0.012 / max(rusher.turnover_security, 0.5), 0.003, 0.04))
         turnover = rng.random() < fumble_p
         return PlayEvent(
@@ -120,48 +139,74 @@ def simulate_scrimmage_play(
             elapsed_seconds=elapsed,
             yards=yards,
             rusher_id=rusher.player_id,
+            primary_defender_id=primary_defender_id,
             run_lane=lane,
             touchdown=state.yardline_100 + yards >= 100.0,
             turnover=turnover,
+            stuffed=stuffed,
         )
 
     target = _weighted_player(offense.receivers, rng)
-    pressure = float(np.clip(0.065 * defense_strength / max(offense.pass_protection, 0.55), 0.025, 0.18))
-    if rng.random() < pressure:
+    primary_defender_id = None
+    if defense is not None:
+        from monster.sim.matchup_kernel import resolve_pass_matchup
+
+        matchup = resolve_pass_matchup(
+            target,
+            defense,
+            pass_protection=offense.pass_protection,
+            quarterback_efficiency=offense.pass_efficiency,
+        )
+        pressure = matchup.pressure_probability
+        interception_p = matchup.interception_probability
+        completion_p = matchup.completion_probability
+        yards_multiplier = matchup.yards_multiplier
+        primary_defender_id = matchup.primary_defender_id
+    else:
+        pressure = float(np.clip(0.065 * defense_strength / max(offense.pass_protection, 0.55), 0.025, 0.18))
+        interception_p = float(np.clip(0.024 * defense_strength / max(offense.pass_efficiency, 0.55), 0.008, 0.065))
+        completion_p = float(np.clip(0.64 * offense.pass_efficiency * target.efficiency / max(defense_strength, 0.65), 0.38, 0.82))
+        yards_multiplier = target.explosive
+
+    pressured = rng.random() < pressure
+    if pressured:
         yards = -float(np.clip(rng.normal(6.5, 2.5), 1.0, 15.0))
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
             yards=yards,
             passer_id=offense.quarterback.player_id,
+            primary_defender_id=primary_defender_id,
             pass_result=PassResult.SACK,
+            pressured=True,
         )
-    interception_p = float(np.clip(0.024 * defense_strength / max(offense.pass_efficiency, 0.55), 0.008, 0.065))
     if rng.random() < interception_p:
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
             passer_id=offense.quarterback.player_id,
             target_id=target.player_id,
+            primary_defender_id=primary_defender_id,
             pass_result=PassResult.INTERCEPTION,
             turnover=True,
         )
-    completion_p = float(np.clip(0.64 * offense.pass_efficiency * target.efficiency / max(defense_strength, 0.65), 0.38, 0.82))
     if rng.random() >= completion_p:
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
             passer_id=offense.quarterback.player_id,
             target_id=target.player_id,
+            primary_defender_id=primary_defender_id,
             pass_result=PassResult.INCOMPLETE,
         )
-    yards = float(np.clip(rng.lognormal(mean=2.25, sigma=0.55) * target.explosive, 0.0, 75.0))
+    yards = float(np.clip(rng.lognormal(mean=2.25, sigma=0.55) * yards_multiplier, 0.0, 75.0))
     return PlayEvent(
         play_type=play_type,
         elapsed_seconds=elapsed,
         yards=yards,
         passer_id=offense.quarterback.player_id,
         target_id=target.player_id,
+        primary_defender_id=primary_defender_id,
         pass_result=PassResult.COMPLETE,
         touchdown=state.yardline_100 + yards >= 100.0,
     )
