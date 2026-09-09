@@ -22,7 +22,7 @@ def _num(frame: pl.DataFrame, *names: str) -> pl.Expr:
 
 
 def compile_madden_defense_special_traits(ratings: pl.DataFrame) -> pl.DataFrame:
-    """Compile defensive and special-teams Madden evidence into mechanism-level proxies."""
+    """Compile defensive and specialist Madden 27 fields into bounded mechanism proxies."""
     if not ratings.height:
         return pl.DataFrame()
     if "full_name" not in ratings.columns:
@@ -31,20 +31,20 @@ def compile_madden_defense_special_traits(ratings: pl.DataFrame) -> pl.DataFrame
     pass_rush = pl.mean_horizontal(
         _num(ratings, "power_moves_rating"),
         _num(ratings, "finesse_moves_rating"),
-        _num(ratings, "block_shedding_rating"),
+        _num(ratings, "block_shed_rating", "block_shedding_rating"),
         _num(ratings, "pursuit_rating"),
     )
     coverage = pl.mean_horizontal(
-        _num(ratings, "man_coverage_rating"),
-        _num(ratings, "zone_coverage_rating"),
+        _num(ratings, "man_cover_rating", "man_coverage_rating"),
+        _num(ratings, "zone_cover_rating", "zone_coverage_rating"),
         _num(ratings, "press_rating"),
-        _num(ratings, "play_recognition_rating"),
+        _num(ratings, "play_rec_rating", "play_recognition_rating"),
     )
     tackle = pl.mean_horizontal(
         _num(ratings, "tackle_rating"),
         _num(ratings, "pursuit_rating"),
         _num(ratings, "hit_power_rating"),
-        _num(ratings, "play_recognition_rating"),
+        _num(ratings, "play_rec_rating", "play_recognition_rating"),
     )
     return ratings.with_columns(
         pl.col("full_name").map_elements(_norm, return_dtype=pl.Utf8).alias("_madden_ds_name"),
@@ -55,19 +55,11 @@ def compile_madden_defense_special_traits(ratings: pl.DataFrame) -> pl.DataFrame
         _num(ratings, "accel_rating", "acceleration_rating").alias("_ds_acceleration"),
         _num(ratings, "awareness_rating").alias("_ds_awareness"),
         _num(ratings, "kick_power_rating").alias("_ds_kick_power"),
-        _num(ratings, "kick_accuracy_rating").alias("_ds_kick_accuracy"),
-        _num(ratings, "kick_return_rating").alias("_ds_return"),
+        _num(ratings, "kick_acc_rating", "kick_accuracy_rating").alias("_ds_kick_accuracy"),
+        _num(ratings, "kick_ret_rating", "kick_return_rating").alias("_ds_return"),
     ).select(
-        "_madden_ds_name",
-        "_ds_pass_rush",
-        "_ds_coverage",
-        "_ds_tackle",
-        "_ds_speed",
-        "_ds_acceleration",
-        "_ds_awareness",
-        "_ds_kick_power",
-        "_ds_kick_accuracy",
-        "_ds_return",
+        "_madden_ds_name", "_ds_pass_rush", "_ds_coverage", "_ds_tackle", "_ds_speed",
+        "_ds_acceleration", "_ds_awareness", "_ds_kick_power", "_ds_kick_accuracy", "_ds_return",
     ).unique(subset=["_madden_ds_name"], keep="none")
 
 
@@ -80,36 +72,26 @@ def attach_madden_defense_special_traits(personnel: pl.DataFrame, ratings: pl.Da
     out = personnel.with_columns(
         pl.col(name_col).map_elements(_norm, return_dtype=pl.Utf8).alias("_madden_ds_name")
     ).join(traits, on="_madden_ds_name", how="left")
-
     mapping = {
-        "madden_pass_rush": "_ds_pass_rush",
-        "madden_coverage": "_ds_coverage",
-        "madden_tackle": "_ds_tackle",
-        "madden_speed": "_ds_speed",
-        "madden_acceleration": "_ds_acceleration",
-        "madden_awareness": "_ds_awareness",
-        "madden_kick_power": "_ds_kick_power",
-        "madden_kick_accuracy": "_ds_kick_accuracy",
+        "madden_pass_rush": "_ds_pass_rush", "madden_coverage": "_ds_coverage",
+        "madden_tackle": "_ds_tackle", "madden_speed": "_ds_speed",
+        "madden_acceleration": "_ds_acceleration", "madden_awareness": "_ds_awareness",
+        "madden_kick_power": "_ds_kick_power", "madden_kick_accuracy": "_ds_kick_accuracy",
         "madden_return": "_ds_return",
     }
     expressions = []
     for target, source in mapping.items():
-        if target in out.columns:
-            expressions.append(pl.coalesce([pl.col(target), pl.col(source)]).alias(target))
-        else:
-            expressions.append(pl.col(source).alias(target))
+        expressions.append(
+            pl.coalesce([pl.col(target), pl.col(source)]).alias(target)
+            if target in out.columns else pl.col(source).alias(target)
+        )
     return out.with_columns(expressions).drop(["_madden_ds_name", *mapping.values()])
 
 
 def madden_defense_special_coverage(personnel: pl.DataFrame) -> dict[str, int]:
     def count(column: str) -> int:
         return int(personnel.select(pl.col(column).is_not_null().sum()).item()) if column in personnel.columns else 0
-
-    return {
-        "pass_rush": count("madden_pass_rush"),
-        "coverage": count("madden_coverage"),
-        "tackle": count("madden_tackle"),
-        "kick_power": count("madden_kick_power"),
-        "kick_accuracy": count("madden_kick_accuracy"),
-        "return": count("madden_return"),
-    }
+    return {key: count(column) for key, column in {
+        "pass_rush": "madden_pass_rush", "coverage": "madden_coverage", "tackle": "madden_tackle",
+        "kick_power": "madden_kick_power", "kick_accuracy": "madden_kick_accuracy", "return": "madden_return",
+    }.items()}
