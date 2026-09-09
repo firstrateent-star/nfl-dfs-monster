@@ -5,7 +5,9 @@ on:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/run_week1_v13_first_sim.py
+      - scripts/build_league_policy.py
       - src/monster/sim/**
+      - src/monster/feature_compile/situation.py
       - src/monster/feature_compile/v13_identity_bridge.py
       - .github/workflows/v13-first-simulation.yml
   workflow_dispatch:
@@ -20,7 +22,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/build_league_policy.py
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
@@ -51,6 +53,7 @@ jobs:
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 250 --seed 2026090913
           --out artifacts/week1-v13-first-sim
       - name: Verify shadow manifest
@@ -62,6 +65,8 @@ jobs:
           assert m['market_blind_football'] is True
           assert m['scoreboard_event_derived'] is True
           assert m['player_stats_event_derived'] is True
+          assert m['definition_safe_anatomy'] is True
+          assert m['empirical_situational_pass_context_active'] is True
           assert m['games'] == 12
           assert m['worlds_per_game'] == 250
           print(json.dumps(m, indent=2))
