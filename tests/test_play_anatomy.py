@@ -3,6 +3,9 @@ from __future__ import annotations
 import numpy as np
 
 from monster.sim.play_anatomy import (
+    CLEAN_SCRAMBLE_RATE,
+    PRESSURED_SACK_RATE,
+    PRESSURED_SCRAMBLE_RATE,
     CatchpointResult,
     ContactResult,
     QBResponse,
@@ -12,10 +15,94 @@ from monster.sim.play_anatomy import (
 )
 
 
-def test_no_pressure_produces_throw_response() -> None:
-    assert resolve_qb_response(
-        pressured=False, mobility=1.0, pocket_skill=1.0, rng=np.random.default_rng(1)
-    ) == QBResponse.THROW
+def test_clean_dropback_can_create_scramble_or_throw() -> None:
+    rng = np.random.default_rng(1)
+    outcomes = {
+        resolve_qb_response(
+            pressured=False,
+            mobility=1.0,
+            pocket_skill=1.0,
+            rng=rng,
+        )
+        for _ in range(500)
+    }
+    assert QBResponse.SCRAMBLE in outcomes
+    assert QBResponse.THROW in outcomes
+    assert QBResponse.SACK not in outcomes
+
+
+def test_neutral_qb_response_matches_empirical_branch_rates() -> None:
+    n = 50_000
+    pressure_rng = np.random.default_rng(11)
+    pressured = [
+        resolve_qb_response(
+            pressured=True,
+            mobility=1.0,
+            pocket_skill=1.0,
+            rng=pressure_rng,
+        )
+        for _ in range(n)
+    ]
+    clean_rng = np.random.default_rng(12)
+    clean = [
+        resolve_qb_response(
+            pressured=False,
+            mobility=1.0,
+            pocket_skill=1.0,
+            rng=clean_rng,
+        )
+        for _ in range(n)
+    ]
+    assert abs(pressured.count(QBResponse.SACK) / n - PRESSURED_SACK_RATE) < 0.01
+    assert abs(pressured.count(QBResponse.SCRAMBLE) / n - PRESSURED_SCRAMBLE_RATE) < 0.01
+    assert abs(clean.count(QBResponse.SCRAMBLE) / n - CLEAN_SCRAMBLE_RATE) < 0.01
+
+
+def test_pocket_skill_reduces_sacks_and_mobility_increases_scrambles() -> None:
+    n = 20_000
+    weak_pocket_rng = np.random.default_rng(13)
+    strong_pocket_rng = np.random.default_rng(13)
+    weak_pocket = [
+        resolve_qb_response(
+            pressured=True,
+            mobility=1.0,
+            pocket_skill=0.80,
+            rng=weak_pocket_rng,
+        )
+        for _ in range(n)
+    ]
+    strong_pocket = [
+        resolve_qb_response(
+            pressured=True,
+            mobility=1.0,
+            pocket_skill=1.20,
+            rng=strong_pocket_rng,
+        )
+        for _ in range(n)
+    ]
+    assert strong_pocket.count(QBResponse.SACK) < weak_pocket.count(QBResponse.SACK)
+
+    low_mobility_rng = np.random.default_rng(14)
+    high_mobility_rng = np.random.default_rng(14)
+    low_mobility = [
+        resolve_qb_response(
+            pressured=False,
+            mobility=0.80,
+            pocket_skill=1.0,
+            rng=low_mobility_rng,
+        )
+        for _ in range(n)
+    ]
+    high_mobility = [
+        resolve_qb_response(
+            pressured=False,
+            mobility=1.20,
+            pocket_skill=1.0,
+            rng=high_mobility_rng,
+        )
+        for _ in range(n)
+    ]
+    assert high_mobility.count(QBResponse.SCRAMBLE) > low_mobility.count(QBResponse.SCRAMBLE)
 
 
 def test_pressure_can_create_sacks_scrambles_and_throws() -> None:
