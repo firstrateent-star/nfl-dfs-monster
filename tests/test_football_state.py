@@ -12,17 +12,17 @@ from monster.sim.football_state import (
 
 
 def _state(**kwargs) -> FootballState:
-    base = dict(
-        possession="away",
-        defense="home",
-        quarter=2,
-        seconds_remaining=1400,
-        yardline_100=42.0,
-        down=2,
-        distance=7.0,
-        away_score=10,
-        home_score=14,
-    )
+    base = {
+        "possession": "away",
+        "defense": "home",
+        "quarter": 2,
+        "seconds_remaining": 1400,
+        "yardline_100": 42.0,
+        "down": 2,
+        "distance": 7.0,
+        "away_score": 10,
+        "home_score": 14,
+    }
     base.update(kwargs)
     return FootballState(**base)
 
