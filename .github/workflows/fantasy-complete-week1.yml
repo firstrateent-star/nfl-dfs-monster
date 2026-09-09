@@ -10,10 +10,12 @@ on:
 
 jobs:
   fantasy-complete:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feature/slate-simulator-v1
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
       - name: Gate turnover and FanDuel layers
@@ -21,21 +23,41 @@ jobs:
       - name: Lint fantasy-complete runner
         run: uv run ruff check src/monster/dfs scripts/run_week1_fantasy_complete.py
       - name: Build current 2026 personnel baseline
-        run: uv run python scripts/build_current_personnel.py --season 2026 --history-season 2025 --recent-games 6 --out artifacts/current-personnel
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
       - name: Build market-blind football priors
         run: |
-          uv run python scripts/build_league_policy.py --season 2025 --out artifacts/league-baseline
-          uv run python scripts/build_league_policy.py --season 2024 --out artifacts/league-baseline-2024
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
       - name: Build Week 1 health snapshot
-        run: uv run python scripts/build_week1_health_snapshot.py --provider-injuries artifacts/current-personnel/provider_injuries.csv --overrides config/health/week1_2026_2026-09-07.csv --out artifacts/week1-health
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
       - name: Compile continuity-conditioned policy
-        run: uv run python scripts/compile_continuity_policy.py --current artifacts/league-baseline/team_policy_inputs.csv --prior artifacts/league-baseline-2024/team_policy_inputs.csv --personnel artifacts/week1-health/personnel_with_health.csv --out artifacts/continuity-policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
       - name: Run 10K fantasy-complete Week 1 worlds
-        run: uv run python scripts/run_week1_fantasy_complete.py --policy artifacts/continuity-policy/team_policy_inputs_continuity.csv --personnel artifacts/week1-health/personnel_with_health.csv --player-usage artifacts/league-baseline/player_usage_inputs.csv --ol-outcomes artifacts/league-baseline/offensive_line_outcomes.csv --worlds 10000 --seed 2026090817 --interception-fraction 0.5922258892555923 --out artifacts/week1-fantasy-complete
+        run: >-
+          uv run python scripts/run_week1_fantasy_complete.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
+          --worlds 10000 --seed 2026090817
+          --interception-fraction 0.5922258892555923
+          --out artifacts/week1-fantasy-complete
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: monster-week1-fantasy-complete-10k
           path: artifacts/week1-fantasy-complete/
           retention-days: 14
-
-# Trigger marker: 2026-09-08 fantasy-complete evidence launch
