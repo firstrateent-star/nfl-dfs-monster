@@ -28,6 +28,27 @@ def test_context_compiler_builds_all_down_distance_cells() -> None:
     assert context.get_column("pass_rate").max() == 0.5
 
 
+def test_context_normalizes_nullable_float_down_from_provider() -> None:
+    frame = pl.DataFrame(
+        {
+            "posteam": ["A", "A", "A"],
+            "play_type": ["pass", "run", "pass"],
+            "down": pl.Series([1.0, 1.0, None], dtype=pl.Float64),
+            "ydstogo": [10.0, 10.0, 7.0],
+            "score_differential": [0.0, 0.0, 0.0],
+            "game_seconds_remaining": [2400.0, 2400.0, 2400.0],
+        }
+    )
+    context = compile_situational_pass_context(frame)
+    first_long = context.filter(
+        (pl.col("down") == 1) & (pl.col("distance_bucket") == "long")
+    )
+    assert context.schema["down"] == pl.Int64
+    assert context.height == 12
+    assert first_long.get_column("samples").item() == 2
+    assert first_long.get_column("pass_rate").item() == 0.5
+
+
 def test_context_uses_neutral_game_states_only() -> None:
     frame = pl.DataFrame(
         [
