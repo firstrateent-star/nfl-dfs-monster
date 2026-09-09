@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -21,6 +22,9 @@ from monster.sim.play_kernel import (
     TeamIdentity,
     simulate_scrimmage_play,
 )
+
+if TYPE_CHECKING:
+    from monster.sim.matchup_kernel import DefensiveUnit
 
 
 @dataclass
@@ -99,6 +103,8 @@ def simulate_regulation_game(
     *,
     away_defense_strength: float = 1.0,
     home_defense_strength: float = 1.0,
+    away_defense: DefensiveUnit | None = None,
+    home_defense: DefensiveUnit | None = None,
     seed: int = 1,
     max_plays: int = 260,
 ) -> GameResultV13:
@@ -115,11 +121,14 @@ def simulate_regulation_game(
         if regulation_complete(state):
             break
         offense = away if state.possession == away.team_id else home
-        defense_strength = (
-            home_defense_strength if offense.team_id == away.team_id else away_defense_strength
-        )
+        if offense.team_id == away.team_id:
+            defense_strength = home_defense_strength
+            defense = home_defense
+        else:
+            defense_strength = away_defense_strength
+            defense = away_defense
         before = state
-        event = simulate_scrimmage_play(state, offense, defense_strength, rng)
+        event = simulate_scrimmage_play(state, offense, defense_strength, rng, defense=defense)
         plays.append(event)
         _record(event, stats)
 
