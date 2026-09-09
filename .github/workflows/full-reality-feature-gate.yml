@@ -1,0 +1,45 @@
+name: Full Monster feature reality gate
+
+on:
+  push:
+    branches: [feature/slate-simulator-v1]
+    paths:
+      - .github/workflows/full-reality-feature-gate.yml
+      - src/monster/ingest/madden_skill.py
+      - src/monster/feature_compile/trait_inputs.py
+      - scripts/build_league_baseline.py
+      - scripts/audit_full_reality_features.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-reality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/slate-simulator-v1
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Unit and lint gates
+        run: |
+          uv run pytest -q tests/test_madden_skill_traits.py
+          uv run ruff check src/monster/ingest/madden_skill.py src/monster/feature_compile/trait_inputs.py scripts/build_league_baseline.py scripts/audit_full_reality_features.py tests/test_madden_skill_traits.py
+      - name: Build canonical personnel with physical and Madden traits
+        run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/full-reality-baseline
+      - name: Enforce feature coverage
+        run: uv run python scripts/audit_full_reality_features.py --personnel artifacts/full-reality-baseline/league_personnel.parquet --out artifacts/full-reality-feature-audit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-full-reality-feature-gate
+          path: |
+            artifacts/full-reality-baseline/manifest.json
+            artifacts/full-reality-baseline/capability_by_team.csv
+            artifacts/full-reality-baseline/madden_ol_coverage_by_team.csv
+            artifacts/full-reality-baseline/madden_skill_coverage_by_team.csv
+            artifacts/full-reality-feature-audit/manifest.json
+          retention-days: 14
