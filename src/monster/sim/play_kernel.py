@@ -243,7 +243,15 @@ def simulate_scrimmage_play(
                 coverage_strength = defender.coverage
                 ball_hawk = defender.ball_hawk
     else:
-        pressure = float(np.clip(0.065 * defense_strength / max(offense.pass_protection, 0.55), 0.025, 0.18))
+        # Same 2025 FTN pressure-family baseline used by DefensiveUnit, retained here
+        # for callers that intentionally omit a player-level defensive unit.
+        pressure = float(
+            np.clip(
+                0.297832 * defense_strength / max(offense.pass_protection, 0.55),
+                0.12,
+                0.50,
+            )
+        )
 
     pressured = rng.random() < pressure
     response = resolve_qb_response(
