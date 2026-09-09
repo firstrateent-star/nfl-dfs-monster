@@ -9,6 +9,7 @@ import polars as pl
 
 from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
 from monster.feature_compile.player import compile_player_usage
+from monster.feature_compile.situation import compile_situational_pass_context
 from monster.feature_compile.team import compile_team_policy
 from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
 from monster.teams import NFL_TEAMS
@@ -32,6 +33,7 @@ def main() -> None:
     regular_rows = pbp.height
 
     policy = compile_team_policy(pbp)
+    situational_pass_context = compile_situational_pass_context(pbp)
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
@@ -41,6 +43,10 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     policy.write_csv(args.out / "team_policy.csv")
     policy.write_parquet(args.out / "team_policy.parquet", compression="zstd")
+    situational_pass_context.write_csv(args.out / "situational_pass_context.csv")
+    situational_pass_context.write_parquet(
+        args.out / "situational_pass_context.parquet", compression="zstd"
+    )
     ol_outcomes.write_csv(args.out / "offensive_line_outcomes.csv")
     ol_outcomes.write_parquet(args.out / "offensive_line_outcomes.parquet", compression="zstd")
     player_usage.write_csv(args.out / "player_usage.csv")
@@ -59,6 +65,7 @@ def main() -> None:
         "policy_pbp_rows": regular_rows,
         "canonical_team_count": len(NFL_TEAMS),
         "compiled_team_count": policy.height,
+        "situational_pass_context_rows": situational_pass_context.height,
         "player_usage_rows": player_usage.height,
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
