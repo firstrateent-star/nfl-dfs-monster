@@ -4,7 +4,6 @@ import polars as pl
 
 from monster.teams import TEAM_ALIASES
 
-SCRIMMAGE_TYPES = ["pass", "run"]
 DISTANCE_BUCKETS = ("short", "medium", "long")
 
 
@@ -19,16 +18,20 @@ def _distance_bucket() -> pl.Expr:
 
 
 def compile_situational_pass_context(pbp: pl.DataFrame) -> pl.DataFrame:
-    """Compile league pass propensity by down/distance from neutral game states.
+    """Compile league dropback-family propensity by down/distance in neutral states.
+
+    nflfastR labels scrambles as ``play_type='run'`` even though they begin as quarterback
+    dropbacks. Monster's PASS state is the causal family before the QB resolves pressure,
+    so historical pass-family identity must use ``qb_dropback`` (attempt, sack, or scramble)
+    rather than the terminal play_type label.
 
     Team identity is intentionally excluded here. The simulator combines this large-sample
     league context with a continuity-conditioned team neutral-pass deviation downstream.
-    This prevents normal down/distance behavior from being added twice to a historical
-    neutral pass rate that already contains the league's ordinary situational mixture.
     """
     required = {
         "posteam",
         "play_type",
+        "qb_dropback",
         "down",
         "ydstogo",
         "score_differential",
@@ -38,11 +41,13 @@ def compile_situational_pass_context(pbp: pl.DataFrame) -> pl.DataFrame:
     if missing:
         raise ValueError(f"PBP missing situational-pass columns: {sorted(missing)}")
 
+    dropback = pl.col("qb_dropback").fill_null(0).cast(pl.Float64) == 1.0
+    designed_run = (pl.col("play_type") == "run") & ~dropback
     neutral = (
         pbp.with_columns(pl.col("posteam").replace(TEAM_ALIASES))
         .filter(
             pl.col("posteam").is_not_null()
-            & pl.col("play_type").is_in(SCRIMMAGE_TYPES)
+            & (dropback | designed_run)
             & pl.col("down").is_between(1, 4)
             & pl.col("ydstogo").is_not_null()
             & (pl.col("score_differential").abs() <= 7)
@@ -50,7 +55,7 @@ def compile_situational_pass_context(pbp: pl.DataFrame) -> pl.DataFrame:
         )
         .with_columns(
             pl.col("down").cast(pl.Int64),
-            (pl.col("play_type") == "pass").cast(pl.Float64).alias("is_pass"),
+            dropback.cast(pl.Float64).alias("is_pass"),
             _distance_bucket().alias("distance_bucket"),
         )
     )
