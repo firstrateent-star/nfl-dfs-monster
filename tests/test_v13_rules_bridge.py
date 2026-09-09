@@ -4,10 +4,13 @@ import numpy as np
 
 from monster.feature_compile.mechanisms import PlayerMechanismInputs
 from monster.feature_compile.v13_identity_bridge import compile_v13_player_identity
+from monster.sim.football_state import FootballState
 from monster.sim.rules_v13 import (
+    PenaltyEvent,
     PenaltySide,
     TryResult,
     choose_two_point,
+    enforce_penalty,
     is_safety,
     overtime_required,
     simulate_penalty,
@@ -22,6 +25,18 @@ def test_penalties_have_both_offensive_and_defensive_paths() -> None:
     sides = {event.side for event in events if event is not None}
     assert PenaltySide.OFFENSE in sides
     assert PenaltySide.DEFENSE in sides
+
+
+def test_penalties_change_field_and_series_state() -> None:
+    state = FootballState("away", "home", yardline_100=40.0, down=2, distance=7.0)
+    offensive = enforce_penalty(state, PenaltyEvent(PenaltySide.OFFENSE, 10))
+    assert offensive.yardline_100 == 30.0
+    assert offensive.down == 2
+    assert offensive.distance == 17.0
+    defensive = enforce_penalty(state, PenaltyEvent(PenaltySide.DEFENSE, 5, automatic_first_down=True))
+    assert defensive.yardline_100 == 45.0
+    assert defensive.down == 1
+    assert defensive.distance == 10.0
 
 
 def test_late_score_state_can_choose_two_point_try() -> None:
