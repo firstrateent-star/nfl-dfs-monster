@@ -8,12 +8,12 @@ from monster.sim.play_kernel import PassResult, PlayType
 
 @dataclass(frozen=True)
 class GameAnatomySummary:
-    snaps: int; pass_plays: int; run_plays: int; scrambles: int; sacks: int; completions: int; incompletions: int; interceptions: int; rush_fumbles_lost: int; punts: int; field_goal_attempts: int; field_goals_made: int; touchdowns: int; pressures: int; stuffs: int; drives: int; away_points: int; home_points: int; try_attempts: int; try_points: int; safeties: int
+    snaps: int; pass_plays: int; run_plays: int; scrambles: int; sacks: int; completions: int; incompletions: int; interceptions: int; fumbles_lost: int; punts: int; field_goal_attempts: int; field_goals_made: int; touchdowns: int; pressures: int; stuffs: int; drives: int; away_points: int; home_points: int; try_attempts: int; try_points: int; safeties: int
 
 
 def summarize_game(result: GameResultV13) -> GameAnatomySummary:
     p = result.plays
-    return GameAnatomySummary(len(p), sum(x.play_type == PlayType.PASS for x in p), sum(x.play_type == PlayType.RUN for x in p), sum(x.pass_result == PassResult.SCRAMBLE for x in p), sum(x.pass_result == PassResult.SACK for x in p), sum(x.pass_result == PassResult.COMPLETE for x in p), sum(x.pass_result == PassResult.INCOMPLETE for x in p), sum(x.pass_result == PassResult.INTERCEPTION for x in p), sum(x.play_type == PlayType.RUN and x.turnover for x in p), sum(x.play_type == PlayType.PUNT for x in p), sum(x.play_type == PlayType.FIELD_GOAL for x in p), sum(1 for x in result.special_teams_events if x.event_type == "field_goal" and x.made), sum(x.touchdown for x in p), sum(x.pressured for x in p), sum(x.stuffed for x in p), result.drives, result.final_state.away_score, result.final_state.home_score, len(result.try_events), sum(x.points for x in result.try_events), result.safeties)
+    return GameAnatomySummary(len(p), sum(x.play_type == PlayType.PASS for x in p), sum(x.play_type == PlayType.RUN for x in p), sum(x.pass_result == PassResult.SCRAMBLE for x in p), sum(x.pass_result == PassResult.SACK for x in p), sum(x.pass_result == PassResult.COMPLETE for x in p), sum(x.pass_result == PassResult.INCOMPLETE for x in p), sum(x.pass_result == PassResult.INTERCEPTION for x in p), sum(x.fumbler_id is not None and x.turnover for x in p), sum(x.play_type == PlayType.PUNT for x in p), sum(x.play_type == PlayType.FIELD_GOAL for x in p), sum(1 for x in result.special_teams_events if x.event_type == "field_goal" and x.made), sum(x.touchdown for x in p), sum(x.pressured for x in p), sum(x.stuffed for x in p), result.drives, result.final_state.away_score, result.final_state.home_score, len(result.try_events), sum(x.points for x in result.try_events), result.safeties)
 
 
 def assert_event_conservation(result: GameResultV13) -> None:
@@ -27,7 +27,7 @@ def assert_event_conservation(result: GameResultV13) -> None:
     if passing_tds != receiving_tds: raise AssertionError("passing and receiving TDs must be the same events")
     if receiving_tds+rushing_tds != s.touchdowns: raise AssertionError("player TD ownership must reconstruct touchdown events")
     if interceptions != s.interceptions: raise AssertionError("interception conservation failed")
-    if fumbles != s.rush_fumbles_lost: raise AssertionError("fumble conservation failed")
+    if fumbles != s.fumbles_lost: raise AssertionError("fumble conservation failed")
     expected=6*s.touchdowns+3*s.field_goals_made+s.try_points+2*s.safeties
     if s.away_points+s.home_points != expected: raise AssertionError("scoreboard must equal TD, kick, try, and safety events")
     if s.try_attempts != s.touchdowns: raise AssertionError("every regulation offensive touchdown must own one try event")
