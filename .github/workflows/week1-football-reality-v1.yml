@@ -11,6 +11,7 @@ on:
       - "src/monster/ingest/madden_defense_special.py"
       - "scripts/build_league_baseline.py"
       - "scripts/run_week1_reality_v1.py"
+      - "config/environment/week1_2026_2026-09-09.csv"
       - ".github/workflows/week1-football-reality-v1.yml"
   workflow_dispatch:
 
@@ -21,8 +22,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: feature/slate-simulator-v1
+        with: {ref: feature/slate-simulator-v1}
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
       - name: Unit and production-module lint gates
@@ -30,46 +30,19 @@ jobs:
           uv run pytest -q
           uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
       - name: Build 32-team personnel with physical and Madden traits
-        run: >-
-          uv run python scripts/build_league_baseline.py
-          --season 2026 --history 2025 --recent-games 6
-          --out artifacts/reality-league
+        run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/reality-league
       - name: Enforce source coverage gate
-        run: >-
-          uv run python scripts/audit_full_reality_features.py
-          --personnel artifacts/reality-league/league_personnel.parquet
-          --out artifacts/reality-feature-audit
-      - name: Build 2025 policy and usage
-        run: >-
-          uv run python scripts/build_league_policy.py
-          --history 2025 --out artifacts/policy-2025
-      - name: Build 2024 continuity memory
-        run: >-
-          uv run python scripts/build_league_policy.py
-          --history 2024 --out artifacts/policy-2024
+        run: uv run python scripts/audit_full_reality_features.py --personnel artifacts/reality-league/league_personnel.parquet --out artifacts/reality-feature-audit
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/policy-2025
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/policy-2024
       - name: Build current Week 1 health state
-        run: >-
-          uv run python scripts/build_health_snapshot.py
-          --personnel artifacts/reality-league/league_personnel.parquet
-          --injuries artifacts/reality-league/raw_injuries.parquet
-          --overrides config/health/week1_2026_2026-09-07.csv
-          --season 2026 --out artifacts/reality-health
+        run: uv run python scripts/build_health_snapshot.py --personnel artifacts/reality-league/league_personnel.parquet --injuries artifacts/reality-league/raw_injuries.parquet --overrides config/health/week1_2026_2026-09-07.csv --season 2026 --out artifacts/reality-health
       - name: Compile continuity-conditioned policy
-        run: >-
-          uv run python scripts/build_continuity_conditioned_policy.py
-          --older-policy artifacts/policy-2024/team_policy.parquet
-          --latest-policy artifacts/policy-2025/team_policy.parquet
-          --personnel artifacts/reality-health/health_personnel.parquet
-          --out artifacts/reality-policy
+        run: uv run python scripts/build_continuity_conditioned_policy.py --older-policy artifacts/policy-2024/team_policy.parquet --latest-policy artifacts/policy-2025/team_policy.parquet --personnel artifacts/reality-health/health_personnel.parquet --out artifacts/reality-policy
       - name: Run blind 10K Football Reality v1 candidate
-        run: >-
-          uv run python scripts/run_week1_reality_v1.py
-          --policy artifacts/reality-policy/team_policy.parquet
-          --personnel artifacts/reality-health/health_personnel.parquet
-          --player-usage artifacts/policy-2025/player_usage.parquet
-          --ol-outcomes artifacts/policy-2025/offensive_line_outcomes.parquet
-          --worlds 10000 --seed 2026090901
-          --out artifacts/week1-football-reality-v1
+        run: uv run python scripts/run_week1_reality_v1.py --policy artifacts/reality-policy/team_policy.parquet --personnel artifacts/reality-health/health_personnel.parquet --player-usage artifacts/policy-2025/player_usage.parquet --ol-outcomes artifacts/policy-2025/offensive_line_outcomes.parquet --worlds 10000 --seed 2026090901 --out artifacts/week1-football-reality-v1
       - name: Verify market/DFS blindness
         run: >-
           uv run python -c "import json; d=json.load(open('artifacts/week1-football-reality-v1/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used_in_football_simulation'] is False; assert d['ownership_used_in_football_simulation'] is False; print('blind gate PASS')"
@@ -84,4 +57,5 @@ jobs:
             artifacts/reality-health/manifest.json
             artifacts/reality-policy/manifest.json
             artifacts/week1-football-reality-v1/
+            config/environment/week1_2026_2026-09-09.csv
           retention-days: 14
