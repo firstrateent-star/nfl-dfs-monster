@@ -11,7 +11,7 @@ from monster.ingest.nflverse import configure_cache
 from monster.teams import TEAM_ALIASES
 
 
-def _ratio(numerator: int | float, denominator: int | float) -> float:
+def _ratio(numerator: float, denominator: float) -> float:
     return float(numerator) / float(denominator) if denominator else 0.0
 
 
@@ -82,8 +82,8 @@ def main() -> None:
     )
     joined = dropbacks.join(pressure, on=["game_id", "play_id"], how="inner")
     observed = joined.filter(pl.col("was_pressure").is_not_null())
-    pressured = observed.filter(pl.col("was_pressure") == True)  # noqa: E712
-    clean = observed.filter(pl.col("was_pressure") == False)  # noqa: E712
+    pressured = observed.filter(pl.col("was_pressure") == True)
+    clean = observed.filter(pl.col("was_pressure") == False)
 
     overall = _response_summary(observed, "all_observed_dropbacks")
     pressured_summary = _response_summary(pressured, "pressured")
@@ -121,17 +121,17 @@ def main() -> None:
             pl.col("qb_scramble").fill_null(0).mean().alias("scramble_rate"),
             pl.col("sack")
             .fill_null(0)
-            .filter(pl.col("was_pressure") == True)  # noqa: E712
+            .filter(pl.col("was_pressure") == True)
             .mean()
             .alias("sack_given_pressure"),
             pl.col("qb_scramble")
             .fill_null(0)
-            .filter(pl.col("was_pressure") == True)  # noqa: E712
+            .filter(pl.col("was_pressure") == True)
             .mean()
             .alias("scramble_given_pressure"),
             pl.col("qb_scramble")
             .fill_null(0)
-            .filter(pl.col("was_pressure") == False)  # noqa: E712
+            .filter(pl.col("was_pressure") == False)
             .mean()
             .alias("scramble_without_pressure"),
         )
