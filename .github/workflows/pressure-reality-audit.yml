@@ -1,0 +1,31 @@
+name: Pressure reality audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_pressure_reality.py
+      - .github/workflows/pressure-reality-audit.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code gates
+        run: |
+          uv run ruff check scripts/audit_pressure_reality.py
+          uv run pytest -q
+      - name: Audit 2025 pressure reality
+        run: >-
+          uv run python scripts/audit_pressure_reality.py
+          --season 2025 --out artifacts/pressure-reality
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pressure-reality-2025
+          path: artifacts/pressure-reality/
+          retention-days: 14
