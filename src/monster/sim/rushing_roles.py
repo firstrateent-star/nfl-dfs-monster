@@ -2,72 +2,50 @@ from __future__ import annotations
 
 import numpy as np
 
-from monster.sim.allocation import GameAllocationWorlds, TeamAllocationWorlds
+from monster.sim.allocation import GameAllocationWorlds, TeamAllocationWorlds, _gamma_sum
 from monster.snapshot.player import TeamPlayerPool
 
-# 2022-2025 REG audits show unusually stable rushing structure:
-# - pooled ranked shares ≈ 58.63% / 24.63% / 11.30%
-# - 2.47-2.56 core rushers per team-game
-# - 8.46-9.21% incidental rushing share.
-# We therefore retain the finite core + incidental architecture and give the selected core
-# explicit Role A/B/C entitlement. These are structural priors, not deterministic projections.
-INCIDENTAL_RUSH_SHARE = 0.0870
-CORE_THIRD_RUSHER_PROBABILITY = 0.50
-CORE_ROLE_ENTITLEMENT = np.array([0.62, 0.27, 0.11], dtype=float)
-CORE_ROLE_CONCENTRATION = 22.0
-INCIDENTAL_COUNT_VALUES = np.array([0, 1, 2, 3], dtype=np.int8)
-INCIDENTAL_COUNT_PROBABILITIES = np.array([0.15, 0.35, 0.30, 0.20], dtype=float)
-
-
-def _gamma_sum(
-    rng: np.random.Generator,
-    counts: np.ndarray,
-    mean_per_event: float,
-    shape_per_event: float = 2.8,
-) -> np.ndarray:
-    counts_float = counts.astype(float)
-    shape = np.maximum(counts_float * shape_per_event, 1e-6)
-    scale = max(mean_per_event, 0.1) / shape_per_event
-    values = rng.gamma(shape, scale)
-    values[counts == 0] = 0.0
-    return values.astype(np.float32)
+INCIDENTAL_RUSH_SHARE = 0.08
 
 
 def _weighted_choice_without_replacement(
     rng: np.random.Generator,
-    candidates: np.ndarray,
+    indices: np.ndarray,
     weights: np.ndarray,
     count: int,
 ) -> np.ndarray:
-    if count <= 0 or len(candidates) == 0:
-        return np.empty(0, dtype=int)
-    count = min(count, len(candidates))
-    local = np.clip(weights[candidates].astype(float), 0.0, None)
-    if local.sum() <= 0:
-        local = np.ones(len(candidates), dtype=float)
-    local /= local.sum()
-    return rng.choice(candidates, size=count, replace=False, p=local)
+    if count <= 0 or len(indices) == 0:
+        return np.array([], dtype=int)
+    count = min(count, len(indices))
+    p = np.clip(weights.astype(float), 0.0, None)
+    if p.sum() <= 0:
+        p = np.ones(len(indices), dtype=float)
+    p /= p.sum()
+    return rng.choice(indices, size=count, replace=False, p=p)
 
 
-def _sample_core_count(rng: np.random.Generator, total_carries: int, eligible_count: int) -> int:
-    if total_carries <= 0 or eligible_count <= 0:
+def _sample_core_count(rng: np.random.Generator, carries: int, eligible_count: int) -> int:
+    if carries <= 0 or eligible_count <= 0:
         return 0
-    if total_carries == 1 or eligible_count == 1:
-        return 1
-    target = 2 + int(rng.random() < CORE_THIRD_RUSHER_PROBABILITY)
-    return min(target, eligible_count, total_carries)
+    if carries <= 5:
+        probs = np.array([0.78, 0.20, 0.02])
+    elif carries <= 12:
+        probs = np.array([0.50, 0.42, 0.08])
+    else:
+        probs = np.array([0.25, 0.55, 0.20])
+    return min(int(rng.choice(np.array([1, 2, 3]), p=probs)), eligible_count, carries)
 
 
 def _sample_incidental_count(
     rng: np.random.Generator,
-    incidental_attempts: int,
-    peripheral_count: int,
+    carries: int,
+    eligible_count: int,
 ) -> int:
-    if incidental_attempts <= 0 or peripheral_count <= 0:
+    if carries <= 0 or eligible_count <= 0:
         return 0
-    target = int(rng.choice(INCIDENTAL_COUNT_VALUES, p=INCIDENTAL_COUNT_PROBABILITIES))
-    target = max(target, 1)
-    return min(target, incidental_attempts, peripheral_count)
+    if carries == 1:
+        return 1
+    return min(int(rng.choice(np.array([1, 2, 3]), p=np.array([0.72, 0.23, 0.05]))), eligible_count, carries)
 
 
 def _sample_core_roles(
@@ -77,32 +55,29 @@ def _sample_core_roles(
     role_uncertainty: np.ndarray,
     count: int,
 ) -> np.ndarray:
-    """Sample a persistent latent A/B/C ordering from evidence plus role uncertainty.
-
-    Role identity and role volume are distinct uncertainties. Historical/current role strength
-    supplies the center of each player's latent rank; player-specific role uncertainty supplies
-    only the amount of Sunday-to-Sunday rank noise. Strongly separated roles therefore remain
-    stable across worlds, while genuinely ambiguous backfields can swap A/B/C identities.
-    """
     if count <= 0 or len(eligible) == 0:
-        return np.empty(0, dtype=int)
-    count = min(count, len(eligible))
-    strength = np.clip(role_strength[eligible].astype(float), 1e-9, None)
-    uncertainty = np.clip(role_uncertainty[eligible].astype(float), 0.025, 0.60)
-    latent_score = np.log(strength) + rng.normal(0.0, uncertainty)
-    order = np.argsort(latent_score)[::-1]
-    return eligible[order[:count]]
+        return np.array([], dtype=int)
+    # Player-specific uncertainty perturbs only that player's latent role claim. It does not
+    # alter the finite carry supply or force a team-wide concentration parameter.
+    sigma = 0.08 + 0.55 * np.clip(role_uncertainty[eligible], 0.0, 1.0)
+    latent = np.log(np.clip(role_strength[eligible], 1e-9, None)) + rng.normal(0.0, sigma)
+    order = eligible[np.argsort(latent)[::-1]]
+    return order[: min(count, len(order))]
 
 
-def _core_role_probabilities(
-    rng: np.random.Generator,
-    ordered_candidates: np.ndarray,
-) -> np.ndarray:
-    """Sample carry entitlement for already ordered latent Role A/B/C occupants."""
-    center = CORE_ROLE_ENTITLEMENT[: len(ordered_candidates)].astype(float)
-    center /= center.sum()
-    concentration = max(CORE_ROLE_CONCENTRATION, float(len(ordered_candidates) * 3))
-    return rng.dirichlet(np.clip(center * concentration, 0.25, None))
+def _core_role_probabilities(rng: np.random.Generator, core_candidates: np.ndarray) -> np.ndarray:
+    count = len(core_candidates)
+    if count <= 0:
+        return np.array([], dtype=float)
+    if count == 1:
+        return np.array([1.0])
+    if count == 2:
+        center = np.array([0.66, 0.34])
+        concentration = 38.0
+    else:
+        center = np.array([0.57, 0.29, 0.14])
+        concentration = 32.0
+    return rng.dirichlet(center * concentration)
 
 
 def _redistribute_team_rushing(
@@ -141,9 +116,8 @@ def _redistribute_team_rushing(
     )
 
     # The generic rushing hierarchy is downstream of the calibrated QB reservoir.
-    # Preserve QB attempts/TDs already allocated against finite TEAM rush supply; the
-    # A/B/C role tree may reshape only the remaining non-QB opportunity. Otherwise a
-    # mobile QB can be promoted to generic Role A and inherit ~62% of core carries.
+    # Preserve QB attempts already allocated against finite TEAM rush supply. QB TD ownership
+    # is only a prior claim: event-first team rushing-TD supply is authoritative and may bound it.
     qb_indices = np.array([idx for idx, p in enumerate(players) if p.position == "QB"], dtype=int)
     non_qb_indices = np.array([idx for idx, p in enumerate(players) if p.position != "QB"], dtype=int)
     reserved_qb_attempts = np.zeros((worlds, n_players), dtype=np.int16)
@@ -185,7 +159,6 @@ def _redistribute_team_rushing(
 
         core_p = _core_role_probabilities(rng, core_candidates)
 
-        # Every selected core role receives at least one carry if the game has enough core work.
         guaranteed = min(core_n, len(core_candidates))
         attempts_out[w, core_candidates[:guaranteed]] += 1
         remaining_core = core_n - guaranteed
@@ -215,26 +188,31 @@ def _redistribute_team_rushing(
                 incidental_n, core_p
             ).astype(np.int16)
 
-        td_total = int(team_rush_tds[w])
-        if td_total > 0:
-            td_weight = attempts_out[w].astype(float) * np.array(
-                [max(p.red_zone_rush_share, p.rushing_td_share, 0.01) for p in players],
-                dtype=float,
-            )
-            if td_weight.sum() <= 0:
-                td_weight = attempts_out[w].astype(float)
-            td_weight /= td_weight.sum()
-            rush_td_out[w] = rng.multinomial(td_total, td_weight).astype(np.int16)
-
-    # Re-impose the upstream QB reservoir, then proportionally compress the generic
-    # non-QB hierarchy into the exact residual team carry/TD supply. This preserves
-    # conservation and the validated RB/WR/TE role ordering without allowing that tree
-    # to redefine QB expected state.
+    # Re-impose the upstream QB carry reservoir, then compress the generic non-QB hierarchy
+    # into the exact residual event-first supply. Event-first team TD anatomy has final authority.
     for w in range(worlds):
         qb_carries = int(reserved_qb_attempts[w].sum())
-        qb_tds = int(reserved_qb_tds[w].sum())
+        team_td_supply = int(team_rush_tds[w])
+
+        # A legacy/player-allocation QB TD claim may exceed the newly simulated event-first
+        # rushing-TD supply. Bound it here rather than allowing downstream role code to rewrite
+        # football reality. When compression is required, preserve relative QB claims/carries.
+        qb_td_claims = reserved_qb_tds[w, qb_indices].astype(int)
+        qb_td_total = int(qb_td_claims.sum())
+        if qb_td_total > team_td_supply and len(qb_indices):
+            weights = qb_td_claims.astype(float)
+            if weights.sum() <= 0:
+                weights = reserved_qb_attempts[w, qb_indices].astype(float)
+            if weights.sum() <= 0:
+                weights = np.ones(len(qb_indices), dtype=float)
+            weights /= weights.sum()
+            reserved_qb_tds[w, qb_indices] = rng.multinomial(
+                team_td_supply, weights
+            ).astype(np.int16)
+            qb_td_total = team_td_supply
+
         residual_carries = max(int(team_rushes[w]) - qb_carries, 0)
-        residual_tds = max(int(team_rush_tds[w]) - qb_tds, 0)
+        residual_tds = max(team_td_supply - qb_td_total, 0)
 
         non_qb_weights = attempts_out[w, non_qb_indices].astype(float)
         if len(non_qb_indices) and residual_carries > 0:
