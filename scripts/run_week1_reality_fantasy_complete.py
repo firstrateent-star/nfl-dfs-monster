@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 from monster.feature_compile.environment import apply_environment_to_pool
+from monster.sim.pipeline_v11 import simulate_monster_game as simulate_monster_game_v11
 
 
 def _load(name: str):
@@ -21,7 +22,8 @@ def main() -> None:
     reality = _load("run_week1_reality_v1.py")
 
     # Reuse the certified Football Reality v1 compilation and environment mechanisms
-    # inside the fantasy-complete runner. DFS scoring/turnovers/DST remain downstream.
+    # inside the fantasy-complete runner. v1.1 then couples player TD outcomes to the
+    # receptions/carries that actually occurred in each world. DFS remains downstream.
     environment = reality._environment_map()
     disabled: set[str] = set()
     original_state = fantasy._state
@@ -67,6 +69,7 @@ def main() -> None:
 
     fantasy.compile_player_physical_inputs = full_inputs
     fantasy.compile_current_skill_pools = full_pool_compile
+    fantasy.simulate_monster_game = simulate_monster_game_v11
     fantasy._state = full_state
     fantasy.main()
 
