@@ -1,106 +1,97 @@
 # MONSTER STATE
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 Branch: `feature/slate-simulator-v1`
 
 ## READ FIRST
-The governing specification is `MONSTER_CONSTITUTION.md`. The implementation-completeness ledger is `docs/FEATURE_REALITY_AUDIT.md`.
+The governing specification is `MONSTER_CONSTITUTION.md`. The implementation-completeness ledger is `docs/FEATURE_REALITY_AUDIT.md`. The machine-readable Week-1 release manifest is `docs/releases/monster_football_reality_v1_2026_week1.json`.
 
-A scope-drift audit on 2026-09-08 found that the previously frozen football engine did not have sufficient evidence that all originally required Full-Monster feature families—most importantly Madden/scouting-style ratings and the complete physical/athletic/biology layer—were causally active.
+## Canonical classification
+**Monster Football Reality v1 — PROMOTED / BOUNDED WEEK-1 RELEASE**
 
-Therefore the prior label **Monster Football v1 — ARCHITECTURE FROZEN** is RETRACTED as a Full-Monster completeness claim.
+The earlier **Monster Beta22 v0.6.3 — Statistical/Structural Baseline** remains frozen as the comparison baseline. Its former label as Full Monster remains retracted. Football Reality v1 is a distinct promoted architecture that restores and evidence-gates the original human/physical, Madden/scouting, current-state, unit, matchup and environment scope.
 
-## Current canonical classification
-**Monster Beta22 v0.6.3 — Statistical/Structural Baseline (FROZEN BASELINE, NOT FULL MONSTER)**
-
-The baseline remains valuable and reproducible. Its football-only architecture passed its stated structural gates, but those gates certify the implemented baseline rather than the complete original Monster specification.
-
-Freeze evidence: GitHub Actions run `34292058208`, commit `f33b6d693730443facce9a9e2f2f709c6c46976a`, seed `2026090816`, 60,000 worlds/game across 12 games = 720,000 simulated game-worlds.
+Promotion does not mean every conceivable football variable is complete. The Constitution permits unavailable evidence to remain explicitly documented with tested neutral/bounded fallback. Those limitations are preserved below and in the release manifest; they may not silently gain authority.
 
 ## Mission
-Monster is an independent NFL slate simulator. It must reconstruct football reality from historical performance, player physical/athletic/biological traits, Madden/scouting-style ability evidence, current personnel/health/roles, units, coaching/system/continuity, opponent matchup interactions and environment before sportsbook, salary, ownership or DFS optimization information is introduced.
+Monster is an independent NFL slate simulator. Football reality is reconstructed before sportsbook, salary, ownership or optimizer information is introduced.
 
 Canonical path:
 NFL evidence -> human/player reality -> football ability -> current player state -> unit reality -> system reality -> opponent interactions -> environment -> possessions -> plays -> scoring -> players -> blind freeze -> DFS -> actual-results calibration.
 
-## Baseline capabilities retained
-- Market-blind Beta22 game environment.
-- Historical offense scoring/yards and opponent defense points/yards allowed.
-- TD composition and home-field shift.
-- Continuity-conditioned team identity.
-- Shared finite game play supply.
-- Receiving hierarchy and eligibility gates.
-- Rushing anatomy / role structure.
-- Health availability, effectiveness-if-active and uncertainty.
-- Opportunity conservation.
-- QB season-mean rushing calibration and finite QB reservoir.
-- World-level rushing and target audits.
-- Current personnel/OL/participation mechanisms already implemented.
+## Promotion evidence
+Football Reality v1 earned promotion through all required evidence classes:
+- Full-Reality production suite: **112/112 PASS**.
+- Dedicated causal counterfactual suite: **7/7 PASS**.
+- Feature/source coverage audit: **PASS**.
+- Broad Player Reality structural gate: **20/20 PASS at 60,000 worlds/game**.
+- QB rushing calibration gate: **PASS at 60,000 worlds/game**.
+- Market/DFS blindness manifests: **PASS**.
+- Three independent Full-Reality 60K seeds (`2026090902`, `2026090903`, `2026090904`) passed: **2.16 million certified game-worlds** across 12-game slates.
+- Independent seed stability is tight; the previously reconciled 0902-vs-0904 comparison showed mean absolute game-total movement about 0.100 points and margin movement about 0.073 points.
+- Formal matched ablation ladder completed under run `34318804379`.
+- Player-jurisdiction causal gate: **PASS**, artifact `10091102920`. Human/physical and Madden/scouting evidence measurably changes player distributions rather than existing as decorative columns.
+- Seed `2026090904` certification: run `34314517218`, artifact `10089726381`.
+
+## What is ACTIVE in v1
+- Historical offense and opponent-defense evidence.
+- Finite shared possessions/play supply and opportunity conservation.
+- Current roster/depth/personnel state with explicit missingness.
+- Three-way health state: availability, effectiveness-if-active, uncertainty.
+- Continuity-conditioned team/system identity.
+- Human height/weight, age, experience proxy and available athletic evidence.
+- Madden 27 scouting-style evidence as a bounded proxy, never truth or direct fantasy authority.
+- Offensive line, defensive front/pass rush, coverage/tackling and skill-unit evidence with bounded fallbacks.
+- Mechanistic player trait and unit interactions.
+- Home field, venue/roof and bounded weather effects.
 - Correlated game/player worlds.
-- Downstream FanDuel scoring, D/ST, exact lineup optimizer and OLR research infrastructure.
+- Explicit uncertainty and neutral missing-data behavior.
+- Astrology remains SHADOW / zero production authority.
 
-## What the baseline does NOT prove
-It does not prove that the original Full-Monster scope is complete. In particular, Full Monster promotion is blocked until the Feature Reality Audit verifies and evidence-gates:
-- Madden/scouting-style player ability ratings;
-- height, weight, wingspan/length where relevant/available;
-- athletic traits/testing such as speed, acceleration, agility, strength and explosiveness;
-- age and NFL experience;
-- complete unit/personnel interactions;
-- coaching/scheme/tendency mechanisms;
-- trait-level QB/receiver/RB/blocking/coverage/pass-rush matchup mechanisms;
-- weather/venue/surface and other approved environmental effects.
+## Accepted bounded limitations
+These are not hidden completeness claims:
+- **Wingspan/length:** no sufficiently covered canonical Week-1 source; missingness is neutral and no values are fabricated.
+- **Athletic testing:** incomplete coverage; missing testing remains neutral and separate Madden scouting evidence does not masquerade as measured combine data.
+- **Travel/rest:** no separately certified mechanism; neutral until sourced and prospectively tested.
+- **Surface:** recorded, but no separately validated causal production effect; roof/dome can govern weather authority.
+- **Named coaching/coordinator/scheme detail:** partial. Historical policy plus continuity are active, but full named current scheme encoding remains an expansion target.
+- **Assignment-level matchups:** unit-level mechanistic interactions are active; complete defender-by-receiver route and blocker-by-rusher resolution is not claimed.
+- **Experience workload:** conservative uncertainty proxy only, not exact career workload.
+- **Health/weather freshness:** architecture is certified, but Week-1 state snapshots must refresh as official reports/forecasts populate before slate lock.
 
-These features must affect football mechanisms rather than receive arbitrary fantasy-point bonuses.
+## Week-1 release boundary
+This promotion freezes the **Football Reality v1 architecture and bounded candidate law**, not stale real-world state. Personnel, health and weather may be refreshed before slate lock using the same market-blind mechanisms. Such refreshes must be versioned and frozen before any new market diagnostic is used.
 
-## 60K structural baseline evidence
-Run `34292058208` completed successfully with market/contaminated references loaded=false, salary used=false and ownership used=false.
+The official NFL Week-1 Sunday injury board had not yet populated substantive Sunday practice/game-status rows at the time of this release, so existing explicit health overrides remain part of the current snapshot until the official feed fills in.
 
-Broad structural Player Reality gate passed 20/20 and QB rushing gate passed. These remain valid evidence about the baseline implementation, not Full-Monster certification.
+## Statistical/Structural Baseline retained
+Baseline freeze: run `34292058208`, commit `f33b6d693730443facce9a9e2f2f709c6c46976a`, seed `2026090816`, 60,000 worlds/game × 12 = 720,000 game-worlds. It remains useful for ablation and historical comparison but is not Full Monster.
 
-### Frozen baseline game means
-- BAL@IND 23.58–23.77 (47.36)
-- TB@CIN 23.83–23.09 (46.92)
-- WAS@PHI 20.56–24.19 (44.74)
-- NO@DET 19.93–24.68 (44.61)
-- CHI@CAR 23.52–21.03 (44.55)
-- BUF@HOU 23.22–21.08 (44.30)
-- ATL@PIT 21.44–22.20 (43.64)
-- ARI@LAC 19.58–22.97 (42.55)
-- GB@MIN 21.39–20.77 (42.15)
-- NYJ@TEN 20.66–21.41 (42.07)
-- MIA@LV 21.83–18.98 (40.81)
-- CLE@JAC 18.18–21.97 (40.15)
+## DFS boundary
+FanDuel scoring, D/ST, salary identity matching, exact OLR and portfolio machinery remain downstream only. Existing OLR generated from the old structural baseline is still labeled baseline-conditional and must not be reused as Football Reality v1 OLR.
 
-Artifact: `monster-week1-60k-final-blind`, artifact id `10081863532`.
-
-## DFS/OLR status
-FanDuel scoring, D/ST, salary identity matching and exact OLR machinery are retained as downstream research infrastructure. Existing OLR is conditional on the Statistical/Structural Baseline and MUST NOT be represented as Full-Monster OLR.
-
-Monster 150 promotion is paused until Football Reality v1 passes the Constitution.
-
-## Current development target
-**Monster Football Reality v1 candidate**
-
-Required sequence:
-1. complete Feature Reality Audit;
-2. establish canonical trait data/provenance;
-3. implement missing physical/athletic/Madden/scouting/current-state/system/environment mechanisms;
-4. counterfactual and ablation tests;
-5. multiple blind seeds/world counts;
-6. blind Full-Reality candidate freeze;
-7. only then reveal market for diagnostic comparison;
-8. rerun downstream FanDuel/OLR from promoted worlds;
-9. build Monster 150 only after promotion.
+## Next sequence
+1. Refresh Week-1 personnel/health/weather as official Sunday information becomes available.
+2. Produce and persist the final market-blind Week-1 Football Reality v1 state freeze.
+3. Only after that freeze, reveal/refresh market for diagnostic comparison.
+4. Regenerate correlated FanDuel worlds and OLR from promoted v1 football worlds.
+5. Build Monster150 only from the promoted/frozen v1 downstream state.
+6. After actual games, calibrate probabilistically and classify misses by causal trace.
 
 ## Constitutional boundary
-Football reality remains independent of sportsbook lines, DFS salaries, ownership and optimizer feedback. Market disagreement is diagnostic, never an upstream correction target.
+Sportsbook totals/spreads/moneylines, DFS salaries, ownership and optimizer outputs remain prohibited upstream. Market disagreement is diagnostic, never an upstream correction target.
 
 ## Status
-- Statistical/Structural Baseline: PASS / frozen
-- Full original-scope audit: IN PROGRESS
-- Madden/scouting ability layer: BLOCKER / unverified
-- Physical/athletic/biology layer: AUDIT REQUIRED
-- Current state/system/environment completeness: AUDIT REQUIRED
-- Football Reality v1: NOT YET PROMOTED
-- Existing FanDuel/OLR infrastructure: RETAINED DOWNSTREAM
-- Monster 150: PAUSED pending Football Reality v1
+- Statistical/Structural Baseline: PASS / frozen comparison baseline
+- Full original-scope audit: PASS with explicit bounded limitations
+- Madden/scouting ability layer: ACTIVE / causally certified
+- Physical/athletic/biology layer: ACTIVE/PARTIAL / causally certified with documented missingness
+- Current personnel/health: ACTIVE/PARTIAL / refresh before lock
+- Unit/matchup/system layer: ACTIVE/PARTIAL / causally certified at current resolution
+- Environment: ACTIVE/PARTIAL / refresh weather before lock
+- Counterfactual mechanism gates: PASS
+- Formal ablation + player-jurisdiction gate: PASS
+- Multi-seed 60K stability: PASS
+- **Monster Football Reality v1: PROMOTED**
+- FanDuel/OLR infrastructure: READY FOR v1 REGENERATION
+- Monster150: PAUSED until final Week-1 state freeze + v1 downstream regeneration
