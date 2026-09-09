@@ -45,7 +45,7 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Run 10K fantasy-complete Week 1 worlds
+      - name: Run 10K fantasy-complete correlated Week 1 worlds
         run: >-
           uv run python scripts/run_week1_fantasy_complete.py
           --policy artifacts/continuity-policy/team_policy.parquet
