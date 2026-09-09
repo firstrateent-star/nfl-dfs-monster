@@ -1,5 +1,6 @@
 name: Monster Week 1 fantasy-complete player worlds
 
+# Production evidence workflow: rerun after correlated-state schema changes.
 on:
   push:
     branches: [feature/slate-simulator-v1]
