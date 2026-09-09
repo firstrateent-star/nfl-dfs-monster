@@ -79,7 +79,7 @@ def solve_world_optimal(
                                 best = OptimalLineup(tuple(indices), score, total_salary)
     if best is None:
         raise RuntimeError("No legal FanDuel lineup exists under the salary cap")
-    audit = audit_fanduel_lineup(pool[list(best.indices)])
+    audit = audit_fanduel_lineup(pool[list(best.indices)], salary_cap=salary_cap)
     if not audit.legal:
         raise RuntimeError(f"Optimizer produced illegal lineup: {audit.reason}")
     return best
