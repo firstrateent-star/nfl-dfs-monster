@@ -1,0 +1,62 @@
+name: Monster Full Reality ablation ladder
+
+on:
+  push:
+    branches: [feature/slate-simulator-v1]
+    paths:
+      - .github/workflows/full-reality-ablation.yml
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  ablation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: structural-current
+            disable: human,madden,units,environment
+          - profile: plus-human
+            disable: madden,units,environment
+          - profile: plus-madden
+            disable: units,environment
+          - profile: plus-units
+            disable: environment
+          - profile: full-reality
+            disable: ""
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: feature/slate-simulator-v1}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Production and counterfactual gates
+        run: |
+          uv run ruff check src tests scripts/run_week1_reality_v1.py
+          uv run pytest -q tests/test_full_reality_counterfactuals.py
+      - name: Build current personnel baseline
+        run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/league-baseline
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build health state
+        run: uv run python scripts/build_health_snapshot.py --personnel artifacts/league-baseline/league_personnel.parquet --injuries artifacts/league-baseline/raw_injuries.parquet --overrides config/health/week1_2026_2026-09-07.csv --season 2026 --out artifacts/week1-health
+      - name: Compile continuity policy
+        run: uv run python scripts/build_continuity_conditioned_policy.py --older-policy artifacts/league-policy-2024/team_policy.parquet --latest-policy artifacts/league-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --out artifacts/continuity-policy
+      - name: Run blind ablation profile
+        env:
+          MONSTER_DISABLE_REALITY_FAMILIES: ${{ matrix.disable }}
+        run: uv run python scripts/run_week1_reality_v1.py --policy artifacts/continuity-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --player-usage artifacts/league-policy/player_usage.parquet --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet --worlds 10000 --seed 2026090911 --out artifacts/ablation-${{ matrix.profile }}
+      - name: Verify blind manifest
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/ablation-${{ matrix.profile }}/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used_in_football_simulation'] is False; assert d['ownership_used_in_football_simulation'] is False; print('blind gate PASS')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-ablation-${{ matrix.profile }}
+          path: |
+            artifacts/ablation-${{ matrix.profile }}/game_distribution_map.csv
+            artifacts/ablation-${{ matrix.profile }}/team_opportunity_map.csv
+            artifacts/ablation-${{ matrix.profile }}/player_distributions.csv
+            artifacts/ablation-${{ matrix.profile }}/manifest.json
+          retention-days: 14
