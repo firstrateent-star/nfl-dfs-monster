@@ -11,6 +11,7 @@ class GameAnatomySummary:
     snaps: int
     pass_plays: int
     run_plays: int
+    scrambles: int
     sacks: int
     completions: int
     incompletions: int
@@ -33,6 +34,7 @@ def summarize_game(result: GameResultV13) -> GameAnatomySummary:
         snaps=len(plays),
         pass_plays=sum(play.play_type == PlayType.PASS for play in plays),
         run_plays=sum(play.play_type == PlayType.RUN for play in plays),
+        scrambles=sum(play.pass_result == PassResult.SCRAMBLE for play in plays),
         sacks=sum(play.pass_result == PassResult.SACK for play in plays),
         completions=sum(play.pass_result == PassResult.COMPLETE for play in plays),
         incompletions=sum(play.pass_result == PassResult.INCOMPLETE for play in plays),
@@ -64,14 +66,15 @@ def assert_event_conservation(result: GameResultV13) -> None:
     interceptions = sum(box.interceptions for box in stats.values())
     fumbles = sum(box.fumbles_lost for box in stats.values())
 
-    if pass_attempts != summary.pass_plays:
-        raise AssertionError("pass attempts must equal pass play events")
+    throws = summary.pass_plays - summary.sacks - summary.scrambles
+    if pass_attempts != throws:
+        raise AssertionError("pass attempts must equal throws, excluding sacks and scrambles")
     if completions != summary.completions or receptions != summary.completions:
         raise AssertionError("completion/reception conservation failed")
-    if targets > pass_attempts:
-        raise AssertionError("targets cannot exceed pass attempts")
-    if rush_attempts != summary.run_plays:
-        raise AssertionError("rush attempts must equal run play events")
+    if targets != pass_attempts:
+        raise AssertionError("every modeled throw must own exactly one target")
+    if rush_attempts != summary.run_plays + summary.scrambles:
+        raise AssertionError("rush attempts must equal designed runs plus QB scrambles")
     if passing_tds != receiving_tds:
         raise AssertionError("passing and receiving TDs must be the same events")
     if receiving_tds + rushing_tds != summary.touchdowns:
