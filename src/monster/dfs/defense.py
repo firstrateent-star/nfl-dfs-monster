@@ -33,3 +33,18 @@ def score_defense_partial_worlds(
     if points.shape != turnovers.shape:
         raise ValueError("Defense inputs must share one correlated world shape")
     return points_allowed_score(points) + 2.0 * turnovers.astype(np.float32)
+
+
+def require_complete_defense_authority(
+    *, sacks_modeled: bool, defensive_scores_modeled: bool, special_teams_scores_modeled: bool
+) -> None:
+    """Prevent partial D/ST worlds from silently entering authoritative lineup optimization."""
+    missing = []
+    if not sacks_modeled:
+        missing.append("sacks")
+    if not defensive_scores_modeled:
+        missing.append("defensive touchdowns/safeties")
+    if not special_teams_scores_modeled:
+        missing.append("special-teams touchdowns/blocks")
+    if missing:
+        raise RuntimeError("FanDuel D/ST authority incomplete: " + ", ".join(missing))
