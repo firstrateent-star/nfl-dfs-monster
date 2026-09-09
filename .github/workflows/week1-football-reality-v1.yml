@@ -23,10 +23,10 @@ jobs:
           ref: feature/slate-simulator-v1
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
-      - name: Unit and lint gates
+      - name: Unit and production-module lint gates
         run: |
           uv run pytest -q
-          uv run ruff check src tests scripts/run_week1_reality_v1.py
+          uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
       - name: Build 32-team personnel with physical and Madden traits
         run: >-
           uv run python scripts/build_league_baseline.py
