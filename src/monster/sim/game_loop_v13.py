@@ -81,13 +81,23 @@ def _dbox(stats: dict[str, DefensiveBoxScore], player_id: str | None) -> Defensi
     return stats.setdefault(player_id, DefensiveBoxScore())
 
 
-def _record(event: PlayEvent, stats: dict[str, PlayerBoxScore], defensive_stats: dict[str, DefensiveBoxScore]) -> None:
+def _record(
+    event: PlayEvent,
+    stats: dict[str, PlayerBoxScore],
+    defensive_stats: dict[str, DefensiveBoxScore],
+) -> None:
     passer = _box(stats, event.passer_id)
     target = _box(stats, event.target_id)
     rusher = _box(stats, event.rusher_id)
     defender = _dbox(defensive_stats, event.primary_defender_id)
-    is_scramble = event.pass_result == PassResult.SCRAMBLE
-    if event.play_type == PlayType.PASS and passer is not None and not is_scramble:
+
+    # NFL statistical identity: sacks and scrambles are dropbacks but are not
+    # pass attempts. A scramble becomes a rushing attempt for the quarterback.
+    is_throw = event.play_type == PlayType.PASS and event.pass_result not in (
+        PassResult.SACK,
+        PassResult.SCRAMBLE,
+    )
+    if is_throw and passer is not None:
         passer.pass_attempts += 1
         if event.pass_result == PassResult.COMPLETE:
             passer.completions += 1
@@ -110,6 +120,7 @@ def _record(event: PlayEvent, stats: dict[str, PlayerBoxScore], defensive_stats:
             rusher.rushing_tds += 1
         if event.turnover:
             rusher.fumbles_lost += 1
+
     if defender is not None:
         if event.pressured:
             defender.pressures += 1
@@ -149,18 +160,22 @@ def simulate_regulation_game(
     drives = 1
     second_half_receiver = home.team_id
     halftime_done = False
+
     for _ in range(max_plays):
         if regulation_complete(state):
             break
         offense = away if state.possession == away.team_id else home
         if offense.team_id == away.team_id:
-            defense_strength, defense = home_defense_strength, home_defense
+            defense_strength = home_defense_strength
+            defense = home_defense
         else:
-            defense_strength, defense = away_defense_strength, away_defense
+            defense_strength = away_defense_strength
+            defense = away_defense
         before = state
         event = simulate_scrimmage_play(state, offense, defense_strength, rng, defense=defense)
         plays.append(event)
         _record(event, stats, defensive_stats)
+
         if event.play_type == PlayType.PUNT:
             gross = float(np.clip(rng.normal(45.0 * offense.punt_skill, 6.0), 25.0, 65.0))
             state = punt_transition(
@@ -172,7 +187,10 @@ def simulate_regulation_game(
             drives += 1
         elif event.play_type == PlayType.FIELD_GOAL:
             state = advance_game_clock(state, event.elapsed_seconds)
-            state = _post_score_kickoff(_add_score(state, 3)) if event.field_goal_made else missed_field_goal_transition(state, elapsed_seconds=0)
+            if event.field_goal_made:
+                state = _post_score_kickoff(_add_score(state, 3))
+            else:
+                state = missed_field_goal_transition(state, elapsed_seconds=0)
             drives += 1
         elif event.turnover:
             spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
@@ -187,6 +205,7 @@ def simulate_regulation_game(
             if before.down == 4 and event.yards < before.distance:
                 state = turnover_on_downs(state)
                 drives += 1
+
         if not halftime_done and before.seconds_remaining > 1800 >= state.seconds_remaining:
             halftime_done = True
             state = FootballState(
@@ -199,6 +218,7 @@ def simulate_regulation_game(
                 home_score=state.home_score,
             )
             drives += 1
+
     if state.seconds_remaining > 0:
         state = replace(state, seconds_remaining=0, quarter=4)
     return GameResultV13(
