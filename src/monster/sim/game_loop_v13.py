@@ -14,7 +14,13 @@ from monster.sim.football_state import (
     turnover_at_spot,
     turnover_on_downs,
 )
-from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, TeamIdentity, simulate_scrimmage_play
+from monster.sim.play_kernel import (
+    PassResult,
+    PlayEvent,
+    PlayType,
+    TeamIdentity,
+    simulate_scrimmage_play,
+)
 
 
 @dataclass
@@ -109,7 +115,9 @@ def simulate_regulation_game(
         if regulation_complete(state):
             break
         offense = away if state.possession == away.team_id else home
-        defense_strength = home_defense_strength if offense.team_id == away.team_id else away_defense_strength
+        defense_strength = (
+            home_defense_strength if offense.team_id == away.team_id else away_defense_strength
+        )
         before = state
         event = simulate_scrimmage_play(state, offense, defense_strength, rng)
         plays.append(event)
@@ -117,7 +125,12 @@ def simulate_regulation_game(
 
         if event.play_type == PlayType.PUNT:
             gross = float(np.clip(rng.normal(45.0 * offense.punt_skill, 6.0), 25.0, 65.0))
-            state = punt_transition(state, gross_yards=gross, return_yards=max(rng.normal(8.0, 6.0), 0.0), elapsed_seconds=event.elapsed_seconds)
+            state = punt_transition(
+                state,
+                gross_yards=gross,
+                return_yards=max(rng.normal(8.0, 6.0), 0.0),
+                elapsed_seconds=event.elapsed_seconds,
+            )
             drives += 1
         elif event.play_type == PlayType.FIELD_GOAL:
             state = advance_game_clock(state, event.elapsed_seconds)
