@@ -10,7 +10,7 @@ def _team(team: str) -> TeamIdentity:
     wr1 = PlayerIdentity(f"{team}-wr1", f"{team} WR1", "WR", usage_weight=0.45)
     wr2 = PlayerIdentity(f"{team}-wr2", f"{team} WR2", "WR", usage_weight=0.30)
     te = PlayerIdentity(f"{team}-te", f"{team} TE", "TE", usage_weight=0.25)
-    return TeamIdentity(team, qb, (rb, qb), (wr1, wr2, te))
+    return TeamIdentity(team, qb, (rb, qb), (wr1, wr2), (wr1, wr2, te))
 
 
 def test_game_loop_terminates_with_finite_regulation_clock() -> None:
@@ -55,9 +55,10 @@ def test_same_seed_reproduces_same_game_world() -> None:
     assert a.player_stats == b.player_stats
 
 
-def test_score_changes_emerge_from_play_events() -> None:
+def test_score_changes_emerge_from_explicit_scoring_events() -> None:
     result = simulate_regulation_game(_team("away"), _team("home"), seed=55)
     points = result.final_state.away_score + result.final_state.home_score
     touchdowns = sum(play.touchdown for play in result.plays)
-    made_fgs = sum(play.field_goal_made for play in result.plays)
-    assert points == 7 * touchdowns + 3 * made_fgs
+    made_fgs = sum(event.made is True for event in result.special_teams_events if event.event_type == "field_goal")
+    try_points = sum(event.points for event in result.try_events)
+    assert points == 6 * touchdowns + 3 * made_fgs + try_points + 2 * result.safeties
