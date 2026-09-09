@@ -33,13 +33,7 @@ def _late_game_pressure(state: FootballState) -> float:
 
 
 def _game_script_pass_shift(state: FootballState) -> float:
-    """Bounded score/time play-calling response, independent of market data.
-
-    Neutral pass rate remains the team's identity. This layer represents the
-    football fact that teams increasingly run while protecting leads and pass
-    while chasing deficits. The effect grows through the game rather than
-    appearing only in the final six minutes.
-    """
+    """Bounded score/time play-calling response, independent of market data."""
     margin = state.score_margin_for_offense
     if margin == 0 or state.quarter <= 1:
         return 0.0
@@ -50,12 +44,7 @@ def _game_script_pass_shift(state: FootballState) -> float:
 
 
 def fourth_down_decision(state: FootballState) -> FourthDownDecision:
-    """Bounded football decision scaffold based only on game state.
-
-    This is intentionally policy-shaped rather than optimizer-shaped. Historical NFL decision
-    calibration will replace/refine thresholds before promotion. No market or DFS information is
-    permitted here.
-    """
+    """Bounded football decision scaffold based only on game state."""
     if state.down != 4:
         raise ValueError("fourth_down_decision requires fourth down")
 
@@ -77,11 +66,28 @@ def fourth_down_decision(state: FootballState) -> FourthDownDecision:
     return FourthDownDecision.PUNT
 
 
-def situation_policy(state: FootballState, neutral_pass_rate: float) -> SituationPolicy:
-    """Translate football state into bounded play-selection pressure."""
-    neutral = float(np.clip(neutral_pass_rate, 0.30, 0.75))
-    distance_pressure = float(np.clip((state.distance - 6.0) * 0.025, -0.08, 0.18))
-    down_pressure = {1: -0.02, 2: 0.01, 3: 0.10, 4: 0.12}[state.down]
+def situation_policy(
+    state: FootballState,
+    neutral_pass_rate: float,
+    *,
+    contextual_pass_rate: float | None = None,
+) -> SituationPolicy:
+    """Translate football state into pass/hurry pressure without double counting context.
+
+    When an empirical down/distance pass rate is supplied, it is already conditioned on
+    ordinary football situation and therefore replaces the old additive down/distance
+    heuristic. Team neutral identity, score/time script and late-game behavior remain
+    separate causal layers.
+    """
+    if contextual_pass_rate is None:
+        neutral = float(np.clip(neutral_pass_rate, 0.30, 0.75))
+        distance_pressure = float(np.clip((state.distance - 6.0) * 0.025, -0.08, 0.18))
+        down_pressure = {1: -0.02, 2: 0.01, 3: 0.10, 4: 0.12}[state.down]
+    else:
+        neutral = float(np.clip(contextual_pass_rate, 0.18, 0.90))
+        distance_pressure = 0.0
+        down_pressure = 0.0
+
     late = _late_game_pressure(state)
     script_shift = _game_script_pass_shift(state)
     lead_drain = 0.0
