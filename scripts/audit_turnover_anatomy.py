@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import nflreadpy as nfl
@@ -40,7 +40,7 @@ def main() -> None:
     )
     result = {
         "artifact": "Monster Historical Turnover Anatomy Audit",
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(UTC).isoformat(),
         "seasons": args.seasons,
         "interceptions": interceptions,
         "fumbles_lost": fumbles_lost,
