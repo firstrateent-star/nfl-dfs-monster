@@ -37,3 +37,5 @@ jobs:
           name: monster-week1-fantasy-complete-10k
           path: artifacts/week1-fantasy-complete/
           retention-days: 14
+
+# Trigger marker: 2026-09-08 fantasy-complete evidence launch
