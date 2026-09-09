@@ -52,8 +52,7 @@ def solve_world_optimal(
         raise ValueError("Optimizer pool lacks a required FanDuel position")
 
     best: OptimalLineup | None = None
-    # FanDuel flex is represented by enumerating the three possible roster shapes.
-    shapes = ((3, 3, 1), (2, 4, 1), (2, 3, 2))  # RB, WR, TE counts including FLEX.
+    shapes = ((3, 3, 1), (2, 4, 1), (2, 3, 2))
     for q in qb:
         for d in defense:
             base_salary = int(salary[q] + salary[d])
@@ -68,9 +67,6 @@ def solve_world_optimal(
                         partial_salary = base_salary + rb_salary + sum(int(salary[i]) for i in tes)
                         if partial_salary >= salary_cap:
                             continue
-                        remaining = salary_cap - partial_salary
-                        # WR triples/quads dominate raw combination count. Keep exactness by
-                        # checking every combination whose salary can fit the remaining cap.
                         for wrs in combinations(wr.tolist(), wr_count):
                             total_salary = partial_salary + sum(int(salary[i]) for i in wrs)
                             if total_salary > salary_cap:
