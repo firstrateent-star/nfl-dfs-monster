@@ -6,6 +6,10 @@ import numpy as np
 
 from monster.sim.play_kernel import PlayerIdentity
 
+# 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
+# Team/player matchup traits perturb this baseline rather than replacing the causal prior.
+LEAGUE_PRESSURE_RATE = 0.297832
+
 
 @dataclass(frozen=True)
 class DefensiveIdentity:
@@ -23,7 +27,7 @@ class DefensiveIdentity:
 class DefensiveUnit:
     front: tuple[DefensiveIdentity, ...]
     coverage: tuple[DefensiveIdentity, ...]
-    pressure_rate: float = 0.065
+    pressure_rate: float = LEAGUE_PRESSURE_RATE
     run_stuff_rate: float = 0.18
 
 
@@ -63,7 +67,7 @@ def resolve_pass_matchup(
     coverage_strength = 1.0 if cover is None else cover.coverage
     rush_strength = 1.0 if rusher is None else rusher.pass_rush
     pressure = float(
-        np.clip(defense.pressure_rate * rush_strength / max(pass_protection, 0.55), 0.02, 0.22)
+        np.clip(defense.pressure_rate * rush_strength / max(pass_protection, 0.55), 0.12, 0.50)
     )
     completion = float(
         np.clip(
