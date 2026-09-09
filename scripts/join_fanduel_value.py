@@ -5,9 +5,20 @@ from pathlib import Path
 
 import polars as pl
 
+ALIASES = {
+    "hollywoodbrown": "marquisebrown",
+    "joshua palmer": "joshpalmer",
+}
+
 
 def _norm(expr: pl.Expr) -> pl.Expr:
-    return expr.str.to_lowercase().str.replace_all(r"[^a-z0-9]", "")
+    # FanDuel commonly adds Jr./Sr./III suffixes that are absent from football data.
+    return (
+        expr.str.to_lowercase()
+        .str.replace_all(r"[^a-z0-9 ]", "")
+        .str.replace_all(r"\b(jr|sr|ii|iii|iv|v)\b", "")
+        .str.replace_all(r"\s+", "")
+    )
 
 
 def main() -> None:
@@ -19,15 +30,28 @@ def main() -> None:
 
     monster = pl.read_csv(args.monster).with_columns(_norm(pl.col("player")).alias("join_name"))
     fd = pl.read_csv(args.fanduel)
-    required = {"Position", "Nickname", "Salary", "Id"}
+    required = {"Position", "Nickname", "Salary", "Id", "Team"}
     missing = sorted(required - set(fd.columns))
     if missing:
         raise SystemExit(f"FanDuel file missing required columns: {missing}")
 
     fd = fd.with_columns(_norm(pl.col("Nickname")).alias("join_name"))
-    keep = [c for c in ["Position", "Nickname", "Salary", "Id", "Team", "Opponent", "Injury Indicator", "Injury Details"] if c in fd.columns]
-    fd = fd.select(["join_name", *keep]).unique("join_name", keep="first")
-    joined = monster.join(fd, on="join_name", how="left")
+    for fd_name, monster_name in ALIASES.items():
+        fd = fd.with_columns(
+            pl.when(pl.col("join_name") == fd_name.replace(" ", ""))
+            .then(pl.lit(monster_name.replace(" ", "")))
+            .otherwise(pl.col("join_name"))
+            .alias("join_name")
+        )
+
+    keep = [c for c in ["Position", "Nickname", "Salary", "Id", "Team", "Opponent", "Injury Indicator", "Injury Details", "Roster Position"] if c in fd.columns]
+    fd = fd.select(["join_name", *keep])
+    # Team + normalized identity is the safe key. Never silently collapse duplicate names league-wide.
+    duplicate_keys = fd.group_by(["Team", "join_name"]).len().filter(pl.col("len") > 1)
+    if duplicate_keys.height:
+        raise SystemExit(f"Ambiguous FanDuel identity keys: {duplicate_keys.to_dicts()}")
+
+    joined = monster.join(fd, left_on=["team_id", "join_name"], right_on=["Team", "join_name"], how="left")
     joined = joined.with_columns(
         (pl.col("fd_mean") / (pl.col("Salary") / 1000.0)).alias("mean_per_1k"),
         (pl.col("fd_p90") / (pl.col("Salary") / 1000.0)).alias("p90_per_1k"),
