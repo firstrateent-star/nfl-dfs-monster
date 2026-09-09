@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from monster.sim.matchup_kernel import (
+    LEAGUE_PRESSURE_RATE,
     DefensiveIdentity,
     DefensiveUnit,
     resolve_pass_matchup,
@@ -17,6 +18,17 @@ def _defense(coverage: float = 1.0, rush: float = 1.0, run: float = 1.0) -> Defe
         DefensiveIdentity("cb", "Corner", "CB", coverage=coverage, ball_hawk=coverage),
     )
     return DefensiveUnit(front=front, coverage=secondary)
+
+
+def test_neutral_matchup_preserves_empirical_pressure_baseline() -> None:
+    target = PlayerIdentity("wr", "WR", "WR")
+    matchup = resolve_pass_matchup(
+        target,
+        _defense(),
+        pass_protection=1.0,
+        quarterback_efficiency=1.0,
+    )
+    assert abs(matchup.pressure_probability - LEAGUE_PRESSURE_RATE) < 1e-6
 
 
 def test_better_coverage_reduces_completion_and_explosiveness() -> None:
