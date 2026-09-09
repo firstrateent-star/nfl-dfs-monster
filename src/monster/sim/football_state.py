@@ -22,6 +22,10 @@ class FootballState:
     `yardline_100` is yards from the possessing offense's goal line (1..99). Keeping one
     offense-relative coordinate makes down/distance updates simple; change of possession mirrors
     the field with `100 - yardline_100`.
+
+    Live games carry explicit away/home team ids so score-margin decisions remain correct
+    after possession changes. Legacy synthetic states that literally use ``away``/``home``
+    can omit them.
     """
 
     possession: str
@@ -33,6 +37,8 @@ class FootballState:
     distance: float = 10.0
     away_score: int = 0
     home_score: int = 0
+    away_team_id: str | None = None
+    home_team_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.possession == self.defense:
@@ -47,12 +53,26 @@ class FootballState:
             raise ValueError("down must be 1..4")
         if self.distance <= 0:
             raise ValueError("distance must be positive")
+        if (self.away_team_id is None) != (self.home_team_id is None):
+            raise ValueError("away_team_id and home_team_id must be supplied together")
+        if self.away_team_id is not None and self.away_team_id == self.home_team_id:
+            raise ValueError("away_team_id and home_team_id must be different")
 
     @property
     def score_margin_for_offense(self) -> int:
+        if self.away_team_id is not None:
+            if self.possession == self.away_team_id:
+                return self.away_score - self.home_score
+            if self.possession == self.home_team_id:
+                return self.home_score - self.away_score
+            raise ValueError("possession must match away_team_id or home_team_id")
         if self.possession == "away":
             return self.away_score - self.home_score
-        return self.home_score - self.away_score
+        if self.possession == "home":
+            return self.home_score - self.away_score
+        raise ValueError(
+            "non-literal team ids require away_team_id and home_team_id for score-margin decisions"
+        )
 
 
 def mirror_field(yardline_100: float) -> float:
@@ -108,6 +128,8 @@ def change_possession(
         distance=next_series_distance(float(receiving_yardline_100)),
         away_score=state.away_score,
         home_score=state.home_score,
+        away_team_id=state.away_team_id,
+        home_team_id=state.home_team_id,
     )
 
 
