@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from monster.feature_compile.mechanisms import TeamMechanismInputs, _weather_eff
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
 
 _ENVIRONMENT = Path("config/environment/week1_2026_2026-09-09.csv")
+_ALLOWED_ABLATIONS = {"human", "madden", "units", "environment"}
 
 
 def _load_baseline_runner():
@@ -28,19 +30,59 @@ def _environment_map() -> dict[str, dict]:
     return {str(row["team_id"]): row for row in pl.read_csv(_ENVIRONMENT).to_dicts()}
 
 
+def _disabled_families() -> set[str]:
+    raw = os.environ.get("MONSTER_DISABLE_REALITY_FAMILIES", "").strip()
+    disabled = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    unknown = disabled - _ALLOWED_ABLATIONS
+    if unknown:
+        raise ValueError(f"Unknown Full-Reality ablation families: {sorted(unknown)}")
+    return disabled
+
+
+def _ablate_player_inputs(inputs, disabled: set[str]):
+    changes = {}
+    if "human" in disabled:
+        changes.update(
+            height_in=None,
+            weight_lbs=None,
+            wingspan_in=None,
+            forty_time=None,
+            age_years=None,
+            career_workload=None,
+        )
+    if "madden" in disabled:
+        changes.update(
+            madden_speed=None,
+            madden_acceleration=None,
+            madden_route_running=None,
+            madden_catching=None,
+        )
+    return replace(inputs, **changes) if changes else inputs
+
+
 def main() -> None:
-    """Run the conserved structural kernel with Full-Reality player and environment inputs."""
+    """Run the conserved structural kernel with Full-Reality inputs.
+
+    `MONSTER_DISABLE_REALITY_FAMILIES` is an evidence-only ablation seam. It may
+    disable human/physical player traits, Madden player traits, compiled team units,
+    and/or environment. Health and continuity remain active current-state controls.
+    The default is the unchanged Full-Reality production candidate.
+    """
     runner = _load_baseline_runner()
     environment = _environment_map()
+    disabled = _disabled_families()
     original_strengthened_state = runner._strengthened_state
 
     def full_inputs(personnel, *, game_date=None):
         if game_date is None:
             raise ValueError("Full-Reality runner requires an explicit game_date")
-        return compile_player_reality_inputs(personnel, game_date=game_date)
+        compiled = compile_player_reality_inputs(personnel, game_date=game_date)
+        return {player_id: _ablate_player_inputs(inputs, disabled) for player_id, inputs in compiled.items()}
 
     def strengthened_with_environment(base, unit_players, ol_row):
-        state = original_strengthened_state(base, unit_players, ol_row)
+        state = base if "units" in disabled else original_strengthened_state(base, unit_players, ol_row)
+        if "environment" in disabled:
+            return state
         row = environment.get(str(state.team_id))
         if row is None:
             return state
