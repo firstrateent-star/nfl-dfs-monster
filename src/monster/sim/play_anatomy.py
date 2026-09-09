@@ -5,6 +5,12 @@ from enum import StrEnum
 
 import numpy as np
 
+# 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
+# These are causal branch baselines, not desired final-stat targets.
+PRESSURED_SACK_RATE = 0.217914
+PRESSURED_SCRAMBLE_RATE = 0.069760
+CLEAN_SCRAMBLE_RATE = 0.048621
+
 
 class QBResponse(StrEnum):
     THROW = "throw"
@@ -52,15 +58,27 @@ def resolve_qb_response(
     pocket_skill: float,
     rng: np.random.Generator,
 ) -> QBResponse:
-    if not pressured:
-        return QBResponse.THROW
-    escape = float(np.clip(0.20 * mobility, 0.06, 0.48))
-    sack = float(np.clip(0.42 / max(pocket_skill, 0.60), 0.20, 0.68))
+    """Resolve a dropback after the pressure state is known.
+
+    The league branch probabilities come from 2025 play-level pressure participation.
+    Existing bounded QB/team traits only perturb those baselines; they do not replace
+    the empirical causal anatomy. Scrambles can occur from both pressured and clean
+    dropbacks, matching the historical definition of a dropback family.
+    """
+    mobility_factor = float(np.clip(mobility, 0.70, 1.30))
     draw = rng.random()
-    if draw < escape:
-        return QBResponse.SCRAMBLE
-    if draw < escape + sack:
+
+    if not pressured:
+        scramble = float(np.clip(CLEAN_SCRAMBLE_RATE * mobility_factor, 0.01, 0.15))
+        return QBResponse.SCRAMBLE if draw < scramble else QBResponse.THROW
+
+    pocket_factor = float(np.clip(1.0 / max(pocket_skill, 0.60), 0.75, 1.35))
+    sack = float(np.clip(PRESSURED_SACK_RATE * pocket_factor, 0.10, 0.40))
+    scramble = float(np.clip(PRESSURED_SCRAMBLE_RATE * mobility_factor, 0.02, 0.18))
+    if draw < sack:
         return QBResponse.SACK
+    if draw < sack + scramble:
+        return QBResponse.SCRAMBLE
     return QBResponse.THROW
 
 
