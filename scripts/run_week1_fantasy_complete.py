@@ -95,6 +95,8 @@ def main() -> None:
             "home_turnovers": result.game_worlds.home_turnovers,
             "away_pass_disruption": result.game_worlds.away_pass_disruption,
             "home_pass_disruption": result.game_worlds.home_pass_disruption,
+            "away_pass_attempts": result.allocation_worlds.away.team_pass_attempts,
+            "home_pass_attempts": result.allocation_worlds.home.team_pass_attempts,
         })
         for side_idx, (team, pool, allocation, team_turnovers) in enumerate(((away, result.snapshot.away_pool, result.allocation_worlds.away, result.game_worlds.away_turnovers), (home, result.snapshot.home_pool, result.allocation_worlds.home, result.game_worlds.home_turnovers))):
             attribution = attribute_team_turnovers(team_turnovers, allocation, pool, interception_fraction=args.interception_fraction, seed=args.seed + idx * 10007 + 900001 + side_idx)
@@ -114,15 +116,19 @@ def main() -> None:
     frame.write_csv(args.out / "player_distributions.csv")
     np.savez_compressed(args.out / "player_worlds.npz", player_ids=np.asarray(world_player_ids), fd_points=np.stack(world_scores))
     game_payload: dict[str, np.ndarray] = {}
+    game_keys = (
+        "away_points", "home_points", "away_turnovers", "home_turnovers",
+        "away_pass_disruption", "home_pass_disruption", "away_pass_attempts", "home_pass_attempts",
+    )
     for idx, row in enumerate(game_world_rows):
-        for key in ("away_points", "home_points", "away_turnovers", "home_turnovers", "away_pass_disruption", "home_pass_disruption"):
+        for key in game_keys:
             value = row[key]
             if value is not None:
                 game_payload[f"g{idx}_{key}"] = np.asarray(value)
     np.savez_compressed(args.out / "game_worlds.npz", **game_payload)
     game_index = [{"game_index": idx, "game": row["game"], "away_team": row["away_team"], "home_team": row["home_team"]} for idx, row in enumerate(game_world_rows)]
     (args.out / "game_world_index.json").write_text(json.dumps(game_index, indent=2) + "\n")
-    manifest = {"artifact": "Monster Week 1 Fantasy-Complete Player Worlds", "generated_at_utc": datetime.now(UTC).isoformat(), "game_date": GAME_DATE.isoformat(), "worlds_per_game": args.worlds, "games": len(MATCHUPS), "simulated_game_worlds": args.worlds * len(MATCHUPS), "seed": args.seed, "interception_fraction": args.interception_fraction, "turnover_conservation_failures": conservation_failures, "player_rows": frame.height, "joint_player_worlds_persisted": True, "joint_world_shape": [len(world_player_ids), args.worlds], "game_worlds_persisted": True, "market_blind_football": True, "dfs_layer_downstream_only": True}
+    manifest = {"artifact": "Monster Week 1 Fantasy-Complete Player Worlds", "generated_at_utc": datetime.now(UTC).isoformat(), "game_date": GAME_DATE.isoformat(), "worlds_per_game": args.worlds, "games": len(MATCHUPS), "simulated_game_worlds": args.worlds * len(MATCHUPS), "seed": args.seed, "interception_fraction": args.interception_fraction, "turnover_conservation_failures": conservation_failures, "player_rows": frame.height, "joint_player_worlds_persisted": True, "joint_world_shape": [len(world_player_ids), args.worlds], "game_worlds_persisted": True, "team_pass_attempt_worlds_persisted": True, "market_blind_football": True, "dfs_layer_downstream_only": True}
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
     print(frame.select("position", "player", "team_id", "fd_mean", "fd_p90", "fd_p99", "interceptions_mean", "fumbles_lost_mean").head(30))
