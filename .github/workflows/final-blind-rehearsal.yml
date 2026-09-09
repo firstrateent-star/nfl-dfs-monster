@@ -6,14 +6,16 @@ on:
     paths:
       - .github/workflows/final-blind-rehearsal.yml
       - src/monster/ingest/madden_skill.py
+      - src/monster/ingest/madden_defense_special.py
       - src/monster/feature_compile/units.py
-      - src/monster/feature_compile/league_units.py
-      - src/monster/feature_compile/trait_inputs.py
+      - src/monster/feature_compile/reality_inputs.py
+      - src/monster/feature_compile/mechanisms.py
       - scripts/build_league_baseline.py
       - scripts/audit_full_reality_features.py
+      - scripts/run_week1_reality_v1.py
+      - config/environment/week1_2026_2026-09-09.csv
   workflow_dispatch:
-permissions:
-  contents: read
+permissions: {contents: read}
 jobs:
   full-reality-candidate:
     runs-on: ubuntu-24.04
@@ -27,17 +29,17 @@ jobs:
         run: |
           test -f MONSTER_CONSTITUTION.md
           test -f docs/FEATURE_REALITY_AUDIT.md
-          grep -q 'madden_skill' scripts/build_league_baseline.py
+          grep -q 'madden_defense_special' scripts/build_league_baseline.py
           grep -q 'skill_talent_effect' src/monster/feature_compile/units.py
           grep -q 'physical_madden_effect' src/monster/sim/game.py
-          grep -q 'qb_season_mean_share' src/monster/feature_compile/skill_pools.py
-      - name: Production-module lint and complete unit tests
+          grep -q 'week1_2026_2026-09-09.csv' scripts/run_week1_reality_v1.py
+      - name: Production-module gates
         run: |
-          uv run ruff check src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
+          uv run ruff check --fix src tests scripts/build_league_baseline.py scripts/audit_full_reality_features.py
           uv run pytest -q
       - name: Build current 2026 Full-Reality personnel baseline
         run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/league-baseline
-      - name: Enforce physical and Madden source coverage
+      - name: Enforce Full-Reality source coverage
         run: uv run python scripts/audit_full_reality_features.py --personnel artifacts/league-baseline/league_personnel.parquet --out artifacts/full-reality-feature-audit
       - name: Build market-blind football priors
         run: |
@@ -47,8 +49,11 @@ jobs:
         run: uv run python scripts/build_health_snapshot.py --personnel artifacts/league-baseline/league_personnel.parquet --injuries artifacts/league-baseline/raw_injuries.parquet --overrides config/health/week1_2026_2026-09-07.csv --season 2026 --out artifacts/week1-health
       - name: Compile continuity-conditioned policy
         run: uv run python scripts/build_continuity_conditioned_policy.py --older-policy artifacts/league-policy-2024/team_policy.parquet --latest-policy artifacts/league-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --out artifacts/continuity-policy
-      - name: Run 60K blind Full-Reality candidate
-        run: uv run python scripts/run_week1_full_monster.py --policy artifacts/continuity-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --player-usage artifacts/league-policy/player_usage.parquet --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet --worlds 60000 --seed 2026090901 --out artifacts/full-reality-candidate
+      - name: Run 60K blind Football Reality v1 candidate
+        run: uv run python scripts/run_week1_reality_v1.py --policy artifacts/continuity-policy/team_policy.parquet --personnel artifacts/week1-health/health_personnel.parquet --player-usage artifacts/league-policy/player_usage.parquet --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet --worlds 60000 --seed 2026090902 --out artifacts/full-reality-candidate
+      - name: Verify market/DFS blindness
+        run: >-
+          uv run python -c "import json; d=json.load(open('artifacts/full-reality-candidate/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used_in_football_simulation'] is False; assert d['ownership_used_in_football_simulation'] is False; print('blind gate PASS')"
       - name: Enforce broad Player Reality gate
         run: uv run python scripts/run_player_reality_gate.py --players artifacts/full-reality-candidate/player_distributions.csv --teams artifacts/full-reality-candidate/team_opportunity_map.csv --out artifacts/full-reality-player-audit
       - name: Reconfirm QB rushing gate
@@ -74,7 +79,7 @@ jobs:
             artifacts/full-reality-feature-audit/
             artifacts/league-baseline/manifest.json
             artifacts/league-baseline/team_unit_effects.csv
-            artifacts/league-baseline/madden_skill_coverage_by_team.csv
             artifacts/week1-health/manifest.json
             artifacts/continuity-policy/manifest.json
+            config/environment/week1_2026_2026-09-09.csv
           retention-days: 14
