@@ -61,3 +61,41 @@ jobs:
             artifacts/ablation-${{ matrix.profile }}/player_distributions.csv
             artifacts/ablation-${{ matrix.profile }}/manifest.json
           retention-days: 14
+
+  player-jurisdiction-gate:
+    needs: ablation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: feature/slate-simulator-v1}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: monster-ablation-structural-current
+          path: artifacts/structural-current
+      - uses: actions/download-artifact@v4
+        with:
+          name: monster-ablation-plus-human
+          path: artifacts/plus-human
+      - uses: actions/download-artifact@v4
+        with:
+          name: monster-ablation-plus-madden
+          path: artifacts/plus-madden
+      - uses: actions/download-artifact@v4
+        with:
+          name: monster-ablation-plus-units
+          path: artifacts/plus-units
+      - uses: actions/download-artifact@v4
+        with:
+          name: monster-ablation-full-reality
+          path: artifacts/full-reality
+      - name: Enforce player-jurisdiction causal gate
+        run: uv run python scripts/audit_player_jurisdiction_ablation.py --root artifacts --out artifacts/player-jurisdiction-audit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-player-jurisdiction-ablation-audit
+          path: artifacts/player-jurisdiction-audit/
+          retention-days: 14
