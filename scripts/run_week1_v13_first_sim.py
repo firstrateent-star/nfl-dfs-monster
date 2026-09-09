@@ -48,13 +48,9 @@ def _defensive_unit(players) -> DefensiveUnit:
             continue
         pos = p.position.upper()
         item = DefensiveIdentity(
-            player_id=p.player_id,
-            name=p.player_id,
-            position=pos,
-            coverage=_rating(p.madden_coverage),
-            pass_rush=_rating(p.madden_pass_rush),
-            run_defense=_rating(p.madden_tackle),
-            tackling=_rating(p.madden_tackle),
+            player_id=p.player_id, name=p.player_id, position=pos,
+            coverage=_rating(p.madden_coverage), pass_rush=_rating(p.madden_pass_rush),
+            run_defense=_rating(p.madden_tackle), tackling=_rating(p.madden_tackle),
             ball_hawk=_rating(p.madden_coverage),
         )
         if pos in {"DE", "DT", "NT", "DL", "EDGE", "LB", "ILB", "OLB", "MLB"}:
@@ -73,11 +69,8 @@ def _team_identity(team_id: str, pool, reality, unit_players, state) -> TeamIden
             compiled[p.player_id] = PlayerIdentity(p.player_id, p.display_name, p.position, usage_weight=usage)
         else:
             compiled[p.player_id], _ = compile_v13_player_identity(
-                player_id=p.player_id,
-                name=p.display_name,
-                position=p.position,
-                usage_weight=usage,
-                inputs=inputs,
+                player_id=p.player_id, name=p.display_name, position=p.position,
+                usage_weight=usage, inputs=inputs,
             )
     qbs = [p for p in pool.players if p.position == "QB"]
     if not qbs:
@@ -86,38 +79,29 @@ def _team_identity(team_id: str, pool, reality, unit_players, state) -> TeamIden
     qb = compiled[qb_state.player_id]
     rushers = tuple(
         PlayerIdentity(
-            compiled[p.player_id].player_id,
-            compiled[p.player_id].name,
-            compiled[p.player_id].position,
-            usage_weight=max(p.rush_share, 0.001),
+            compiled[p.player_id].player_id, compiled[p.player_id].name,
+            compiled[p.player_id].position, usage_weight=max(p.rush_share, 0.001),
             efficiency=compiled[p.player_id].efficiency,
             explosive=compiled[p.player_id].explosive,
             turnover_security=compiled[p.player_id].turnover_security,
-        )
-        for p in pool.players if p.rush_share > 0.001
+        ) for p in pool.players if p.rush_share > 0.001
     )
     receivers = tuple(
         PlayerIdentity(
-            compiled[p.player_id].player_id,
-            compiled[p.player_id].name,
-            compiled[p.player_id].position,
-            usage_weight=max(p.target_share, 0.001),
+            compiled[p.player_id].player_id, compiled[p.player_id].name,
+            compiled[p.player_id].position, usage_weight=max(p.target_share, 0.001),
             efficiency=compiled[p.player_id].efficiency,
             explosive=compiled[p.player_id].explosive,
             turnover_security=compiled[p.player_id].turnover_security,
-        )
-        for p in pool.players if p.position in {"RB", "WR", "TE"} and p.target_share > 0.001
+        ) for p in pool.players
+        if p.position in {"RB", "WR", "TE"} and p.target_share > 0.001
     )
     effects, _ = compile_team_unit_effects(unit_players)
     pass_eff = float(np.clip(1.0 + 0.55 * state.offensive_epa_per_play + state.physical_madden_effect + state.injury_effect + 0.35 * state.weather_effect, 0.72, 1.28))
     rush_eff = float(np.clip(1.0 + 0.35 * state.offense_strength + state.injury_effect + 0.20 * state.weather_effect, 0.75, 1.25))
     return TeamIdentity(
-        team_id=team_id,
-        quarterback=qb,
-        rushers=rushers or (qb,),
-        receivers=receivers,
-        neutral_pass_rate=pool.neutral_pass_rate,
-        pass_efficiency=pass_eff,
+        team_id=team_id, quarterback=qb, rushers=rushers or (qb,), receivers=receivers,
+        neutral_pass_rate=pool.neutral_pass_rate, pass_efficiency=pass_eff,
         rush_efficiency=rush_eff,
         pass_protection=float(np.clip(1.0 + effects.pass_protection_effect, 0.90, 1.10)),
         run_blocking=float(np.clip(1.0 + effects.run_block_effect, 0.90, 1.10)),
@@ -151,20 +135,29 @@ def main() -> None:
     game_rows = []
     player_acc = defaultdict(lambda: defaultdict(list))
     anatomy_acc = defaultdict(lambda: defaultdict(list))
+    outcome_acc = defaultdict(lambda: {"away_wins": 0, "home_wins": 0, "ties": 0})
 
     for game_idx, (away, home) in enumerate(MATCHUPS):
+        game = f"{away}@{home}"
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
             result = simulate_regulation_game(
-                teams[away], teams[home], away_defense=defenses[away], home_defense=defenses[home], seed=seed
+                teams[away], teams[home], away_defense=defenses[away],
+                home_defense=defenses[home], seed=seed,
             )
             assert_event_conservation(result)
             summary = summarize_game(result)
             for key, value in asdict(summary).items():
-                anatomy_acc[f"{away}@{home}"][key].append(value)
+                anatomy_acc[game][key].append(value)
+            if summary.away_points > summary.home_points:
+                outcome_acc[game]["away_wins"] += 1
+            elif summary.home_points > summary.away_points:
+                outcome_acc[game]["home_wins"] += 1
+            else:
+                outcome_acc[game]["ties"] += 1
             for player_id, box in result.player_stats.items():
                 for key, value in asdict(box).items():
-                    player_acc[(f"{away}@{home}", player_id)][key].append(value)
+                    player_acc[(game, player_id)][key].append(value)
 
     for game, metrics in anatomy_acc.items():
         away, home = game.split("@")
@@ -176,10 +169,19 @@ def main() -> None:
                 row[f"{key}_p10"] = float(np.quantile(arr, 0.10))
                 row[f"{key}_p50"] = float(np.quantile(arr, 0.50))
                 row[f"{key}_p90"] = float(np.quantile(arr, 0.90))
+        outcomes = outcome_acc[game]
         row["away"] = away
         row["home"] = home
         row["total_mean"] = row["away_points_mean"] + row["home_points_mean"]
         row["margin_mean"] = row["away_points_mean"] - row["home_points_mean"]
+        row["away_win_probability"] = outcomes["away_wins"] / args.worlds
+        row["home_win_probability"] = outcomes["home_wins"] / args.worlds
+        row["tie_probability"] = outcomes["ties"] / args.worlds
+        row["projected_winner"] = away if row["away_win_probability"] > row["home_win_probability"] else home
+        row["projected_away_score"] = int(round(row["away_points_mean"]))
+        row["projected_home_score"] = int(round(row["home_points_mean"]))
+        row["projected_score"] = f'{away} {row["projected_away_score"]} - {home} {row["projected_home_score"]}'
+        row["winner_probability"] = max(row["away_win_probability"], row["home_win_probability"])
         game_rows.append(row)
 
     player_rows = []
@@ -194,24 +196,29 @@ def main() -> None:
         player_rows.append(row)
 
     args.out.mkdir(parents=True, exist_ok=True)
-    pl.DataFrame(game_rows).sort("total_mean", descending=True).write_csv(args.out / "game_distributions.csv")
+    game_df = pl.DataFrame(game_rows).sort("total_mean", descending=True)
+    game_df.write_csv(args.out / "game_distributions.csv")
     pl.DataFrame(player_rows).write_csv(args.out / "player_distributions.csv")
+    projection_cols = [
+        "game", "projected_winner", "winner_probability", "projected_score",
+        "projected_away_score", "projected_home_score", "away_win_probability",
+        "home_win_probability", "tie_probability", "total_mean", "margin_mean",
+        "away_points_p10", "away_points_p50", "away_points_p90",
+        "home_points_p10", "home_points_p50", "home_points_p90",
+    ]
+    game_df.select(projection_cols).write_csv(args.out / "projected_scores_and_outcomes.csv")
     manifest = {
-        "model": "Monster v1.3 Full-Reality event-by-event shadow",
-        "week": 1,
-        "season": 2026,
-        "worlds_per_game": args.worlds,
-        "seed": args.seed,
-        "games": len(MATCHUPS),
-        "market_blind_football": True,
-        "scoreboard_event_derived": True,
-        "player_stats_event_derived": True,
-        "defensive_identity_active": True,
-        "full_reality_player_bridge_active": True,
+        "model": "Monster v1.3 Full-Reality event-by-event shadow", "week": 1,
+        "season": 2026, "worlds_per_game": args.worlds, "seed": args.seed,
+        "games": len(MATCHUPS), "market_blind_football": True,
+        "scoreboard_event_derived": True, "player_stats_event_derived": True,
+        "defensive_identity_active": True, "full_reality_player_bridge_active": True,
         "unit_bridge_active": True,
+        "projection_summary": "projected_scores_and_outcomes.csv",
         "promotion_status": "SHADOW_FIRST_SIMULATION_NOT_PROMOTED",
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(game_df.select(["game", "projected_winner", "winner_probability", "projected_score"]))
     print(json.dumps(manifest, indent=2))
 
 
