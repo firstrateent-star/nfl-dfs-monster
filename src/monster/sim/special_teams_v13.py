@@ -73,9 +73,22 @@ def simulate_field_goal(
     kicking_skill: float = 1.0,
     kicker_id: str | None = None,
 ) -> SpecialTeamsEvent:
-    blocked = rng.random() < 0.015
-    make_p = float(np.clip(0.99 - max(distance - 25.0, 0.0) * 0.011, 0.10, 0.99))
-    made = False if blocked else rng.random() < float(np.clip(make_p * kicking_skill, 0.05, 0.995))
+    # Modern NFL kickers convert the ordinary attempt mix at a high rate. Keep
+    # distance as the primary mechanism and let certified specialist evidence
+    # make only a bounded multiplicative adjustment around that curve.
+    blocked = rng.random() < 0.010
+    if distance <= 29.0:
+        base_make = 0.985
+    elif distance <= 39.0:
+        base_make = 0.955
+    elif distance <= 49.0:
+        base_make = 0.885
+    elif distance <= 59.0:
+        base_make = 0.735
+    else:
+        base_make = 0.48
+    skill_adjustment = float(np.clip(kicking_skill, 0.92, 1.08))
+    made = False if blocked else rng.random() < float(np.clip(base_make * skill_adjustment, 0.05, 0.995))
     return SpecialTeamsEvent(
         SpecialTeamsType.FIELD_GOAL,
         kick_distance=distance,
