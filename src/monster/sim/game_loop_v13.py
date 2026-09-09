@@ -104,6 +104,7 @@ def _record(
     passer = _box(stats, event.passer_id)
     target = _box(stats, event.target_id)
     rusher = _box(stats, event.rusher_id)
+    fumbler = _box(stats, event.fumbler_id)
     defender = _dbox(defensive_stats, event.primary_defender_id)
     is_throw = event.play_type == PlayType.PASS and event.pass_result not in (
         PassResult.SACK,
@@ -127,13 +128,14 @@ def _record(
         rusher.rush_attempts += 1
         rusher.rushing_yards += event.yards
         rusher.rushing_tds += int(event.touchdown)
-        rusher.fumbles_lost += int(event.turnover)
+    if fumbler is not None:
+        fumbler.fumbles_lost += 1
     if defender is not None:
         defender.pressures += int(event.pressured)
         defender.sacks += int(event.pass_result == PassResult.SACK)
         defender.interceptions += int(event.pass_result == PassResult.INTERCEPTION)
         defender.stuffs += int(event.stuffed)
-        defender.forced_fumbles += int(event.turnover and event.rusher_id is not None)
+        defender.forced_fumbles += int(event.fumbler_id is not None)
         defender.tackles += int(event.rusher_id is not None or event.pass_result == PassResult.COMPLETE)
 
 
@@ -185,11 +187,6 @@ def simulate_regulation_game(
         penalty = simulate_penalty(rng, base_rate=penalty_rate)
         if penalty is not None and event.play_type in (PlayType.RUN, PlayType.PASS):
             penalties.append(penalty)
-            # The first live penalty layer previously replayed every accepted foul
-            # with zero elapsed time. That created free clock and inflated the number
-            # of offensive opportunities. Until foul subtype/no-play status is
-            # explicitly modeled, use the snap's sampled elapsed time as a bounded
-            # live-ball clock cost and keep the play itself out of the box score.
             state = enforce_penalty(state, penalty, elapsed_seconds=event.elapsed_seconds)
         else:
             plays.append(event)
