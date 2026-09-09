@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -58,7 +58,7 @@ def main() -> None:
     )
     manifest = {
         "artifact": "Monster Historical Team Policy Priors",
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": datetime.now(UTC).isoformat(),
         "history_seasons": args.history,
         "pbp_scope": "REG" if "season_type" in pbp.columns else "provider_default",
         "raw_pbp_rows": raw_rows,
