@@ -76,6 +76,7 @@ class PlayEvent:
     passer_id: str | None = None
     target_id: str | None = None
     rusher_id: str | None = None
+    fumbler_id: str | None = None
     primary_defender_id: str | None = None
     pass_result: PassResult | None = None
     run_lane: RunLane | None = None
@@ -99,6 +100,28 @@ def _weighted_player(players: tuple[PlayerIdentity, ...], rng: np.random.Generat
     weights = np.asarray([max(p.usage_weight, 0.001) for p in players], dtype=float)
     weights /= weights.sum()
     return players[int(rng.choice(len(players), p=weights))]
+
+
+def _lost_fumble_probability(
+    *,
+    security: float,
+    contact: ContactResult | None = None,
+    base_rate: float,
+) -> float:
+    contact_multiplier = {
+        ContactResult.STUFF: 1.18,
+        ContactResult.TACKLED: 1.0,
+        ContactResult.BROKEN_TACKLE: 0.82,
+        ContactResult.CLEAN: 0.55,
+        None: 1.0,
+    }[contact]
+    return float(
+        np.clip(
+            base_rate * contact_multiplier / max(security, 0.5),
+            0.001,
+            0.04,
+        )
+    )
 
 
 def choose_play_type(state: FootballState, offense: TeamIdentity, rng: np.random.Generator) -> PlayType:
@@ -155,7 +178,11 @@ def simulate_scrimmage_play(
             rng=rng,
         )
         yards = anatomy.total_yards
-        fumble_p = float(np.clip(0.012 / max(rusher.turnover_security, 0.5), 0.003, 0.04))
+        fumble_p = _lost_fumble_probability(
+            security=rusher.turnover_security,
+            contact=anatomy.contact,
+            base_rate=0.012,
+        )
         turnover = rng.random() < fumble_p
         touchdown = state.yardline_100 + yards >= 100.0 and not turnover
         return PlayEvent(
@@ -163,6 +190,7 @@ def simulate_scrimmage_play(
             elapsed_seconds=elapsed,
             yards=yards,
             rusher_id=rusher.player_id,
+            fumbler_id=rusher.player_id if turnover else None,
             primary_defender_id=primary_defender_id,
             run_lane=lane,
             touchdown=touchdown,
@@ -205,13 +233,19 @@ def simulate_scrimmage_play(
     )
     if response == QBResponse.SACK:
         yards = -float(np.clip(rng.normal(6.5, 2.5), 1.0, 15.0))
+        turnover = rng.random() < _lost_fumble_probability(
+            security=offense.quarterback.turnover_security,
+            base_rate=0.010,
+        )
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
             yards=yards,
             passer_id=offense.quarterback.player_id,
+            fumbler_id=offense.quarterback.player_id if turnover else None,
             primary_defender_id=primary_defender_id,
             pass_result=PassResult.SACK,
+            turnover=turnover,
             pressured=pressured,
             qb_response=response,
         )
@@ -223,16 +257,24 @@ def simulate_scrimmage_play(
             explosiveness=offense.quarterback.explosive,
             rng=rng,
         )
+        turnover = rng.random() < _lost_fumble_probability(
+            security=offense.quarterback.turnover_security,
+            contact=anatomy.contact,
+            base_rate=0.012,
+        )
+        touchdown = state.yardline_100 + anatomy.total_yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
             yards=anatomy.total_yards,
             passer_id=offense.quarterback.player_id,
             rusher_id=offense.quarterback.player_id,
+            fumbler_id=offense.quarterback.player_id if turnover else None,
             primary_defender_id=primary_defender_id,
             pass_result=PassResult.SCRAMBLE,
             run_lane=RunLane.QB,
-            touchdown=state.yardline_100 + anatomy.total_yards >= 100.0,
+            touchdown=touchdown,
+            turnover=turnover,
             pressured=pressured,
             qb_response=response,
             contact_result=anatomy.contact,
@@ -277,15 +319,23 @@ def simulate_scrimmage_play(
         )
     yac = float(np.clip(rng.lognormal(1.25, 0.65) * target.explosive / max(coverage_strength**0.25, 0.75), 0.0, 55.0))
     yards = max(air_yards, 0.0) + yac
+    turnover = rng.random() < _lost_fumble_probability(
+        security=target.turnover_security,
+        contact=ContactResult.TACKLED,
+        base_rate=0.008,
+    )
+    touchdown = state.yardline_100 + yards >= 100.0 and not turnover
     return PlayEvent(
         play_type=play_type,
         elapsed_seconds=elapsed,
         yards=yards,
         passer_id=offense.quarterback.player_id,
         target_id=target.player_id,
+        fumbler_id=target.player_id if turnover else None,
         primary_defender_id=primary_defender_id,
         pass_result=PassResult.COMPLETE,
-        touchdown=state.yardline_100 + yards >= 100.0,
+        touchdown=touchdown,
+        turnover=turnover,
         pressured=pressured,
         qb_response=response,
         catchpoint_result=catchpoint,
