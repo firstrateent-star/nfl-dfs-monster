@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+
+from monster.dfs.fanduel import score_offensive_player_worlds
+from monster.dfs.turnovers import attach_turnover_stats, attribute_team_turnovers
+from monster.feature_compile.health_pools import apply_health_to_skill_pools
+from monster.feature_compile.league_units import compile_league_unit_player_map
+from monster.feature_compile.ol_simulation import compile_ol_simulation_context
+from monster.feature_compile.skill_pools import compile_current_skill_pools, compile_player_physical_inputs
+from monster.feature_compile.units import apply_team_unit_effects, compile_team_unit_effects
+from monster.sim.pipeline import simulate_monster_game
+from monster.snapshot.league import compile_team_state_map
+from monster.snapshot.model import GameState
+
+MATCHUPS = (
+    ("CHI", "CAR"), ("BUF", "HOU"), ("NO", "DET"), ("CLE", "JAC"),
+    ("TB", "CIN"), ("ATL", "PIT"), ("NYJ", "TEN"), ("BAL", "IND"),
+    ("ARI", "LAC"), ("WAS", "PHI"), ("MIA", "LV"), ("GB", "MIN"),
+)
+GAME_DATE = date(2026, 9, 13)
+
+
+def _read(path: Path) -> pl.DataFrame:
+    return pl.read_parquet(path) if path.suffix == ".parquet" else pl.read_csv(path)
+
+
+def _q(x: np.ndarray, q: float) -> float:
+    return float(np.quantile(x.astype(float), q))
+
+
+def _unit_context(personnel: pl.DataFrame, historical_ol: pl.DataFrame | None):
+    unit_map = compile_league_unit_player_map(personnel)
+    rows = []
+    for team_id, players in unit_map.items():
+        effects, _ = compile_team_unit_effects(players)
+        rows.append({"team_id": team_id, **effects.__dict__})
+    effects_frame = pl.DataFrame(rows)
+    ol = compile_ol_simulation_context(personnel, effects_frame, historical_ol)
+    return unit_map, {str(row["team_id"]): row for row in ol.to_dicts()}
+
+
+def _state(base, unit_players, ol_row):
+    effects, _ = compile_team_unit_effects(unit_players)
+    state = apply_team_unit_effects(base, effects)
+    return replace(
+        state,
+        offensive_line_continuity=float(ol_row["offensive_line_continuity"]),
+        offensive_line_uncertainty=float(ol_row["offensive_line_uncertainty"]),
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--personnel", type=Path, required=True)
+    parser.add_argument("--player-usage", type=Path, required=True)
+    parser.add_argument("--ol-outcomes", type=Path, default=None)
+    parser.add_argument("--worlds", type=int, default=10000)
+    parser.add_argument("--seed", type=int, default=2026090817)
+    parser.add_argument("--interception-fraction", type=float, default=0.5922258892555923)
+    parser.add_argument("--out", type=Path, default=Path("artifacts/week1-fantasy-complete"))
+    args = parser.parse_args()
+
+    policy = _read(args.policy)
+    personnel = _read(args.personnel)
+    usage = _read(args.player_usage)
+    historical_ol = _read(args.ol_outcomes) if args.ol_outcomes and args.ol_outcomes.exists() else None
+    unit_map, ol_map = _unit_context(personnel, historical_ol)
+    pools = apply_health_to_skill_pools(compile_current_skill_pools(personnel, usage, policy=policy), personnel)
+    physical_inputs = compile_player_physical_inputs(personnel, game_date=GAME_DATE)
+
+    rows: list[dict] = []
+    conservation_failures = 0
+    for idx, (away, home) in enumerate(MATCHUPS):
+        game = f"{away}@{home}"
+        states = compile_team_state_map(policy, {away: home, home: away})
+        result = simulate_monster_game(
+            GameState(game, _state(states[away], unit_map[away], ol_map[away]), _state(states[home], unit_map[home], ol_map[home])),
+            pools[away], pools[home], worlds=args.worlds, seed=args.seed + idx * 10007,
+            player_inputs=physical_inputs,
+        )
+        for side_idx, (team, pool, allocation, team_turnovers) in enumerate((
+            (away, result.snapshot.away_pool, result.allocation_worlds.away, result.game_worlds.away_turnovers),
+            (home, result.snapshot.home_pool, result.allocation_worlds.home, result.game_worlds.home_turnovers),
+        )):
+            attribution = attribute_team_turnovers(
+                team_turnovers, allocation, pool,
+                interception_fraction=args.interception_fraction,
+                seed=args.seed + idx * 10007 + 900001 + side_idx,
+            )
+            attach_turnover_stats(allocation, attribution)
+            attributed = sum(attribution.interceptions.values()) + sum(attribution.fumbles_lost.values())
+            if not np.array_equal(attributed.astype(np.int16), team_turnovers.astype(np.int16)):
+                conservation_failures += 1
+            for player in pool.players:
+                stats = allocation.player_stats[player.player_id]
+                fd = score_offensive_player_worlds(stats)
+                rows.append({
+                    "game": game,
+                    "team_id": team,
+                    "player_id": player.player_id,
+                    "player": player.display_name,
+                    "position": player.position,
+                    "active_probability": player.active_probability,
+                    "fd_mean": float(fd.mean()),
+                    "fd_p20": _q(fd, .20),
+                    "fd_p50": _q(fd, .50),
+                    "fd_p75": _q(fd, .75),
+                    "fd_p90": _q(fd, .90),
+                    "fd_p95": _q(fd, .95),
+                    "fd_p99": _q(fd, .99),
+                    "p20_plus": float((fd >= 20).mean()),
+                    "p25_plus": float((fd >= 25).mean()),
+                    "p30_plus": float((fd >= 30).mean()),
+                    "interceptions_mean": float(stats["interceptions"].mean()),
+                    "fumbles_lost_mean": float(stats["fumbles_lost"].mean()),
+                })
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    frame = pl.DataFrame(rows).sort("fd_mean", descending=True)
+    frame.write_csv(args.out / "player_distributions.csv")
+    manifest = {
+        "artifact": "Monster Week 1 Fantasy-Complete Player Worlds",
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "game_date": GAME_DATE.isoformat(),
+        "worlds_per_game": args.worlds,
+        "games": len(MATCHUPS),
+        "simulated_game_worlds": args.worlds * len(MATCHUPS),
+        "seed": args.seed,
+        "interception_fraction": args.interception_fraction,
+        "turnover_conservation_failures": conservation_failures,
+        "player_rows": frame.height,
+        "market_blind_football": True,
+        "dfs_layer_downstream_only": True,
+    }
+    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(json.dumps(manifest, indent=2))
+    print(frame.select("position", "player", "team_id", "fd_mean", "fd_p90", "fd_p99", "interceptions_mean", "fumbles_lost_mean").head(30))
+    if conservation_failures:
+        raise SystemExit("Turnover attribution failed world-level conservation")
+
+
+if __name__ == "__main__":
+    main()
