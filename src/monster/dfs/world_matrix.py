@@ -42,11 +42,11 @@ def build_defense_world_rows(
         away_disruption = np.asarray(game_worlds[f"g{idx}_away_pass_disruption"])
         home_disruption = np.asarray(game_worlds[f"g{idx}_home_pass_disruption"])
 
-        # Home defense faces away offense. Away defense faces home offense. Pass disruption is
-        # already stored from the offense-facing game state, so preserve that same-world pairing.
+        # Away defense faces the home offense; home defense faces the away offense. Every
+        # opponent input must therefore come from that same offense in the same world.
         pairings = (
-            (away, home, away_points, home_turnovers, home_disruption, team_pass_attempts[home]),
-            (home, away, home_points, away_turnovers, away_disruption, team_pass_attempts[away]),
+            (away, home, home_points, home_turnovers, home_disruption, team_pass_attempts[home]),
+            (home, away, away_points, away_turnovers, away_disruption, team_pass_attempts[away]),
         )
         for side, (team, opponent, opponent_points, opponent_turnovers, disruption, attempts) in enumerate(pairings):
             events = simulate_defense_events(
