@@ -37,6 +37,26 @@ def test_late_lead_reduces_pass_pressure() -> None:
     assert leading.pass_probability < tied.pass_probability
 
 
+def test_empirical_context_replaces_additive_down_distance_pressure() -> None:
+    state = _state(down=1, distance=10.0)
+    empirical = situation_policy(state, 0.56, contextual_pass_rate=0.44)
+    assert empirical.pass_probability == 0.44
+
+
+def test_empirical_context_still_responds_to_game_script() -> None:
+    tied = situation_policy(
+        _state(quarter=3, seconds_remaining=1200),
+        0.56,
+        contextual_pass_rate=0.50,
+    )
+    trailing = situation_policy(
+        _state(quarter=3, seconds_remaining=1200, away_score=10, home_score=20),
+        0.56,
+        contextual_pass_rate=0.50,
+    )
+    assert trailing.pass_probability > tied.pass_probability
+
+
 def test_short_fourth_down_in_opponent_territory_can_go() -> None:
     state = _state(yardline_100=68.0, down=4, distance=1.0)
     assert fourth_down_decision(state) == FourthDownDecision.GO
