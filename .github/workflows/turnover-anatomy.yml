@@ -7,7 +7,9 @@ on:
     paths:
       - scripts/audit_turnover_anatomy.py
       - src/monster/dfs/turnovers.py
+      - src/monster/dfs/fanduel.py
       - tests/test_turnover_attribution.py
+      - tests/test_fanduel_scoring.py
       - .github/workflows/turnover-anatomy.yml
   workflow_dispatch:
 
