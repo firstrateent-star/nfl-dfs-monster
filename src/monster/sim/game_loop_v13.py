@@ -63,8 +63,9 @@ class GameResultV13:
     defensive_stats: dict[str, DefensiveBoxScore] | None = None
 
 
-def _add_score(state: FootballState, points: int) -> FootballState:
-    if state.possession == "away":
+def _add_score(state: FootballState, points: int, *, away_team_id: str) -> FootballState:
+    """Credit points to the actual offensive team, not a hard-coded side label."""
+    if state.possession == away_team_id:
         return replace(state, away_score=state.away_score + points)
     return replace(state, home_score=state.home_score + points)
 
@@ -91,8 +92,6 @@ def _record(
     rusher = _box(stats, event.rusher_id)
     defender = _dbox(defensive_stats, event.primary_defender_id)
 
-    # NFL statistical identity: sacks and scrambles are dropbacks but are not
-    # pass attempts. A scramble becomes a rushing attempt for the quarterback.
     is_throw = event.play_type == PlayType.PASS and event.pass_result not in (
         PassResult.SACK,
         PassResult.SCRAMBLE,
@@ -188,7 +187,7 @@ def simulate_regulation_game(
         elif event.play_type == PlayType.FIELD_GOAL:
             state = advance_game_clock(state, event.elapsed_seconds)
             if event.field_goal_made:
-                state = _post_score_kickoff(_add_score(state, 3))
+                state = _post_score_kickoff(_add_score(state, 3, away_team_id=away.team_id))
             else:
                 state = missed_field_goal_transition(state, elapsed_seconds=0)
             drives += 1
@@ -198,7 +197,7 @@ def simulate_regulation_game(
             drives += 1
         elif event.touchdown:
             state = advance_game_clock(state, event.elapsed_seconds)
-            state = _post_score_kickoff(_add_score(state, 7))
+            state = _post_score_kickoff(_add_score(state, 7, away_team_id=away.team_id))
             drives += 1
         else:
             state = apply_scrimmage_yards(state, event.yards, event.elapsed_seconds)
