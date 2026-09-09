@@ -34,7 +34,7 @@ def score_defense_worlds(
     special_teams_touchdowns: np.ndarray,
     safeties: np.ndarray,
 ) -> np.ndarray:
-    """Complete currently modeled FanDuel D/ST score in one correlated Sunday world."""
+    """Score all D/ST components currently represented in Monster's football worlds."""
     arrays = [
         np.asarray(opponent_points), np.asarray(opponent_turnovers), np.asarray(sacks),
         np.asarray(defensive_touchdowns), np.asarray(special_teams_touchdowns), np.asarray(safeties),
@@ -54,13 +54,18 @@ def score_defense_worlds(
 def require_complete_defense_authority(
     *, sacks_modeled: bool, defensive_scores_modeled: bool, special_teams_scores_modeled: bool
 ) -> None:
-    """Prevent partial D/ST worlds from silently entering authoritative lineup optimization."""
+    """Prevent an incomplete D/ST representation from entering authoritative optimization.
+
+    ``special_teams_scores_modeled`` means the currently governed return-TD seam. Blocked-kick
+    scoring remains a documented residual until Monster has football evidence for it; it must not
+    be implied by this gate or invented from fantasy scoring needs.
+    """
     missing = []
     if not sacks_modeled:
         missing.append("sacks")
     if not defensive_scores_modeled:
         missing.append("defensive touchdowns/safeties")
     if not special_teams_scores_modeled:
-        missing.append("special-teams touchdowns/blocks")
+        missing.append("special-teams return touchdowns")
     if missing:
         raise RuntimeError("FanDuel D/ST authority incomplete: " + ", ".join(missing))
