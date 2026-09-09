@@ -163,7 +163,12 @@ def simulate_regulation_game(
     penalty_rate: float = 0.055,
 ) -> GameResultV13:
     rng = np.random.default_rng(seed)
-    state = FootballState(possession=away.team_id, defense=home.team_id)
+    state = FootballState(
+        possession=away.team_id,
+        defense=home.team_id,
+        away_team_id=away.team_id,
+        home_team_id=home.team_id,
+    )
     stats: dict[str, PlayerBoxScore] = {}
     defensive_stats: dict[str, DefensiveBoxScore] = {}
     plays: list[PlayEvent] = []
@@ -271,6 +276,8 @@ def simulate_regulation_game(
                 yardline_100=30.0,
                 away_score=state.away_score,
                 home_score=state.home_score,
+                away_team_id=away.team_id,
+                home_team_id=home.team_id,
             )
             drives += 1
     if state.seconds_remaining > 0:
