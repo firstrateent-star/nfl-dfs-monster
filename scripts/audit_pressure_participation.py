@@ -20,15 +20,18 @@ def _response_summary(frame: pl.DataFrame, label: str) -> dict[str, float | int 
     sacks = int(frame.get_column("sack").fill_null(0).sum())
     scrambles = int(frame.get_column("qb_scramble").fill_null(0).sum())
     throws = n - sacks - scrambles
+    hits = int(frame.get_column("qb_hit").fill_null(0).sum())
     return {
         "state": label,
         "dropbacks": n,
         "sacks": sacks,
         "scrambles": scrambles,
         "throws": throws,
+        "qb_hits": hits,
         "sack_rate": _ratio(sacks, n),
         "scramble_rate": _ratio(scrambles, n),
         "throw_rate": _ratio(throws, n),
+        "qb_hit_rate": _ratio(hits, n),
     }
 
 
@@ -59,7 +62,7 @@ def main() -> None:
         "qb_scramble",
         "sack",
         "qb_hit",
-        "passer_player_id",
+        "passer_id",
         "posteam",
         "defteam",
     }
@@ -112,8 +115,8 @@ def main() -> None:
         .sort("team_id")
     )
     quarterbacks = (
-        observed.filter(pl.col("passer_player_id").is_not_null())
-        .group_by("passer_player_id")
+        observed.filter(pl.col("passer_id").is_not_null())
+        .group_by("passer_id")
         .agg(
             pl.len().alias("dropbacks"),
             pl.col("was_pressure").cast(pl.Float64).mean().alias("pressure_rate"),
@@ -137,6 +140,7 @@ def main() -> None:
         )
         .filter(pl.col("dropbacks") >= 50)
         .sort("dropbacks", descending=True)
+        .rename({"passer_id": "qb_player_id"})
     )
 
     manifest = {
@@ -152,6 +156,7 @@ def main() -> None:
         "overall_response": overall,
         "pressured_response": pressured_summary,
         "unpressured_response": clean_summary,
+        "qb_identity_field": "nflfastR passer_id, which includes sacks and scrambles",
         "principle": (
             "Pressure frequency and QB response are measured as separate causal stages; "
             "Monster should not tune sacks by pretending sack rate is pressure rate."
