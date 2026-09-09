@@ -1,4 +1,8 @@
-from monster.feature_compile.units import UnitPlayerInputs, apply_team_unit_effects, compile_team_unit_effects
+from monster.feature_compile.units import (
+    UnitPlayerInputs,
+    apply_team_unit_effects,
+    compile_team_unit_effects,
+)
 from monster.snapshot.model import TeamState
 
 
