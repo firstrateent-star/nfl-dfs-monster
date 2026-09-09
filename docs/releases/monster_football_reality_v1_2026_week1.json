@@ -1,0 +1,70 @@
+{
+  "release": "Monster Football Reality v1",
+  "season": 2026,
+  "week": 1,
+  "freeze_date": "2026-09-09",
+  "branch": "feature/slate-simulator-v1",
+  "market_blind_upstream": true,
+  "dfs_inputs_upstream": false,
+  "status": "PROMOTED_WITH_DOCUMENTED_LIMITATIONS",
+  "governing_specification": "MONSTER_CONSTITUTION.md",
+  "feature_audit": "docs/FEATURE_REALITY_AUDIT.md",
+  "certification": {
+    "production_tests": "112/112 PASS",
+    "counterfactual_mechanism_tests": "7/7 PASS",
+    "player_reality_gate": "20/20 PASS at 60000 worlds/game",
+    "qb_rushing_gate": "PASS at 60000 worlds/game",
+    "feature_source_gate": "PASS",
+    "player_jurisdiction_ablation": {
+      "run_id": 34318804379,
+      "artifact_id": 10091102920,
+      "gate_pass": true,
+      "matched_players": 514,
+      "human_physical_changed_player_distributions": true,
+      "madden_changed_player_distributions": true,
+      "unit_changed_player_distributions": true,
+      "environment_changed_player_distributions": true
+    },
+    "independent_60k_seeds": [
+      {"seed": 2026090902, "worlds_per_game": 60000, "games": 12, "status": "PASS"},
+      {"seed": 2026090903, "worlds_per_game": 60000, "games": 12, "status": "PASS"},
+      {"seed": 2026090904, "worlds_per_game": 60000, "games": 12, "status": "PASS", "run_id": 34314517218, "artifact_id": 10089726381}
+    ],
+    "certified_game_worlds_across_60k_seeds": 2160000
+  },
+  "families": {
+    "historical_team_offense": "ACTIVE",
+    "historical_opponent_defense": "ACTIVE",
+    "historical_player_performance": "ACTIVE_PARTIAL",
+    "human_height_weight": "ACTIVE",
+    "athletic_testing": "ACTIVE_PARTIAL",
+    "age": "ACTIVE",
+    "nfl_experience": "ACTIVE_PARTIAL",
+    "madden_scouting": "ACTIVE",
+    "current_personnel": "ACTIVE_PARTIAL",
+    "health": "ACTIVE_PARTIAL",
+    "units": "ACTIVE_PARTIAL",
+    "coaching_system_continuity": "ACTIVE_PARTIAL",
+    "matchup_interactions": "ACTIVE_PARTIAL",
+    "weather": "ACTIVE_PARTIAL",
+    "venue_roof": "ACTIVE_PARTIAL",
+    "home_field": "ACTIVE",
+    "finite_correlated_worlds": "ACTIVE",
+    "uncertainty": "ACTIVE",
+    "astrology": "SHADOW",
+    "dfs": "DOWNSTREAM_ONLY"
+  },
+  "accepted_bounded_limitations": {
+    "wingspan_length": "No sufficiently covered canonical Week-1 source; neutral missingness. No fabricated values.",
+    "travel_rest": "No separately certified mechanism; neutral until sourced and prospectively tested.",
+    "surface": "Recorded but no separately validated causal production effect; neutral except roof/dome weather authority.",
+    "coaching_scheme": "Historical policy and continuity are active; named current coach/coordinator/scheme detail remains partial.",
+    "matchup_resolution": "Unit-level mechanistic interactions are active; individual assignment/route/trench resolution remains partial.",
+    "experience_workload": "Years of experience informs uncertainty through a conservative proxy, not claimed exact career workload.",
+    "health_freshness": "Health mechanism is active; official Sunday practice/game-status reports must be refreshed as they populate before slate lock.",
+    "weather_freshness": "Weather snapshot must be refreshed before slate lock."
+  },
+  "fallback_policy": "Unavailable or insufficiently validated evidence remains neutral or bounded; missing data is never fabricated and no limitation may silently gain production authority.",
+  "release_boundary": "This promotion certifies the Football Reality v1 architecture and its bounded Week-1 blind candidate. Current-state snapshots remain refreshable before slate lock without changing model law. Sportsbook information remains prohibited upstream.",
+  "next_stage": "Refresh current personnel/health/weather, produce final blind Week-1 freeze from v1, then reveal market diagnostically and regenerate downstream FanDuel/OLR before Monster150."
+}
