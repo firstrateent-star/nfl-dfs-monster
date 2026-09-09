@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+
+def _load(name: str):
+    path = Path(__file__).with_name(name)
+    spec = importlib.util.spec_from_file_location(name.removesuffix('.py'), path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def main() -> None:
+    fantasy = _load("run_week1_fantasy_complete.py")
+    reality = _load("run_week1_reality_v1.py")
+
+    # Reuse the certified Football Reality v1 compilation and environment mechanisms
+    # inside the fantasy-complete runner. DFS scoring/turnovers/DST remain downstream.
+    environment = reality._environment_map()
+    disabled: set[str] = set()
+    original_state = fantasy._state
+
+    def full_inputs(personnel, *, game_date=None):
+        if game_date is None:
+            game_date = fantasy.GAME_DATE
+        compiled = reality.compile_player_reality_inputs(personnel, game_date=game_date)
+        return {pid: reality._ablate_player_inputs(inputs, disabled) for pid, inputs in compiled.items()}
+
+    def full_state(base, unit_players, ol_row):
+        state = original_state(base, unit_players, ol_row)
+        row = environment.get(str(state.team_id))
+        if row is None:
+            return state
+        inputs = reality.TeamMechanismInputs(
+            wind_mph=row.get("wind_mph"),
+            precipitation_probability=row.get("precipitation_probability"),
+            temperature_f=row.get("temperature_f"),
+            dome=bool(row.get("dome", False)),
+        )
+        return reality.replace(state, weather_effect=reality._weather_effect(inputs))
+
+    fantasy.compile_player_physical_inputs = full_inputs
+    fantasy._state = full_state
+    fantasy.main()
+
+
+if __name__ == "__main__":
+    main()
