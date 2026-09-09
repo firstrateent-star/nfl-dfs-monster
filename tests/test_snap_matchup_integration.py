@@ -20,8 +20,20 @@ def _defense() -> DefensiveUnit:
     return DefensiveUnit(front=(edge,), coverage=(cb,))
 
 
+def _state() -> FootballState:
+    return FootballState(
+        possession="OFF",
+        defense="DEF",
+        down=1,
+        distance=10.0,
+        yardline_100=25.0,
+        away_team_id="OFF",
+        home_team_id="DEF",
+    )
+
+
 def test_pass_snap_carries_real_matchup_defender_identity() -> None:
-    state = FootballState(possession="OFF", defense="DEF", down=1, distance=10.0, yardline_100=25.0)
+    state = _state()
     rng = np.random.default_rng(91)
     events = [simulate_scrimmage_play(state, _offense(), 1.0, rng, defense=_defense()) for _ in range(40)]
     pass_events = [event for event in events if event.play_type == "pass"]
@@ -39,7 +51,7 @@ def test_run_snap_records_front_interaction_and_stuff_state() -> None:
         neutral_pass_rate=0.0,
         run_blocking=0.75,
     )
-    state = FootballState(possession="OFF", defense="DEF", down=1, distance=10.0, yardline_100=25.0)
+    state = _state()
     rng = np.random.default_rng(92)
     events = [simulate_scrimmage_play(state, offense, 1.0, rng, defense=_defense()) for _ in range(80)]
     run_events = [event for event in events if event.play_type == "run"]
@@ -49,7 +61,7 @@ def test_run_snap_records_front_interaction_and_stuff_state() -> None:
 
 
 def test_matchup_path_preserves_event_player_identity() -> None:
-    state = FootballState(possession="OFF", defense="DEF", down=1, distance=10.0, yardline_100=25.0)
+    state = _state()
     rng = np.random.default_rng(93)
     events = [simulate_scrimmage_play(state, _offense(), 1.0, rng, defense=_defense()) for _ in range(30)]
     assert all(event.passer_id == "qb" for event in events if event.play_type == "pass")
