@@ -79,11 +79,23 @@ def main() -> None:
     rows: list[dict] = []
     world_player_ids: list[str] = []
     world_scores: list[np.ndarray] = []
+    game_world_rows: list[dict] = []
     conservation_failures = 0
     for idx, (away, home) in enumerate(MATCHUPS):
         game = f"{away}@{home}"
         states = compile_team_state_map(policy, {away: home, home: away})
         result = simulate_monster_game(GameState(game, _state(states[away], unit_map[away], ol_map[away]), _state(states[home], unit_map[home], ol_map[home])), pools[away], pools[home], worlds=args.worlds, seed=args.seed + idx * 10007, player_inputs=physical_inputs)
+        game_world_rows.append({
+            "game": game,
+            "away_team": away,
+            "home_team": home,
+            "away_points": result.game_worlds.away_points,
+            "home_points": result.game_worlds.home_points,
+            "away_turnovers": result.game_worlds.away_turnovers,
+            "home_turnovers": result.game_worlds.home_turnovers,
+            "away_pass_disruption": result.game_worlds.away_pass_disruption,
+            "home_pass_disruption": result.game_worlds.home_pass_disruption,
+        })
         for side_idx, (team, pool, allocation, team_turnovers) in enumerate(((away, result.snapshot.away_pool, result.allocation_worlds.away, result.game_worlds.away_turnovers), (home, result.snapshot.home_pool, result.allocation_worlds.home, result.game_worlds.home_turnovers))):
             attribution = attribute_team_turnovers(team_turnovers, allocation, pool, interception_fraction=args.interception_fraction, seed=args.seed + idx * 10007 + 900001 + side_idx)
             attach_turnover_stats(allocation, attribution)
@@ -100,10 +112,17 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     frame = pl.DataFrame(rows).sort("fd_mean", descending=True)
     frame.write_csv(args.out / "player_distributions.csv")
-    # Preserve the joint world structure. OLR and lineup evaluation must use these
-    # correlated worlds, never independently sampled marginal player distributions.
     np.savez_compressed(args.out / "player_worlds.npz", player_ids=np.asarray(world_player_ids), fd_points=np.stack(world_scores))
-    manifest = {"artifact": "Monster Week 1 Fantasy-Complete Player Worlds", "generated_at_utc": datetime.now(UTC).isoformat(), "game_date": GAME_DATE.isoformat(), "worlds_per_game": args.worlds, "games": len(MATCHUPS), "simulated_game_worlds": args.worlds * len(MATCHUPS), "seed": args.seed, "interception_fraction": args.interception_fraction, "turnover_conservation_failures": conservation_failures, "player_rows": frame.height, "joint_player_worlds_persisted": True, "joint_world_shape": [len(world_player_ids), args.worlds], "market_blind_football": True, "dfs_layer_downstream_only": True}
+    game_payload: dict[str, np.ndarray] = {}
+    for idx, row in enumerate(game_world_rows):
+        for key in ("away_points", "home_points", "away_turnovers", "home_turnovers", "away_pass_disruption", "home_pass_disruption"):
+            value = row[key]
+            if value is not None:
+                game_payload[f"g{idx}_{key}"] = np.asarray(value)
+    np.savez_compressed(args.out / "game_worlds.npz", **game_payload)
+    game_index = [{"game_index": idx, "game": row["game"], "away_team": row["away_team"], "home_team": row["home_team"]} for idx, row in enumerate(game_world_rows)]
+    (args.out / "game_world_index.json").write_text(json.dumps(game_index, indent=2) + "\n")
+    manifest = {"artifact": "Monster Week 1 Fantasy-Complete Player Worlds", "generated_at_utc": datetime.now(UTC).isoformat(), "game_date": GAME_DATE.isoformat(), "worlds_per_game": args.worlds, "games": len(MATCHUPS), "simulated_game_worlds": args.worlds * len(MATCHUPS), "seed": args.seed, "interception_fraction": args.interception_fraction, "turnover_conservation_failures": conservation_failures, "player_rows": frame.height, "joint_player_worlds_persisted": True, "joint_world_shape": [len(world_player_ids), args.worlds], "game_worlds_persisted": True, "market_blind_football": True, "dfs_layer_downstream_only": True}
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
     print(frame.select("position", "player", "team_id", "fd_mean", "fd_p90", "fd_p99", "interceptions_mean", "fumbles_lost_mean").head(30))
