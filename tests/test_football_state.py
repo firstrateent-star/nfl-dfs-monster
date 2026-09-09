@@ -27,6 +27,24 @@ def _state(**kwargs) -> FootballState:
     return FootballState(**base)
 
 
+def test_score_margin_uses_explicit_team_orientation_for_real_ids() -> None:
+    away = FootballState(
+        possession="CHI",
+        defense="CAR",
+        away_score=10,
+        home_score=17,
+        away_team_id="CHI",
+        home_team_id="CAR",
+    )
+    assert away.score_margin_for_offense == -7
+
+    home = kickoff_transition(away, receiving_yardline_100=30.0, elapsed_seconds=0)
+    assert home.possession == "CAR"
+    assert home.score_margin_for_offense == 7
+    assert home.away_team_id == "CHI"
+    assert home.home_team_id == "CAR"
+
+
 def test_first_down_preserves_possession_and_updates_clock_field() -> None:
     after = apply_scrimmage_yards(_state(), yards=9.0, elapsed_seconds=31)
     assert after.possession == "away"
