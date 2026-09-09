@@ -67,13 +67,20 @@ def situation_policy(state: FootballState, neutral_pass_rate: float) -> Situatio
     down_pressure = {1: -0.02, 2: 0.01, 3: 0.10, 4: 0.12}[state.down]
     late = _late_game_pressure(state)
     lead_drain = 0.0
-    if state.quarter == 4 and seconds_remaining_in_quarter(state.seconds_remaining) <= 360:
-        if state.score_margin_for_offense >= 7:
-            lead_drain = -0.12
+    if (
+        state.quarter == 4
+        and seconds_remaining_in_quarter(state.seconds_remaining) <= 360
+        and state.score_margin_for_offense >= 7
+    ):
+        lead_drain = -0.12
 
     red_zone = 0.02 if state.yardline_100 >= 80.0 else 0.0
     pass_probability = float(
-        np.clip(neutral + distance_pressure + down_pressure + 0.18 * late + lead_drain + red_zone, 0.18, 0.90)
+        np.clip(
+            neutral + distance_pressure + down_pressure + 0.18 * late + lead_drain + red_zone,
+            0.18,
+            0.90,
+        )
     )
     hurry_probability = float(np.clip(0.05 + 0.75 * late, 0.02, 0.90))
     fourth = fourth_down_decision(state) if state.down == 4 else None
