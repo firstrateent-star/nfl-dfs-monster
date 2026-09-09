@@ -15,13 +15,7 @@ from monster.sim.football_state import (
     turnover_at_spot,
     turnover_on_downs,
 )
-from monster.sim.play_kernel import (
-    PassResult,
-    PlayEvent,
-    PlayType,
-    TeamIdentity,
-    simulate_scrimmage_play,
-)
+from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, TeamIdentity, simulate_scrimmage_play
 
 if TYPE_CHECKING:
     from monster.sim.matchup_kernel import DefensiveUnit
@@ -44,12 +38,23 @@ class PlayerBoxScore:
     fumbles_lost: int = 0
 
 
+@dataclass
+class DefensiveBoxScore:
+    pressures: int = 0
+    sacks: int = 0
+    interceptions: int = 0
+    tackles: int = 0
+    stuffs: int = 0
+    forced_fumbles: int = 0
+
+
 @dataclass(frozen=True)
 class GameResultV13:
     final_state: FootballState
     plays: tuple[PlayEvent, ...]
     player_stats: dict[str, PlayerBoxScore]
     drives: int
+    defensive_stats: dict[str, DefensiveBoxScore] | None = None
 
 
 def _add_score(state: FootballState, points: int) -> FootballState:
@@ -64,11 +69,24 @@ def _box(stats: dict[str, PlayerBoxScore], player_id: str | None) -> PlayerBoxSc
     return stats.setdefault(player_id, PlayerBoxScore())
 
 
-def _record(event: PlayEvent, stats: dict[str, PlayerBoxScore]) -> None:
+def _dbox(stats: dict[str, DefensiveBoxScore], player_id: str | None) -> DefensiveBoxScore | None:
+    if player_id is None:
+        return None
+    return stats.setdefault(player_id, DefensiveBoxScore())
+
+
+def _record(
+    event: PlayEvent,
+    stats: dict[str, PlayerBoxScore],
+    defensive_stats: dict[str, DefensiveBoxScore],
+) -> None:
     passer = _box(stats, event.passer_id)
     target = _box(stats, event.target_id)
     rusher = _box(stats, event.rusher_id)
-    if event.play_type == PlayType.PASS and passer is not None:
+    defender = _dbox(defensive_stats, event.primary_defender_id)
+
+    is_scramble = event.pass_result == PassResult.SCRAMBLE
+    if event.play_type == PlayType.PASS and passer is not None and not is_scramble:
         passer.pass_attempts += 1
         if event.pass_result == PassResult.COMPLETE:
             passer.completions += 1
@@ -92,6 +110,20 @@ def _record(event: PlayEvent, stats: dict[str, PlayerBoxScore]) -> None:
         if event.turnover:
             rusher.fumbles_lost += 1
 
+    if defender is not None:
+        if event.pressured:
+            defender.pressures += 1
+        if event.pass_result == PassResult.SACK:
+            defender.sacks += 1
+        if event.pass_result == PassResult.INTERCEPTION:
+            defender.interceptions += 1
+        if event.stuffed:
+            defender.stuffs += 1
+        if event.turnover and event.rusher_id is not None:
+            defender.forced_fumbles += 1
+        if event.rusher_id is not None or event.pass_result == PassResult.COMPLETE:
+            defender.tackles += 1
+
 
 def _post_score_kickoff(state: FootballState) -> FootballState:
     return kickoff_transition(state, receiving_yardline_100=30.0, elapsed_seconds=0)
@@ -112,6 +144,7 @@ def simulate_regulation_game(
     rng = np.random.default_rng(seed)
     state = FootballState(possession=away.team_id, defense=home.team_id)
     stats: dict[str, PlayerBoxScore] = {}
+    defensive_stats: dict[str, DefensiveBoxScore] = {}
     plays: list[PlayEvent] = []
     drives = 1
     second_half_receiver = home.team_id
@@ -130,16 +163,11 @@ def simulate_regulation_game(
         before = state
         event = simulate_scrimmage_play(state, offense, defense_strength, rng, defense=defense)
         plays.append(event)
-        _record(event, stats)
+        _record(event, stats, defensive_stats)
 
         if event.play_type == PlayType.PUNT:
             gross = float(np.clip(rng.normal(45.0 * offense.punt_skill, 6.0), 25.0, 65.0))
-            state = punt_transition(
-                state,
-                gross_yards=gross,
-                return_yards=max(rng.normal(8.0, 6.0), 0.0),
-                elapsed_seconds=event.elapsed_seconds,
-            )
+            state = punt_transition(state, gross_yards=gross, return_yards=max(rng.normal(8.0, 6.0), 0.0), elapsed_seconds=event.elapsed_seconds)
             drives += 1
         elif event.play_type == PlayType.FIELD_GOAL:
             state = advance_game_clock(state, event.elapsed_seconds)
@@ -177,4 +205,4 @@ def simulate_regulation_game(
 
     if state.seconds_remaining > 0:
         state = replace(state, seconds_remaining=0, quarter=4)
-    return GameResultV13(final_state=state, plays=tuple(plays), player_stats=stats, drives=drives)
+    return GameResultV13(final_state=state, plays=tuple(plays), player_stats=stats, drives=drives, defensive_stats=defensive_stats)
