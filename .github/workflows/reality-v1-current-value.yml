@@ -12,6 +12,8 @@ on:
       - src/monster/sim/event_coupling.py
       - src/monster/sim/pipeline_v12.py
       - src/monster/sim/game.py
+      - src/monster/sim/rushing_roles.py
+      - src/monster/sim/receiving_roles.py
       - tests/test_environment_propagation.py
       - tests/test_event_coupling.py
       - tests/test_event_game_v12.py
@@ -68,7 +70,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --ol-outcomes artifacts/league-policy/offensive_line_outcomes.parquet
-          --worlds 20000 --seed 2026090908
+          --worlds 20000 --seed 2026090909
           --interception-fraction 0.5922258892555923
           --out artifacts/current-reality-value
       - name: Verify current-state manifest
