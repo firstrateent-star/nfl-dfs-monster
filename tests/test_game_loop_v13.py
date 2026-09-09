@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from monster.sim.game_loop_v13 import simulate_regulation_game
-from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
+from monster.sim.play_kernel import PassResult, PlayerIdentity, TeamIdentity
 
 
 def _team(team: str) -> TeamIdentity:
@@ -29,10 +29,12 @@ def test_player_stats_are_created_by_events_not_posthoc_allocation() -> None:
     rush_attempts = sum(box.rush_attempts for box in result.player_stats.values())
     run_plays = sum(play.play_type == "run" for play in result.plays)
     pass_plays = sum(play.play_type == "pass" for play in result.plays)
-    assert pass_attempts == pass_plays
-    assert targets <= pass_attempts
+    sacks = sum(play.pass_result == PassResult.SACK for play in result.plays)
+    scrambles = sum(play.pass_result == PassResult.SCRAMBLE for play in result.plays)
+    assert pass_attempts == pass_plays - sacks - scrambles
+    assert targets == pass_attempts
     assert completions == receptions
-    assert rush_attempts == run_plays
+    assert rush_attempts == run_plays + scrambles
 
 
 def test_touchdowns_are_event_consistent_with_player_stats() -> None:
