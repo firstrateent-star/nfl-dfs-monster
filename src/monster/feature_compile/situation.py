@@ -49,6 +49,7 @@ def compile_situational_pass_context(pbp: pl.DataFrame) -> pl.DataFrame:
             & (pl.col("game_seconds_remaining") > 900)
         )
         .with_columns(
+            pl.col("down").cast(pl.Int64),
             (pl.col("play_type") == "pass").cast(pl.Float64).alias("is_pass"),
             _distance_bucket().alias("distance_bucket"),
         )
