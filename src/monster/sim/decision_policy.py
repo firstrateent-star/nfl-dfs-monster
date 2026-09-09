@@ -32,6 +32,23 @@ def _late_game_pressure(state: FootballState) -> float:
     return float(np.clip((-margin) / 14.0, 0.0, 1.0))
 
 
+def _game_script_pass_shift(state: FootballState) -> float:
+    """Bounded score/time play-calling response, independent of market data.
+
+    Neutral pass rate remains the team's identity. This layer represents the
+    football fact that teams increasingly run while protecting leads and pass
+    while chasing deficits. The effect grows through the game rather than
+    appearing only in the final six minutes.
+    """
+    margin = state.score_margin_for_offense
+    if margin == 0 or state.quarter <= 1:
+        return 0.0
+    game_progress = float(np.clip((state.quarter - 1) / 3.0, 0.0, 1.0))
+    magnitude = float(np.clip(abs(margin) / 14.0, 0.0, 1.0))
+    direction = -1.0 if margin > 0 else 1.0
+    return direction * 0.10 * magnitude * game_progress
+
+
 def fourth_down_decision(state: FootballState) -> FourthDownDecision:
     """Bounded football decision scaffold based only on game state.
 
@@ -66,6 +83,7 @@ def situation_policy(state: FootballState, neutral_pass_rate: float) -> Situatio
     distance_pressure = float(np.clip((state.distance - 6.0) * 0.025, -0.08, 0.18))
     down_pressure = {1: -0.02, 2: 0.01, 3: 0.10, 4: 0.12}[state.down]
     late = _late_game_pressure(state)
+    script_shift = _game_script_pass_shift(state)
     lead_drain = 0.0
     if (
         state.quarter == 4
@@ -77,7 +95,13 @@ def situation_policy(state: FootballState, neutral_pass_rate: float) -> Situatio
     red_zone = 0.02 if state.yardline_100 >= 80.0 else 0.0
     pass_probability = float(
         np.clip(
-            neutral + distance_pressure + down_pressure + 0.18 * late + lead_drain + red_zone,
+            neutral
+            + distance_pressure
+            + down_pressure
+            + script_shift
+            + 0.18 * late
+            + lead_drain
+            + red_zone,
             0.18,
             0.90,
         )
