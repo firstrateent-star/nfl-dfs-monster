@@ -237,11 +237,8 @@ def simulate_scrimmage_play(
         )
         pressure = matchup.pressure_probability
         primary_defender_id = matchup.primary_defender_id
-        if primary_defender_id is not None:
-            defender = next((d for d in defense.coverage if d.player_id == primary_defender_id), None)
-            if defender is not None:
-                coverage_strength = defender.coverage
-                ball_hawk = defender.ball_hawk
+        coverage_strength = matchup.coverage_strength
+        ball_hawk = matchup.ball_hawk_strength
     else:
         # Same 2025 FTN pressure-family baseline used by DefensiveUnit, retained here
         # for callers that intentionally omit a player-level defensive unit.
