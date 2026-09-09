@@ -36,8 +36,6 @@ def test_optimizer_returns_legal_nine_player_lineup() -> None:
 
 def test_optimizer_respects_salary_cap_over_raw_score() -> None:
     pool = _pool().with_columns(pl.lit(6500).alias("salary"))
-    # Make one QB impossible to combine under a tighter test cap while the cheaper reconstructed
-    # pool remains feasible after selectively discounting the other players.
     pool = pool.with_columns(
         pl.when(pl.col("player") == "QB1")
         .then(15000)
@@ -50,6 +48,15 @@ def test_optimizer_respects_salary_cap_over_raw_score() -> None:
     chosen = pool[list(result.indices)]["player"].to_list()
     assert "QB1" not in chosen
     assert result.salary <= 40000
+    assert audit_fanduel_lineup(pool[list(result.indices)], salary_cap=40000).legal
+
+
+def test_optimizer_custom_cap_audit_cannot_fall_back_to_default() -> None:
+    pool = _pool().with_columns(pl.lit(6000).alias("salary"))
+    scores = np.arange(pool.height, dtype=np.float32)
+    result = solve_world_optimal(pool, scores, salary_cap=54000)
+    assert result.salary <= 54000
+    assert audit_fanduel_lineup(pool[list(result.indices)], salary_cap=54000).legal
 
 
 def test_optimizer_can_select_each_flex_shape() -> None:
