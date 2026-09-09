@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.environment import apply_environment_to_pool
 from monster.feature_compile.mechanisms import TeamMechanismInputs, _weather_effect
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
 
@@ -27,7 +28,10 @@ def _load_baseline_runner():
 def _environment_map() -> dict[str, dict]:
     if not _ENVIRONMENT.exists():
         return {}
-    return {str(row["team_id"]): row for row in pl.read_csv(_ENVIRONMENT).to_dicts()}
+    return {
+        str(row["team_id"]): row
+        for row in pl.read_csv(_ENVIRONMENT).to_dicts()
+    }
 
 
 def _disabled_families() -> set[str]:
@@ -60,6 +64,18 @@ def _ablate_player_inputs(inputs, disabled: set[str]):
     return replace(inputs, **changes) if changes else inputs
 
 
+def _environment_inputs(environment: dict[str, dict], team_id: str):
+    row = environment.get(str(team_id))
+    if row is None:
+        return None
+    return TeamMechanismInputs(
+        wind_mph=row.get("wind_mph"),
+        precipitation_probability=row.get("precipitation_probability"),
+        temperature_f=row.get("temperature_f"),
+        dome=bool(row.get("dome", False)),
+    )
+
+
 def main() -> None:
     """Run the conserved structural kernel with Full-Reality inputs.
 
@@ -72,29 +88,45 @@ def main() -> None:
     environment = _environment_map()
     disabled = _disabled_families()
     original_strengthened_state = runner._strengthened_state
+    original_pool_compile = runner.compile_current_skill_pools
 
     def full_inputs(personnel, *, game_date=None):
         if game_date is None:
             raise ValueError("Full-Reality runner requires an explicit game_date")
         compiled = compile_player_reality_inputs(personnel, game_date=game_date)
-        return {player_id: _ablate_player_inputs(inputs, disabled) for player_id, inputs in compiled.items()}
+        return {
+            player_id: _ablate_player_inputs(inputs, disabled)
+            for player_id, inputs in compiled.items()
+        }
+
+    def full_pool_compile(*args, **kwargs):
+        pools = original_pool_compile(*args, **kwargs)
+        if "environment" in disabled:
+            return pools
+        return {
+            team_id: (
+                apply_environment_to_pool(pool, inputs)
+                if (inputs := _environment_inputs(environment, team_id)) is not None
+                else pool
+            )
+            for team_id, pool in pools.items()
+        }
 
     def strengthened_with_environment(base, unit_players, ol_row):
-        state = base if "units" in disabled else original_strengthened_state(base, unit_players, ol_row)
+        state = (
+            base
+            if "units" in disabled
+            else original_strengthened_state(base, unit_players, ol_row)
+        )
         if "environment" in disabled:
             return state
-        row = environment.get(str(state.team_id))
-        if row is None:
+        inputs = _environment_inputs(environment, str(state.team_id))
+        if inputs is None:
             return state
-        inputs = TeamMechanismInputs(
-            wind_mph=row.get("wind_mph"),
-            precipitation_probability=row.get("precipitation_probability"),
-            temperature_f=row.get("temperature_f"),
-            dome=bool(row.get("dome", False)),
-        )
         return replace(state, weather_effect=_weather_effect(inputs))
 
     runner.compile_player_physical_inputs = full_inputs
+    runner.compile_current_skill_pools = full_pool_compile
     runner._strengthened_state = strengthened_with_environment
     runner.main()
 
