@@ -1,9 +1,6 @@
-from __future__ import annotations
-
 from collections.abc import Mapping
 
 import numpy as np
-
 
 FANDUEL_SCORING = {
     "passing_yards": 0.04,
