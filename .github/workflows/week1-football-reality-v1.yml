@@ -8,6 +8,8 @@ on:
       - "src/monster/feature_compile/mechanisms.py"
       - "src/monster/feature_compile/units.py"
       - "src/monster/ingest/madden_skill.py"
+      - "src/monster/ingest/madden_defense_special.py"
+      - "scripts/build_league_baseline.py"
       - "scripts/run_week1_reality_v1.py"
       - ".github/workflows/week1-football-reality-v1.yml"
   workflow_dispatch:
@@ -70,13 +72,14 @@ jobs:
           --out artifacts/week1-football-reality-v1
       - name: Verify market/DFS blindness
         run: >-
-          uv run python -c "import json; d=json.load(open('artifacts/week1-football-reality-v1/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used'] is False; assert d['ownership_used'] is False; print(d)"
+          uv run python -c "import json; d=json.load(open('artifacts/week1-football-reality-v1/manifest.json')); assert d['market_blind_production'] is True; assert d['market_or_contaminated_reference_loaded'] is False; assert d['salary_used_in_football_simulation'] is False; assert d['ownership_used_in_football_simulation'] is False; print('blind gate PASS')"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: monster-week1-football-reality-v1-candidate
           path: |
             artifacts/reality-league/manifest.json
+            artifacts/reality-league/team_unit_effects.csv
             artifacts/reality-feature-audit/
             artifacts/reality-health/manifest.json
             artifacts/reality-policy/manifest.json
