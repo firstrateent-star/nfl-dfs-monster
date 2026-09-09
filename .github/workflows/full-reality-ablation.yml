@@ -5,6 +5,7 @@ on:
     branches: [feature/slate-simulator-v1]
     paths:
       - .github/workflows/full-reality-ablation.yml
+      - scripts/audit_player_jurisdiction_ablation.py
   workflow_dispatch:
 permissions: {contents: read}
 jobs:
@@ -32,7 +33,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Production and counterfactual gates
         run: |
-          uv run ruff check src tests scripts/run_week1_reality_v1.py
+          uv run ruff check src tests scripts/run_week1_reality_v1.py scripts/audit_player_jurisdiction_ablation.py
           uv run pytest -q tests/test_full_reality_counterfactuals.py
       - name: Build current personnel baseline
         run: uv run python scripts/build_league_baseline.py --season 2026 --history 2025 --recent-games 6 --out artifacts/league-baseline
