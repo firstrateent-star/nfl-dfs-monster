@@ -11,7 +11,6 @@ from monster.sim.football_state import (
     apply_scrimmage_yards,
     kickoff_transition,
     missed_field_goal_transition,
-    next_series_distance,
     punt_transition,
     turnover_at_spot,
     turnover_on_downs,
@@ -25,9 +24,9 @@ from monster.sim.play_kernel import (
 )
 from monster.sim.rules_v13 import (
     PenaltyEvent,
-    PenaltySide,
     TryEvent,
     choose_two_point,
+    enforce_penalty,
     is_safety,
     simulate_penalty,
     simulate_try,
@@ -149,30 +148,6 @@ def _kickoff(
     return kickoff_transition(state, receiving_yardline_100=receiving, elapsed_seconds=0)
 
 
-def _apply_penalty(state: FootballState, penalty: PenaltyEvent, elapsed_seconds: int) -> FootballState:
-    clock = max(state.seconds_remaining - max(elapsed_seconds, 0), 0)
-    if penalty.side == PenaltySide.OFFENSE:
-        yardline = max(state.yardline_100 - penalty.yards, 1.0)
-        distance = max(state.distance + penalty.yards, 1.0)
-        down = min(state.down + int(penalty.loss_of_down), 4)
-    else:
-        yardline = min(state.yardline_100 + penalty.yards, 99.0)
-        gained = penalty.automatic_first_down or penalty.yards >= state.distance
-        down = 1 if gained else state.down
-        distance = (
-            next_series_distance(yardline)
-            if gained
-            else max(state.distance - penalty.yards, 1.0)
-        )
-    return replace(
-        state,
-        seconds_remaining=clock,
-        yardline_100=yardline,
-        down=down,
-        distance=distance,
-    )
-
-
 def simulate_regulation_game(
     away: TeamIdentity,
     home: TeamIdentity,
@@ -210,7 +185,12 @@ def simulate_regulation_game(
         penalty = simulate_penalty(rng, base_rate=penalty_rate)
         if penalty is not None and event.play_type in (PlayType.RUN, PlayType.PASS):
             penalties.append(penalty)
-            state = _apply_penalty(state, penalty, 0)
+            # The first live penalty layer previously replayed every accepted foul
+            # with zero elapsed time. That created free clock and inflated the number
+            # of offensive opportunities. Until foul subtype/no-play status is
+            # explicitly modeled, use the snap's sampled elapsed time as a bounded
+            # live-ball clock cost and keep the play itself out of the box score.
+            state = enforce_penalty(state, penalty, elapsed_seconds=event.elapsed_seconds)
         else:
             plays.append(event)
             _record(event, stats, defensive_stats)
