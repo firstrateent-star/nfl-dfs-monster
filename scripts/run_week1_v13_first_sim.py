@@ -178,8 +178,8 @@ def main() -> None:
         row["home_win_probability"] = outcomes["home_wins"] / args.worlds
         row["tie_probability"] = outcomes["ties"] / args.worlds
         row["projected_winner"] = away if row["away_win_probability"] > row["home_win_probability"] else home
-        row["projected_away_score"] = int(round(row["away_points_mean"]))
-        row["projected_home_score"] = int(round(row["home_points_mean"]))
+        row["projected_away_score"] = round(row["away_points_mean"])
+        row["projected_home_score"] = round(row["home_points_mean"])
         row["projected_score"] = f'{away} {row["projected_away_score"]} - {home} {row["projected_home_score"]}'
         row["winner_probability"] = max(row["away_win_probability"], row["home_win_probability"])
         game_rows.append(row)
