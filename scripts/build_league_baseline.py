@@ -8,17 +8,27 @@ from pathlib import Path
 import polars as pl
 import requests
 
-from monster.feature_compile.capability import attach_capability_evidence, capability_coverage_report
+from monster.feature_compile.capability import (
+    attach_capability_evidence,
+    capability_coverage_report,
+)
 from monster.feature_compile.depth import attach_depth_chart
 from monster.feature_compile.league_units import compile_league_unit_effects
-from monster.feature_compile.participation_inference import infer_game_day_participation, participation_coverage_report
+from monster.feature_compile.participation_inference import (
+    infer_game_day_participation,
+    participation_coverage_report,
+)
 from monster.feature_compile.trait_inputs import trait_coverage
 from monster.ingest.league import build_league_personnel_snapshot, league_coverage_report
 from monster.ingest.madden_defense_special import (
     attach_madden_defense_special_traits,
     madden_defense_special_coverage,
 )
-from monster.ingest.madden_players import attach_madden_ol_ratings, load_madden27_player_ratings, madden_ol_coverage
+from monster.ingest.madden_players import (
+    attach_madden_ol_ratings,
+    load_madden27_player_ratings,
+    madden_ol_coverage,
+)
 from monster.ingest.madden_skill import attach_madden_skill_traits, madden_skill_coverage
 from monster.ingest.nflverse import load_league_personnel_inputs
 from monster.teams import NFL_TEAMS
