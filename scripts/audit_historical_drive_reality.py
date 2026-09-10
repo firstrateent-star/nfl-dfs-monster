@@ -71,11 +71,7 @@ def _terminal(rows: list[dict[str, Any]]) -> str:
     fg_rows = [row for row in rows if _flag(row, "field_goal_attempt")]
     if fg_rows:
         made = any(str(row.get("field_goal_result", "")).lower() == "made" for row in fg_rows)
-        return (
-            PossessionTerminal.FIELD_GOAL.value
-            if made
-            else PossessionTerminal.MISSED_FIELD_GOAL.value
-        )
+        return PossessionTerminal.FIELD_GOAL.value if made else PossessionTerminal.MISSED_FIELD_GOAL.value
     if any(str(row.get("play_type", "")).lower() == "punt" for row in rows):
         return PossessionTerminal.PUNT.value
     if any(_flag(row, "interception") or _flag(row, "fumble_lost") for row in rows):
@@ -99,6 +95,12 @@ def _drive_points(rows: list[dict[str, Any]], terminal: str) -> int:
     return 0
 
 
+def _historical_first_down(row: dict[str, Any]) -> bool:
+    if "first_down_pass" in row or "first_down_rush" in row:
+        return _flag(row, "first_down_pass") or _flag(row, "first_down_rush")
+    return _flag(row, "first_down")
+
+
 def _drive_row(
     game_id: str,
     fixed_drive: str,
@@ -119,6 +121,17 @@ def _drive_row(
     goal_to_go_snap_seen = False
     sacks = 0
     turnovers = 0
+    series_started = 0
+    series_converted = 0
+    first_down_snaps = 0
+    second_down_snaps = 0
+    third_down_snaps = 0
+    fourth_down_snaps = 0
+    third_down_conversions = 0
+    third_and_long_snaps = 0
+    third_and_long_conversions = 0
+    third_down_distance_total = 0.0
+    early_down_5plus_gains = 0
 
     for row in rows:
         if not _is_scrimmage(row):
@@ -126,32 +139,50 @@ def _drive_row(
 
         yardline_to_goal = row.get("yardline_100")
         yards = _number(row, "yards_gained")
+        down = int(_number(row, "down", 0.0))
+        distance = _number(row, "ydstogo", 0.0)
         if yardline_to_goal is not None:
             yardline_to_goal_f = float(yardline_to_goal)
             red_zone_snap_seen = red_zone_snap_seen or yardline_to_goal_f <= 20.0
             if "goal_to_go" in row and row.get("goal_to_go") is not None:
                 goal_to_go_snap_seen = goal_to_go_snap_seen or _flag(row, "goal_to_go")
             else:
-                distance = _number(row, "ydstogo", 10.0)
                 goal_to_go_snap_seen = goal_to_go_snap_seen or (
                     yardline_to_goal_f <= 10.0 and distance >= yardline_to_goal_f
                 )
             end_yardline_to_goal = yardline_to_goal_f - yards
-            red_zone_reached = (
-                red_zone_reached
-                or yardline_to_goal_f <= 20.0
-                or end_yardline_to_goal <= 20.0
-            )
+            red_zone_reached = red_zone_reached or yardline_to_goal_f <= 20.0 or end_yardline_to_goal <= 20.0
 
         scrimmage_plays += 1
         net_scrimmage_yards += yards
         explosive_plays += int(yards >= 15.0)
         sacks += int(_flag(row, "sack"))
         turnovers += int(_flag(row, "interception") or _flag(row, "fumble_lost"))
-        if "first_down_pass" in row or "first_down_rush" in row:
-            first_downs += int(_flag(row, "first_down_pass") or _flag(row, "first_down_rush"))
-        else:
-            first_downs += int(_flag(row, "first_down"))
+
+        converted = _historical_first_down(row)
+        first_downs += int(converted)
+        if down == 1:
+            series_started += 1
+            first_down_snaps += 1
+        elif down == 2:
+            second_down_snaps += 1
+        elif down == 3:
+            third_down_snaps += 1
+            third_down_distance_total += distance
+            if distance >= 7.0:
+                third_and_long_snaps += 1
+        elif down == 4:
+            fourth_down_snaps += 1
+
+        if converted:
+            series_converted += 1
+            if down == 3:
+                third_down_conversions += 1
+                if distance >= 7.0:
+                    third_and_long_conversions += 1
+
+        if down in {1, 2} and yards >= 5.0:
+            early_down_5plus_gains += 1
 
     terminal = _terminal(rows)
     return {
@@ -174,6 +205,17 @@ def _drive_row(
         "sacks": sacks,
         "turnovers": turnovers,
         "overtime": False,
+        "series_started": series_started,
+        "series_converted": series_converted,
+        "first_down_snaps": first_down_snaps,
+        "second_down_snaps": second_down_snaps,
+        "third_down_snaps": third_down_snaps,
+        "fourth_down_snaps": fourth_down_snaps,
+        "third_down_conversions": third_down_conversions,
+        "third_and_long_snaps": third_and_long_snaps,
+        "third_and_long_conversions": third_and_long_conversions,
+        "third_down_distance_total": float(third_down_distance_total),
+        "early_down_5plus_gains": early_down_5plus_gains,
     }
 
 
@@ -208,9 +250,7 @@ def main() -> None:
         key = (str(row["game_id"]), str(row["fixed_drive"]), str(row["posteam"]))
         grouped[key].append(row)
 
-    groups_first_event_non_scrimmage = sum(
-        bool(rows) and not _is_scrimmage(rows[0]) for rows in grouped.values()
-    )
+    groups_first_event_non_scrimmage = sum(bool(rows) and not _is_scrimmage(rows[0]) for rows in grouped.values())
     candidate_rows = [
         _drive_row(game_id, fixed_drive, posteam, rows)
         for (game_id, fixed_drive, posteam), rows in grouped.items()
@@ -221,9 +261,7 @@ def main() -> None:
         raise ValueError("historical audit produced no definition-safe offensive drives")
 
     schedules = nfl.load_schedules([args.season])
-    regular = schedules.filter(
-        pl.col("home_score").is_not_null() & pl.col("away_score").is_not_null()
-    )
+    regular = schedules.filter(pl.col("home_score").is_not_null() & pl.col("away_score").is_not_null())
     if "game_type" in regular.columns:
         regular = regular.filter(pl.col("game_type") == "REG")
     games = regular.height
@@ -257,6 +295,9 @@ def main() -> None:
             "red_zone_reach": "definition-safe scrimmage snap starts at nflverse yardline_100 <= 20 OR its endpoint reaches <= 20",
             "red_zone_snap": "definition-safe scrimmage play begins with nflverse yardline_100 <= 20",
             "touchdown_terminal": "pass_touchdown or rush_touchdown; return scores remain turnover drives",
+            "survival_series": "scrimmage series begins on down == 1; conversion uses nflverse first_down_pass/first_down_rush or first_down fallback",
+            "third_and_long": "definition-safe third down with ydstogo >= 7",
+            "early_down_5plus": "definition-safe first/second-down scrimmage gain >= 5 yards",
             "pressure": "not compared here; play-level pressure requires nflverse participation join",
         },
         "terminal_precedence": [
