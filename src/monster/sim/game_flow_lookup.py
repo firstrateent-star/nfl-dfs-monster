@@ -98,6 +98,23 @@ def _rate(rows: Iterable[tuple[float, int]]) -> RateEvidence | None:
     return RateEvidence(weighted_success / total_samples, total_samples)
 
 
+def _shrink_child_to_parent(
+    child: RateEvidence | None,
+    parent: RateEvidence,
+    *,
+    shrinkage_samples: float,
+) -> RateEvidence:
+    """Empirically shrink a finer league cell toward its broader parent context."""
+
+    if child is None or child.samples <= 0:
+        return parent
+    if shrinkage_samples <= 0:
+        raise ValueError("league shrinkage_samples must be positive")
+    authority = child.samples / (child.samples + shrinkage_samples)
+    rate = parent.rate + authority * (child.rate - parent.rate)
+    return RateEvidence(rate=float(rate), samples=child.samples)
+
+
 @dataclass(frozen=True)
 class TeamGameFlowPolicy:
     team_id: str
@@ -112,6 +129,7 @@ class TeamGameFlowPolicy:
     team_neutral_rate: float | None
     league_neutral_rate: float | None
     shrinkage_samples: float = 80.0
+    league_shrinkage_samples: float = 80.0
 
     def evidence_for(
         self,
@@ -124,19 +142,35 @@ class TeamGameFlowPolicy:
         adaptation: DecisionAdjustment | None = None,
     ) -> HierarchicalFlowEvidence:
         key = context_key(flow)
-        league = self.league_exact.get(key)
-        if league is None:
-            league = self.league_no_score.get(
-                (key.down, key.distance_bucket, key.field_zone, key.time_mode)
-            )
-        if league is None:
-            league = self.league_down_distance_field.get(
+
+        # Every finer league context earns authority from its own sample size instead of
+        # replacing a broader prior merely because an exact cell exists. This prevents
+        # tiny five-dimensional situation cells from becoming false certainty.
+        league = self.league_overall
+        league = _shrink_child_to_parent(
+            self.league_down_distance.get((key.down, key.distance_bucket)),
+            league,
+            shrinkage_samples=self.league_shrinkage_samples,
+        )
+        league = _shrink_child_to_parent(
+            self.league_down_distance_field.get(
                 (key.down, key.distance_bucket, key.field_zone)
-            )
-        if league is None:
-            league = self.league_down_distance.get((key.down, key.distance_bucket))
-        if league is None:
-            league = self.league_overall
+            ),
+            league,
+            shrinkage_samples=self.league_shrinkage_samples,
+        )
+        league = _shrink_child_to_parent(
+            self.league_no_score.get(
+                (key.down, key.distance_bucket, key.field_zone, key.time_mode)
+            ),
+            league,
+            shrinkage_samples=self.league_shrinkage_samples,
+        )
+        league = _shrink_child_to_parent(
+            self.league_exact.get(key),
+            league,
+            shrinkage_samples=self.league_shrinkage_samples,
+        )
 
         team = self.team_exact.get(key)
         if team is None:
@@ -176,6 +210,7 @@ def build_team_game_flow_policy(
     team_neutral_rate: float | None,
     league_neutral_rate: float | None,
     shrinkage_samples: float = 80.0,
+    league_shrinkage_samples: float = 80.0,
 ) -> TeamGameFlowPolicy:
     """Build one team's pure-Python lookup from compact compiled tables."""
 
@@ -183,6 +218,8 @@ def build_team_game_flow_policy(
     team_rows_list = [row for row in team_rows if str(row["team_id"]) == team_id]
     if not league_rows_list:
         raise ValueError("league game-flow policy rows cannot be empty")
+    if league_shrinkage_samples <= 0:
+        raise ValueError("league_shrinkage_samples must be positive")
 
     league_exact = {
         _row_key(row): RateEvidence(float(row["dropback_rate"]), int(row["samples"]))
@@ -246,4 +283,5 @@ def build_team_game_flow_policy(
         team_neutral_rate=team_neutral_rate,
         league_neutral_rate=league_neutral_rate,
         shrinkage_samples=shrinkage_samples,
+        league_shrinkage_samples=league_shrinkage_samples,
     )
