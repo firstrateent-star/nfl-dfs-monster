@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from monster.sim.clock import advance_game_clock, regulation_complete
+from monster.sim.clock import (
+    OVERTIME_SECONDS,
+    advance_game_clock,
+    overtime_complete,
+    regulation_complete,
+)
 from monster.sim.football_state import (
     FootballState,
     apply_scrimmage_yards,
@@ -28,6 +33,7 @@ from monster.sim.rules_v13 import (
     choose_two_point,
     enforce_penalty,
     is_safety,
+    overtime_required,
     simulate_penalty,
     simulate_try,
 )
@@ -80,12 +86,46 @@ class GameResultV13:
     try_events: tuple[TryEvent, ...] = ()
     safeties: int = 0
     penalty_events: tuple[PenaltyEvent, ...] = ()
+    went_to_overtime: bool = False
+    overtime_touchdowns_without_try: int = 0
+
+
+def _add_score_for_team(
+    state: FootballState,
+    team_id: str,
+    points: int,
+    *,
+    away_team_id: str,
+    home_team_id: str,
+) -> FootballState:
+    if team_id == away_team_id:
+        return replace(state, away_score=state.away_score + points)
+    if team_id == home_team_id:
+        return replace(state, home_score=state.home_score + points)
+    raise ValueError("scoring team must match away or home team")
 
 
 def _add_score(state: FootballState, points: int, *, away_team_id: str) -> FootballState:
-    if state.possession == away_team_id:
-        return replace(state, away_score=state.away_score + points)
-    return replace(state, home_score=state.home_score + points)
+    home_team_id = (
+        state.home_team_id
+        if state.home_team_id is not None
+        else (state.defense if state.possession == away_team_id else state.possession)
+    )
+    return _add_score_for_team(
+        state,
+        state.possession,
+        points,
+        away_team_id=away_team_id,
+        home_team_id=home_team_id,
+    )
+
+
+def _team_score(state: FootballState, team_id: str, *, away_team_id: str) -> int:
+    return state.away_score if team_id == away_team_id else state.home_score
+
+
+def _opponent_score(state: FootballState, team_id: str, *, away_team_id: str) -> int:
+    return state.home_score if team_id == away_team_id else state.away_score
 
 
 def _box(stats: dict[str, PlayerBoxScore], player_id: str | None) -> PlayerBoxScore | None:
@@ -136,7 +176,9 @@ def _record(
         defender.interceptions += int(event.pass_result == PassResult.INTERCEPTION)
         defender.stuffs += int(event.stuffed)
         defender.forced_fumbles += int(event.fumbler_id is not None)
-        defender.tackles += int(event.rusher_id is not None or event.pass_result == PassResult.COMPLETE)
+        defender.tackles += int(
+            event.rusher_id is not None or event.pass_result == PassResult.COMPLETE
+        )
 
 
 def _kickoff(
@@ -229,9 +271,15 @@ def simulate_regulation_game(
                     state = missed_field_goal_transition(state, elapsed_seconds=0)
                 drives += 1
             elif is_safety(yardline_100=state.yardline_100, yards=event.yards):
+                scoring_team = state.defense
                 state = advance_game_clock(state, event.elapsed_seconds)
-                state = replace(state, possession=state.defense, defense=state.possession)
-                state = _add_score(state, 2, away_team_id=away.team_id)
+                state = _add_score_for_team(
+                    state,
+                    scoring_team,
+                    2,
+                    away_team_id=away.team_id,
+                    home_team_id=home.team_id,
+                )
                 safeties += 1
                 state = _kickoff(state, rng, special)
                 drives += 1
@@ -283,13 +331,300 @@ def simulate_regulation_game(
     if state.seconds_remaining > 0:
         state = replace(state, seconds_remaining=0, quarter=4)
     return GameResultV13(
-        state,
-        tuple(plays),
-        stats,
-        drives,
-        defensive_stats,
-        tuple(special),
-        tuple(tries),
-        safeties,
-        tuple(penalties),
+        final_state=state,
+        plays=tuple(plays),
+        player_stats=stats,
+        drives=drives,
+        defensive_stats=defensive_stats,
+        special_teams_events=tuple(special),
+        try_events=tuple(tries),
+        safeties=safeties,
+        penalty_events=tuple(penalties),
+    )
+
+
+def _simulate_regular_season_overtime(
+    regulation: GameResultV13,
+    away: TeamIdentity,
+    home: TeamIdentity,
+    *,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    away_defense: DefensiveUnit | None,
+    home_defense: DefensiveUnit | None,
+    seed: int,
+    max_plays: int,
+    penalty_rate: float,
+) -> GameResultV13:
+    """Continue one tied regulation world through the 2026 regular-season OT rules.
+
+    Both teams receive an initial possession opportunity, including after an opening-drive
+    touchdown, except when the team that kicked off scores a safety on the receiving team's
+    first possession. After both opportunities, the game is sudden death. The period is capped
+    at 10 minutes, so a true tie can still survive if the clock expires with equal scores.
+    """
+    if not overtime_required(
+        regulation.final_state.away_score, regulation.final_state.home_score
+    ):
+        return regulation
+
+    rng = np.random.default_rng(seed)
+    stats = {
+        player_id: replace(box) for player_id, box in regulation.player_stats.items()
+    }
+    defensive_stats = {
+        player_id: replace(box)
+        for player_id, box in (regulation.defensive_stats or {}).items()
+    }
+    plays = list(regulation.plays)
+    special = list(regulation.special_teams_events)
+    tries = list(regulation.try_events)
+    penalties = list(regulation.penalty_events)
+    drives = regulation.drives
+    safeties = regulation.safeties
+    overtime_touchdowns_without_try = 0
+
+    opening_receiver = away.team_id if rng.random() < 0.5 else home.team_id
+    opening_kicker = home.team_id if opening_receiver == away.team_id else away.team_id
+    first_team = opening_receiver
+
+    state = FootballState(
+        possession=opening_kicker,
+        defense=opening_receiver,
+        quarter=5,
+        seconds_remaining=OVERTIME_SECONDS,
+        yardline_100=30.0,
+        away_score=regulation.final_state.away_score,
+        home_score=regulation.final_state.home_score,
+        away_team_id=away.team_id,
+        home_team_id=home.team_id,
+    )
+    state = _kickoff(state, rng, special)
+    drives += 1
+    initial_completed: set[str] = set()
+
+    for _ in range(max_plays):
+        if overtime_complete(state):
+            break
+
+        offense = away if state.possession == away.team_id else home
+        if offense.team_id == away.team_id:
+            defense_strength, defense = home_defense_strength, home_defense
+        else:
+            defense_strength, defense = away_defense_strength, away_defense
+
+        before = state
+        sudden_death = len(initial_completed) >= 2
+        event = simulate_scrimmage_play(state, offense, defense_strength, rng, defense=defense)
+        penalty = simulate_penalty(rng, base_rate=penalty_rate)
+
+        if penalty is not None and event.play_type in (PlayType.RUN, PlayType.PASS):
+            penalties.append(penalty)
+            state = enforce_penalty(state, penalty, elapsed_seconds=event.elapsed_seconds)
+            continue
+
+        plays.append(event)
+        _record(event, stats, defensive_stats)
+
+        if event.play_type == PlayType.PUNT:
+            punt = simulate_punt(rng, punter_skill=offense.punt_skill)
+            special.append(punt)
+            if punt.blocked:
+                state = turnover_at_spot(
+                    state,
+                    max(state.yardline_100 - 5.0, 1.0),
+                    elapsed_seconds=event.elapsed_seconds,
+                )
+            else:
+                state = punt_transition(
+                    state,
+                    gross_yards=punt.kick_distance,
+                    return_yards=punt.return_yards,
+                    elapsed_seconds=event.elapsed_seconds,
+                )
+            drives += 1
+            initial_completed.add(offense.team_id)
+            if len(initial_completed) >= 2 and state.away_score != state.home_score:
+                break
+            continue
+
+        if event.play_type == PlayType.FIELD_GOAL:
+            fg = simulate_field_goal(
+                rng,
+                distance=117.0 - state.yardline_100,
+                kicking_skill=offense.field_goal_skill,
+            )
+            special.append(fg)
+            state = advance_game_clock(state, event.elapsed_seconds)
+            if fg.made:
+                state = _add_score(state, 3, away_team_id=away.team_id)
+                initial_completed.add(offense.team_id)
+                if sudden_death or (
+                    len(initial_completed) >= 2
+                    and state.away_score != state.home_score
+                ):
+                    break
+                if overtime_complete(state):
+                    break
+                state = _kickoff(state, rng, special)
+                drives += 1
+            else:
+                state = missed_field_goal_transition(state, elapsed_seconds=0)
+                drives += 1
+                initial_completed.add(offense.team_id)
+                if (
+                    len(initial_completed) >= 2
+                    and state.away_score != state.home_score
+                ):
+                    break
+            continue
+
+        if is_safety(yardline_100=state.yardline_100, yards=event.yards):
+            scoring_team = state.defense
+            state = advance_game_clock(state, event.elapsed_seconds)
+            state = _add_score_for_team(
+                state,
+                scoring_team,
+                2,
+                away_team_id=away.team_id,
+                home_team_id=home.team_id,
+            )
+            safeties += 1
+            initial_completed.add(offense.team_id)
+
+            # 2026 Rule 16 exception: the team that kicked off wins immediately if it
+            # scores a safety on the opening receiver's initial possession.
+            if offense.team_id == first_team and len(initial_completed) == 1:
+                break
+            if sudden_death or (
+                len(initial_completed) >= 2
+                and state.away_score != state.home_score
+            ):
+                break
+            if overtime_complete(state):
+                break
+            state = _kickoff(state, rng, special)
+            drives += 1
+            continue
+
+        if event.turnover:
+            spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
+            state = turnover_at_spot(state, spot, elapsed_seconds=event.elapsed_seconds)
+            drives += 1
+            initial_completed.add(offense.team_id)
+            if len(initial_completed) >= 2 and state.away_score != state.home_score:
+                break
+            continue
+
+        if event.touchdown:
+            state = advance_game_clock(state, event.elapsed_seconds)
+            state = _add_score(state, 6, away_team_id=away.team_id)
+
+            # Once both teams have already had their opportunity, any TD is sudden-death.
+            # On the second team's initial possession, a TD also ends the game immediately
+            # if the six points themselves create the lead; in either case there is no try.
+            game_ending_td = sudden_death or (
+                first_team in initial_completed
+                and offense.team_id != first_team
+                and _team_score(state, offense.team_id, away_team_id=away.team_id)
+                > _opponent_score(state, offense.team_id, away_team_id=away.team_id)
+            )
+            if game_ending_td:
+                initial_completed.add(offense.team_id)
+                overtime_touchdowns_without_try += 1
+                break
+
+            margin = (
+                state.away_score - state.home_score
+                if offense.team_id == away.team_id
+                else state.home_score - state.away_score
+            )
+            trial = simulate_try(
+                rng,
+                go_for_two=choose_two_point(
+                    quarter=state.quarter,
+                    seconds_remaining=state.seconds_remaining,
+                    score_margin_after_td=margin,
+                ),
+                kicking_skill=offense.field_goal_skill,
+                offense_skill=offense.pass_efficiency,
+                defense_skill=defense_strength,
+            )
+            tries.append(trial)
+            state = _add_score(state, trial.points, away_team_id=away.team_id)
+            initial_completed.add(offense.team_id)
+            if len(initial_completed) >= 2 and state.away_score != state.home_score:
+                break
+            if overtime_complete(state):
+                break
+            state = _kickoff(state, rng, special)
+            drives += 1
+            continue
+
+        state = apply_scrimmage_yards(state, event.yards, event.elapsed_seconds)
+        if before.down == 4 and event.yards < before.distance:
+            state = turnover_on_downs(state)
+            drives += 1
+            initial_completed.add(offense.team_id)
+            if len(initial_completed) >= 2 and state.away_score != state.home_score:
+                break
+
+    if state.seconds_remaining > 0 and len(plays) - len(regulation.plays) >= max_plays:
+        state = replace(state, seconds_remaining=0, quarter=5)
+
+    return GameResultV13(
+        final_state=state,
+        plays=tuple(plays),
+        player_stats=stats,
+        drives=drives,
+        defensive_stats=defensive_stats,
+        special_teams_events=tuple(special),
+        try_events=tuple(tries),
+        safeties=safeties,
+        penalty_events=tuple(penalties),
+        went_to_overtime=True,
+        overtime_touchdowns_without_try=overtime_touchdowns_without_try,
+    )
+
+
+def simulate_game(
+    away: TeamIdentity,
+    home: TeamIdentity,
+    *,
+    away_defense_strength: float = 1.0,
+    home_defense_strength: float = 1.0,
+    away_defense: DefensiveUnit | None = None,
+    home_defense: DefensiveUnit | None = None,
+    seed: int = 1,
+    max_plays: int = 260,
+    max_overtime_plays: int = 80,
+    penalty_rate: float = 0.055,
+) -> GameResultV13:
+    """Simulate one complete 2026 regular-season NFL game, including overtime if tied."""
+    regulation = simulate_regulation_game(
+        away,
+        home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        away_defense=away_defense,
+        home_defense=home_defense,
+        seed=seed,
+        max_plays=max_plays,
+        penalty_rate=penalty_rate,
+    )
+    if not overtime_required(
+        regulation.final_state.away_score, regulation.final_state.home_score
+    ):
+        return regulation
+    return _simulate_regular_season_overtime(
+        regulation,
+        away,
+        home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        away_defense=away_defense,
+        home_defense=home_defense,
+        seed=seed + 2_000_003,
+        max_plays=max_overtime_plays,
+        penalty_rate=penalty_rate,
     )
