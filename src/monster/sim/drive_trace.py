@@ -18,6 +18,8 @@ class DriveTrace:
 
     Survival fields are intentionally scrimmage-defined. They localize where possessions
     live or die without giving the audit any authority over play selection or resolution.
+    Early-down ownership fields split the same first/second-down population into designed
+    runs versus dropbacks so a survival mismatch can be assigned to the correct mechanism.
     """
 
     offense_team_id: str
@@ -54,6 +56,18 @@ class DriveTrace:
     third_and_long_conversions: int
     third_down_distance_total: float
     early_down_5plus_gains: int
+    early_down_run_snaps: int
+    early_down_run_yards_total: float
+    early_down_run_negative_gains: int
+    early_down_run_3plus_gains: int
+    early_down_run_5plus_gains: int
+    early_down_run_10plus_gains: int
+    early_down_pass_snaps: int
+    early_down_pass_yards_total: float
+    early_down_pass_negative_gains: int
+    early_down_pass_3plus_gains: int
+    early_down_pass_5plus_gains: int
+    early_down_pass_10plus_gains: int
 
 
 class DriveTraceRecorder:
@@ -85,6 +99,18 @@ class DriveTraceRecorder:
         self.third_and_long_conversions = 0
         self.third_down_distance_total = 0.0
         self.early_down_5plus_gains = 0
+        self.early_down_run_snaps = 0
+        self.early_down_run_yards_total = 0.0
+        self.early_down_run_negative_gains = 0
+        self.early_down_run_3plus_gains = 0
+        self.early_down_run_5plus_gains = 0
+        self.early_down_run_10plus_gains = 0
+        self.early_down_pass_snaps = 0
+        self.early_down_pass_yards_total = 0.0
+        self.early_down_pass_negative_gains = 0
+        self.early_down_pass_3plus_gains = 0
+        self.early_down_pass_5plus_gains = 0
+        self.early_down_pass_10plus_gains = 0
 
     def observe(self, before: FootballState, event: PlayEvent) -> None:
         """Observe a resolved event while it still belongs to the current offense."""
@@ -96,13 +122,14 @@ class DriveTraceRecorder:
         if event.play_type not in {PlayType.RUN, PlayType.PASS}:
             return
 
+        yards = float(event.yards)
         self.scrimmage_plays += 1
-        self.net_scrimmage_yards += float(event.yards)
-        end_yardline = min(max(before.yardline_100 + float(event.yards), 1.0), 100.0)
+        self.net_scrimmage_yards += yards
+        end_yardline = min(max(before.yardline_100 + yards, 1.0), 100.0)
         self.last_offense_yardline = end_yardline
         self.red_zone_entered = self.red_zone_entered or end_yardline >= 80.0
         self.goal_to_go_reached = self.goal_to_go_reached or _goal_to_go(before)
-        self.explosive_plays += int(float(event.yards) >= 15.0)
+        self.explosive_plays += int(yards >= 15.0)
         self.pressured_dropbacks += int(event.play_type == PlayType.PASS and event.pressured)
         self.sacks += int(event.pass_result == PassResult.SACK)
         self.turnovers += int(event.turnover)
@@ -123,7 +150,7 @@ class DriveTraceRecorder:
         converted = (
             not event.touchdown
             and not event.turnover
-            and float(event.yards) >= float(before.distance)
+            and yards >= float(before.distance)
         )
         if converted:
             self.first_downs += 1
@@ -133,8 +160,22 @@ class DriveTraceRecorder:
                 if before.distance >= 7.0:
                     self.third_and_long_conversions += 1
 
-        if before.down in {1, 2} and float(event.yards) >= 5.0:
-            self.early_down_5plus_gains += 1
+        if before.down in {1, 2}:
+            self.early_down_5plus_gains += int(yards >= 5.0)
+            if event.play_type == PlayType.RUN:
+                self.early_down_run_snaps += 1
+                self.early_down_run_yards_total += yards
+                self.early_down_run_negative_gains += int(yards < 0.0)
+                self.early_down_run_3plus_gains += int(yards >= 3.0)
+                self.early_down_run_5plus_gains += int(yards >= 5.0)
+                self.early_down_run_10plus_gains += int(yards >= 10.0)
+            else:
+                self.early_down_pass_snaps += 1
+                self.early_down_pass_yards_total += yards
+                self.early_down_pass_negative_gains += int(yards < 0.0)
+                self.early_down_pass_3plus_gains += int(yards >= 3.0)
+                self.early_down_pass_5plus_gains += int(yards >= 5.0)
+                self.early_down_pass_10plus_gains += int(yards >= 10.0)
 
     @property
     def has_activity(self) -> bool:
@@ -198,6 +239,18 @@ class DriveTraceRecorder:
             third_and_long_conversions=self.third_and_long_conversions,
             third_down_distance_total=float(self.third_down_distance_total),
             early_down_5plus_gains=self.early_down_5plus_gains,
+            early_down_run_snaps=self.early_down_run_snaps,
+            early_down_run_yards_total=float(self.early_down_run_yards_total),
+            early_down_run_negative_gains=self.early_down_run_negative_gains,
+            early_down_run_3plus_gains=self.early_down_run_3plus_gains,
+            early_down_run_5plus_gains=self.early_down_run_5plus_gains,
+            early_down_run_10plus_gains=self.early_down_run_10plus_gains,
+            early_down_pass_snaps=self.early_down_pass_snaps,
+            early_down_pass_yards_total=float(self.early_down_pass_yards_total),
+            early_down_pass_negative_gains=self.early_down_pass_negative_gains,
+            early_down_pass_3plus_gains=self.early_down_pass_3plus_gains,
+            early_down_pass_5plus_gains=self.early_down_pass_5plus_gains,
+            early_down_pass_10plus_gains=self.early_down_pass_10plus_gains,
         )
 
 
