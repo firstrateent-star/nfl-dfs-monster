@@ -1,0 +1,137 @@
+name: Monster v1.3 freeze diagnostics
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/compare_terminal_conditioned_drive_clock.py
+      - scripts/compare_stage3_pressure_reality.py
+      - scripts/audit_pressure_participation.py
+      - scripts/audit_historical_drive_reality.py
+      - scripts/audit_week1_stage3_drive_survival.py
+      - scripts/run_week1_v13_stage3_shadow.py
+      - src/monster/sim/decision_policy.py
+      - src/monster/sim/resolution_ecology.py
+      - src/monster/sim/play_kernel.py
+      - src/monster/sim/drive_trace.py
+      - .github/workflows/v13-freeze-diagnostics.yml
+  workflow_dispatch:
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Software gates
+        run: |
+          uv run ruff check src tests scripts/compare_terminal_conditioned_drive_clock.py scripts/compare_stage3_pressure_reality.py scripts/audit_pressure_participation.py scripts/audit_historical_drive_reality.py scripts/audit_week1_stage3_drive_survival.py scripts/run_week1_v13_stage3_shadow.py
+          uv run pytest -q
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run Stage 3 drive traces
+        run: >-
+          uv run python scripts/audit_week1_stage3_drive_survival.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/freeze-diagnostics/drive-stage3
+      - name: Run Stage 3 anatomy traces
+        run: >-
+          uv run python scripts/run_week1_v13_stage3_shadow.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/freeze-diagnostics/stage3
+      - name: Build historical drive traces
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/freeze-diagnostics/drive-historical
+      - name: Terminal-conditioned clock comparison
+        run: >-
+          uv run python scripts/compare_terminal_conditioned_drive_clock.py
+          --simulated artifacts/freeze-diagnostics/drive-stage3/stage3_drive_traces.parquet
+          --historical artifacts/freeze-diagnostics/drive-historical/historical_drive_traces.parquet
+          --out artifacts/freeze-diagnostics/terminal-clock
+      - name: Build historical pressure evidence
+        run: >-
+          uv run python scripts/audit_pressure_participation.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/freeze-diagnostics/pressure-historical
+      - name: Compare pressure-conditioned resolution
+        run: >-
+          uv run python scripts/compare_stage3_pressure_reality.py
+          --stage3 artifacts/freeze-diagnostics/stage3/stage3_pressure_depth_anatomy.csv
+          --historical-manifest artifacts/freeze-diagnostics/pressure-historical/manifest.json
+          --out artifacts/freeze-diagnostics/pressure-comparison
+      - name: Verify market-blind diagnostics
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('artifacts/freeze-diagnostics')
+          terminal = json.loads((root/'terminal-clock'/'terminal_conditioned_drive_clock.json').read_text())
+          pressure = json.loads((root/'pressure-comparison'/'stage3_pressure_reality.json').read_text())
+          assert terminal['market_blind'] is True
+          assert terminal['behavior_changed_by_audit'] is False
+          assert pressure['market_blind'] is True
+          assert pressure['behavior_changed_by_audit'] is False
+          print(json.dumps({'terminal_clock': terminal, 'pressure': pressure}, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-freeze-diagnostics
+          path: artifacts/freeze-diagnostics/
+          retention-days: 14
