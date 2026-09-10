@@ -9,10 +9,10 @@ from typing import Any
 
 import nflreadpy as nfl
 import polars as pl
+from audit_week1_drive_reality import _summarize
 
 from monster.ingest.nflverse import configure_cache
 from monster.sim.football_state import PossessionTerminal
-from audit_week1_drive_reality import _summarize
 
 
 def _number(row: dict[str, Any], name: str, default: float = 0.0) -> float:
@@ -79,7 +79,7 @@ def _drive_points(rows: list[dict[str, Any]], terminal: str) -> int:
     start_score = _first_number(rows, "posteam_score")
     end_score = _last_number(rows, "posteam_score_post")
     if start_score is not None and end_score is not None and end_score >= start_score:
-        delta = int(round(end_score - start_score))
+        delta = round(end_score - start_score)
         if 0 <= delta <= 8:
             return delta
     if terminal == PossessionTerminal.FIELD_GOAL.value:

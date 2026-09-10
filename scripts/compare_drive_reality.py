@@ -6,7 +6,6 @@ from pathlib import Path
 
 import polars as pl
 
-
 COMPARE_METRICS = (
     "touchdown_rate",
     "field_goal_rate",
