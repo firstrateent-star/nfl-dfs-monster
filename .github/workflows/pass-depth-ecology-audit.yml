@@ -1,0 +1,88 @@
+name: Monster Stage 3 pass-depth ecology audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_game_flow_intent_reality.py
+      - .github/workflows/pass-depth-ecology-audit.yml
+  workflow_dispatch:
+
+jobs:
+  pass-depth-ecology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code guards
+        run: |
+          uv run ruff check src tests scripts/audit_game_flow_intent_reality.py
+          uv run pytest -q
+      - name: Audit 2023-2025 pass-depth ecology
+        run: |
+          uv run python scripts/audit_game_flow_intent_reality.py --history 2023 --out artifacts/pass-depth-ecology/2023
+          uv run python scripts/audit_game_flow_intent_reality.py --history 2024 --out artifacts/pass-depth-ecology/2024
+          uv run python scripts/audit_game_flow_intent_reality.py --history 2025 --out artifacts/pass-depth-ecology/2025
+      - name: Summarize cross-season stability
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/pass-depth-ecology')
+          frames=[]
+          for season in (2023, 2024, 2025):
+              frame=pl.read_csv(root/str(season)/'pass_depth_by_special_state.csv').with_columns(
+                  pl.lit(season).alias('season')
+              )
+              frames.append(frame)
+          all_depth=pl.concat(frames, how='vertical')
+          all_depth.write_csv(root/'pass_depth_by_state_all_seasons.csv')
+
+          stability=(
+              all_depth.group_by(['special_state','pass_depth_band'])
+              .agg(
+                  pl.len().alias('seasons_observed'),
+                  pl.col('attempts').sum().alias('attempts_all_seasons'),
+                  pl.col('attempt_share_within_state').mean().alias('mean_attempt_share'),
+                  pl.col('attempt_share_within_state').min().alias('min_attempt_share'),
+                  pl.col('attempt_share_within_state').max().alias('max_attempt_share'),
+                  pl.col('air_yards_mean').mean().alias('mean_air_yards'),
+                  pl.col('completion_rate').mean().alias('mean_completion_rate'),
+                  pl.col('interception_rate').mean().alias('mean_interception_rate'),
+              )
+              .with_columns(
+                  (pl.col('max_attempt_share')-pl.col('min_attempt_share')).alias('share_range')
+              )
+              .sort(['special_state','pass_depth_band'])
+          )
+          stability.write_csv(root/'pass_depth_cross_season_stability.csv')
+
+          weighted_share_range=float(
+              (stability.get_column('share_range')*stability.get_column('attempts_all_seasons')).sum()
+              / stability.get_column('attempts_all_seasons').sum()
+          )
+          manifest={
+              'artifact':'Monster Stage 3 Pass-Depth Ecology Audit',
+              'seasons':[2023,2024,2025],
+              'market_blind':True,
+              'behavior_changed_by_audit':False,
+              'historical_source':'nflverse play-by-play via nflreadpy',
+              'depth_bands':['behind_los','short_0_5','short_6_9','intermediate_10_19','deep_20_39','bomb_40_plus'],
+              'cross_season_rows':stability.height,
+              'weighted_cross_season_attempt_share_range':weighted_share_range,
+              'principle':'Throw depth must earn causal authority from stable football context before replacing the neutral runtime depth draw.'
+          }
+          (root/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          print(stability)
+          print(json.dumps(manifest,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-stage3-pass-depth-ecology
+          path: artifacts/pass-depth-ecology/
+          retention-days: 14
