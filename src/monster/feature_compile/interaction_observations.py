@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from numbers import Real
-from typing import Any, Mapping
+from typing import Any
 
 from monster.interaction_registry import InteractionRegistry
 from monster.registry import FeatureRegistry
@@ -46,9 +47,7 @@ def compile_metric_observations(
         if feature_name not in interaction_registry.specs:
             ignored.append((feature_name, "no_interaction_jurisdiction"))
             continue
-        if isinstance(value, bool):
-            numeric = float(value)
-        elif isinstance(value, Real):
+        if isinstance(value, bool) or isinstance(value, Real):
             numeric = float(value)
         else:
             ignored.append((feature_name, "non_numeric_value"))
