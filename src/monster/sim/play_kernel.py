@@ -158,12 +158,8 @@ def _contextual_pass_rate(
     bucket = 0 if state.distance <= 3.0 else (1 if state.distance <= 7.0 else 2)
     down = min(max(int(state.down), 1), 4)
     league_context_rate = rates[(down - 1) * 3 + bucket]
-    team_identity_delta = (
-        offense.neutral_pass_rate - offense.league_neutral_pass_rate
-    )
-    return float(
-        np.clip(league_context_rate + team_identity_delta, 0.18, 0.90)
-    )
+    team_identity_delta = offense.neutral_pass_rate - offense.league_neutral_pass_rate
+    return float(np.clip(league_context_rate + team_identity_delta, 0.18, 0.90))
 
 
 def _policy_for_state(state: FootballState, offense: TeamIdentity):
@@ -229,9 +225,7 @@ def simulate_scrimmage_play(
 ) -> PlayEvent:
     play_type = choose_play_type(state, offense, rng)
     hurry = _policy_for_state(state, offense).hurry_probability
-    elapsed = int(
-        np.clip(rng.normal(29.0 - 13.0 * hurry, 7.0), 5.0, 45.0)
-    )
+    elapsed = int(np.clip(rng.normal(29.0 - 13.0 * hurry, 7.0), 5.0, 45.0))
 
     if play_type == PlayType.PUNT:
         return PlayEvent(play_type=play_type, elapsed_seconds=8)
@@ -244,9 +238,7 @@ def simulate_scrimmage_play(
                 0.98,
             )
         )
-        make_p = float(
-            np.clip(make_p * offense.field_goal_skill, 0.05, 0.995)
-        )
+        make_p = float(np.clip(make_p * offense.field_goal_skill, 0.05, 0.995))
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=5,
@@ -260,11 +252,7 @@ def simulate_scrimmage_play(
             lane = (
                 RunLane.QB
                 if rusher.position == "QB"
-                else (
-                    RunLane.INSIDE
-                    if rng.random() < 0.62
-                    else RunLane.OUTSIDE
-                )
+                else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
             )
         else:
             from monster.sim.intent_ecology import (
@@ -435,9 +423,7 @@ def simulate_scrimmage_play(
     else:
         pressure = float(
             np.clip(
-                0.297832
-                * defense_strength
-                / max(offense.pass_protection, 0.55),
+                0.297832 * defense_strength / max(offense.pass_protection, 0.55),
                 0.12,
                 0.50,
             )
@@ -449,12 +435,10 @@ def simulate_scrimmage_play(
         and completion_probability is not None
         and interception_probability is not None
     ):
-        completion_probability, interception_probability = (
-            condition_throw_probabilities(
-                completion_probability=completion_probability,
-                interception_probability=interception_probability,
-                pressured=pressured,
-            )
+        completion_probability, interception_probability = condition_throw_probabilities(
+            completion_probability=completion_probability,
+            interception_probability=interception_probability,
+            pressured=pressured,
         )
     response = resolve_qb_response(
         pressured=pressured,
@@ -473,9 +457,7 @@ def simulate_scrimmage_play(
             elapsed_seconds=elapsed,
             yards=yards,
             passer_id=offense.quarterback.player_id,
-            fumbler_id=(
-                offense.quarterback.player_id if turnover else None
-            ),
+            fumbler_id=offense.quarterback.player_id if turnover else None,
             primary_defender_id=primary_defender_id,
             pass_result=PassResult.SACK,
             turnover=turnover,
@@ -505,9 +487,7 @@ def simulate_scrimmage_play(
             yards=yards,
             passer_id=offense.quarterback.player_id,
             rusher_id=offense.quarterback.player_id,
-            fumbler_id=(
-                offense.quarterback.player_id if turnover else None
-            ),
+            fumbler_id=offense.quarterback.player_id if turnover else None,
             primary_defender_id=primary_defender_id,
             pass_result=PassResult.SCRAMBLE,
             run_lane=RunLane.QB,
@@ -622,6 +602,7 @@ def simulate_scrimmage_play(
                 receiver_explosiveness=target.explosive,
                 coverage_strength=coverage_strength,
                 rng=rng,
+                air_yards=air_yards,
             )
         )
         raw_yards = completed_pass_yards(air_yards, yac)
