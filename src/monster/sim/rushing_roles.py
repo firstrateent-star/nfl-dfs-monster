@@ -78,6 +78,130 @@ def _core_role_probabilities(rng: np.random.Generator, core_candidates: np.ndarr
     return rng.dirichlet(center * concentration)
 
 
+def sample_event_rush_share_plan(
+    pool: TeamPlayerPool,
+    *,
+    rng: np.random.Generator,
+    expected_scrimmage_plays: float = 62.0,
+) -> dict[str, float]:
+    """Sample one stable designed-rushing hierarchy for an event-sim game world.
+
+    v1.3 chooses a rusher on each RUN event, so feeding it static season shares makes
+    every fringe player repeatedly eligible and flattens feature-back workloads. This
+    bridge reuses the already-governed Role A/B/C hierarchy at the *game* level:
+
+    - QB designed-run mass is reserved from the current transfer-safe QB share prior.
+    - Non-QB roles are selected once for the game using current availability, role
+      probability, uncertainty, effectiveness and historical/current rush share.
+    - Core roles own the finite-workload mass; a small incidental reservoir remains for
+      gadget/peripheral carriers.
+
+    The function returns shares only. It does not create carries or alter pass/run play
+    calling, so team rushing volume still emerges entirely from the v1.3 football game.
+    """
+    players = pool.players
+    if not players:
+        return {}
+
+    base = np.asarray([max(player.rush_share, 0.0) for player in players], dtype=float)
+    if base.sum() <= 0:
+        return {}
+    base /= base.sum()
+
+    positions = np.asarray([player.position.upper() for player in players])
+    qb_mask = positions == "QB"
+    non_qb_mask = ~qb_mask
+    qb_mass = float(np.clip(base[qb_mask].sum(), 0.0, 0.45))
+    non_qb_mass = 1.0 - qb_mass
+
+    out = np.zeros(len(players), dtype=float)
+    if qb_mask.any() and qb_mass > 0:
+        qb_base = base[qb_mask]
+        qb_total = float(qb_base.sum())
+        if qb_total > 0:
+            out[qb_mask] = qb_mass * qb_base / qb_total
+
+    non_qb_indices = np.flatnonzero(non_qb_mask & (base > 0))
+    if len(non_qb_indices) == 0 or non_qb_mass <= 0:
+        total = float(out.sum())
+        return {
+            player.player_id: float(out[idx] / total)
+            for idx, player in enumerate(players)
+            if out[idx] > 0 and total > 0
+        }
+
+    active_probability = np.asarray(
+        [player.active_probability for player in players], dtype=float
+    )
+    role_probability = np.asarray(
+        [player.rush_role_probability for player in players], dtype=float
+    )
+    role_uncertainty = np.asarray(
+        [player.role_uncertainty for player in players], dtype=float
+    )
+    effectiveness = np.asarray(
+        [player.effectiveness_if_active for player in players], dtype=float
+    )
+
+    active = rng.random(len(players)) < np.clip(active_probability, 0.0, 1.0)
+    eligible = non_qb_indices[active[non_qb_indices]]
+    if len(eligible) == 0:
+        eligible = np.array([non_qb_indices[np.argmax(base[non_qb_indices])]], dtype=int)
+
+    role_strength = (
+        np.sqrt(np.clip(base, 1e-9, None))
+        * np.clip(role_probability, 0.01, 1.0)
+        * np.clip(effectiveness, 0.25, 1.25)
+    )
+    peripheral_weight = (
+        np.sqrt(np.clip(base, 1e-9, None))
+        * (0.10 + 0.90 * (1.0 - role_probability))
+        * np.clip(effectiveness, 0.25, 1.25)
+    )
+
+    expected_total_runs = int(
+        np.clip(
+            round(expected_scrimmage_plays * (1.0 - pool.neutral_pass_rate)),
+            8,
+            38,
+        )
+    )
+    expected_non_qb_runs = max(int(round(expected_total_runs * non_qb_mass)), 1)
+    core_count = _sample_core_count(rng, expected_non_qb_runs, len(eligible))
+    core = _sample_core_roles(
+        rng,
+        eligible,
+        role_strength,
+        role_uncertainty,
+        core_count,
+    )
+    if len(core) == 0:
+        core = np.array([eligible[np.argmax(base[eligible])]], dtype=int)
+    core_p = _core_role_probabilities(rng, core)
+
+    peripheral = np.setdiff1d(eligible, core, assume_unique=False)
+    incidental_mass = INCIDENTAL_RUSH_SHARE if len(peripheral) else 0.0
+    out[core] += non_qb_mass * (1.0 - incidental_mass) * core_p
+    if len(peripheral):
+        weights = np.clip(peripheral_weight[peripheral], 0.0, None)
+        if weights.sum() <= 0:
+            weights = np.clip(base[peripheral], 0.0, None)
+        if weights.sum() <= 0:
+            weights = np.ones(len(peripheral), dtype=float)
+        weights /= weights.sum()
+        out[peripheral] += non_qb_mass * incidental_mass * weights
+
+    total = float(out.sum())
+    if total <= 0:
+        return {}
+    out /= total
+    return {
+        player.player_id: float(out[idx])
+        for idx, player in enumerate(players)
+        if out[idx] > 0
+    }
+
+
 def _redistribute_team_rushing(
     rng: np.random.Generator,
     side: TeamAllocationWorlds,
