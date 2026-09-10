@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,9 @@ from monster.feature_compile.league_units import compile_league_unit_player_map
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
 from monster.feature_compile.skill_pools import compile_current_skill_pools
 from monster.ingest.nflverse import configure_cache
+from monster.sim.game_flow_lookup import build_team_game_flow_policy
 from monster.sim.game_loop_v13 import simulate_game
+from monster.sim.intent_ecology import build_intent_ecology
 from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
 from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
@@ -40,6 +43,19 @@ FAMILIES = (
     "incomplete_pass",
     "interception",
     "sack",
+)
+_STAGE3_ARGUMENTS = (
+    "game_flow_league",
+    "game_flow_team",
+    "pass_depth_league",
+    "pass_depth_team",
+    "pass_depth_qb",
+    "pass_depth_outcomes",
+    "target_depth",
+    "run_geometry_league",
+    "run_geometry_team",
+    "run_geometry_rusher",
+    "run_geometry_outcomes",
 )
 
 
@@ -209,7 +225,11 @@ def _summaries(
             "yards_mean": _stat(yards, "mean"),
             "yards_p50": _stat(yards, "p50"),
             "yards_p90": _stat(yards, "p90"),
+            "negative_gain_rate": float(np.mean(arr < 0.0)) if events else None,
             "positive_gain_rate": float(np.mean(arr > 0.0)) if events else None,
+            "gain_3plus_rate": float(np.mean(arr >= 3.0)) if events else None,
+            "gain_5plus_rate": float(np.mean(arr >= 5.0)) if events else None,
+            "gain_10plus_rate": float(np.mean(arr >= 10.0)) if events else None,
             "explosive_15_rate": float(np.mean(arr >= 15.0)) if events else None,
             "explosive_20_rate": float(np.mean(arr >= 20.0)) if events else None,
             "explosive_40_rate": float(np.mean(arr >= 40.0)) if events else None,
@@ -240,6 +260,11 @@ def _comparison(
         "share_of_scrimmage",
         "yards_mean",
         "yards_p90",
+        "negative_gain_rate",
+        "positive_gain_rate",
+        "gain_3plus_rate",
+        "gain_5plus_rate",
+        "gain_10plus_rate",
         "explosive_15_rate",
         "explosive_20_rate",
         "explosive_40_rate",
@@ -276,18 +301,39 @@ def _comparison(
     return rows
 
 
+def _stage3_paths(args: argparse.Namespace) -> dict[str, Path] | None:
+    supplied = {name: getattr(args, name) for name in _STAGE3_ARGUMENTS}
+    present = [value is not None for value in supplied.values()]
+    if any(present) and not all(present):
+        missing = sorted(name for name, value in supplied.items() if value is None)
+        raise ValueError(f"partial Stage 3 play-gain inputs; missing: {missing}")
+    return None if not all(present) else {name: value for name, value in supplied.items() if value is not None}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--personnel", type=Path, required=True)
     parser.add_argument("--player-usage", type=Path, required=True)
     parser.add_argument("--situation-context", type=Path, required=True)
+    parser.add_argument("--game-flow-league", dest="game_flow_league", type=Path)
+    parser.add_argument("--game-flow-team", dest="game_flow_team", type=Path)
+    parser.add_argument("--pass-depth-league", dest="pass_depth_league", type=Path)
+    parser.add_argument("--pass-depth-team", dest="pass_depth_team", type=Path)
+    parser.add_argument("--pass-depth-qb", dest="pass_depth_qb", type=Path)
+    parser.add_argument("--pass-depth-outcomes", dest="pass_depth_outcomes", type=Path)
+    parser.add_argument("--target-depth", dest="target_depth", type=Path)
+    parser.add_argument("--run-geometry-league", dest="run_geometry_league", type=Path)
+    parser.add_argument("--run-geometry-team", dest="run_geometry_team", type=Path)
+    parser.add_argument("--run-geometry-rusher", dest="run_geometry_rusher", type=Path)
+    parser.add_argument("--run-geometry-outcomes", dest="run_geometry_outcomes", type=Path)
     parser.add_argument("--history", type=int, default=2025)
     parser.add_argument("--worlds", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=2026091022)
     parser.add_argument("--cache-dir", type=Path, default=Path(".cache/monster"))
     parser.add_argument("--out", type=Path, default=Path("artifacts/play-gain-reality"))
     args = parser.parse_args()
+    stage3_paths = _stage3_paths(args)
 
     policy = _read(args.policy)
     personnel = _read(args.personnel)
@@ -303,19 +349,46 @@ def main() -> None:
     states = {}
     for away, home in MATCHUPS:
         states.update(compile_team_state_map(policy, {away: home, home: away}))
-    teams = {
-        team: _team_identity(
-            team,
-            pools[team],
-            reality,
-            units[team],
-            states[team],
-            league_neutral_pass_rate=league_neutral_pass_rate,
-            situational_pass_rates=situational_pass_rates,
-        )
-        for pair in MATCHUPS
-        for team in pair
-    }
+
+    stage3_rows: dict[str, list[dict[str, object]]] = {}
+    if stage3_paths is not None:
+        stage3_rows = {name: _read(path).to_dicts() for name, path in stage3_paths.items()}
+
+    teams = {}
+    for pair in MATCHUPS:
+        for team in pair:
+            identity = _team_identity(
+                team,
+                pools[team],
+                reality,
+                units[team],
+                states[team],
+                league_neutral_pass_rate=league_neutral_pass_rate,
+                situational_pass_rates=situational_pass_rates,
+            )
+            if stage3_paths is not None:
+                flow_policy = build_team_game_flow_policy(
+                    team_id=team,
+                    league_rows=stage3_rows["game_flow_league"],
+                    team_rows=stage3_rows["game_flow_team"],
+                    team_neutral_rate=pools[team].neutral_pass_rate,
+                    league_neutral_rate=league_neutral_pass_rate,
+                )
+                intent = build_intent_ecology(
+                    team_id=team,
+                    pass_league_rows=stage3_rows["pass_depth_league"],
+                    pass_team_rows=stage3_rows["pass_depth_team"],
+                    pass_qb_rows=stage3_rows["pass_depth_qb"],
+                    pass_outcome_rows=stage3_rows["pass_depth_outcomes"],
+                    target_depth_rows=stage3_rows["target_depth"],
+                    run_league_rows=stage3_rows["run_geometry_league"],
+                    run_team_rows=stage3_rows["run_geometry_team"],
+                    run_rusher_rows=stage3_rows["run_geometry_rusher"],
+                    run_outcome_rows=stage3_rows["run_geometry_outcomes"],
+                )
+                identity = replace(identity, game_flow_policy=flow_policy, intent_ecology=intent)
+            teams[team] = identity
+
     defenses = {team: _defensive_unit(units[team]) for pair in MATCHUPS for team in pair}
 
     simulated_store: dict[str, defaultdict[str, list[float]]] = {}
@@ -355,8 +428,9 @@ def main() -> None:
     for row in pbp.to_dicts():
         _append_historical_row(historical_store, row)
 
+    simulation_source = "monster_v1_3_stage3" if stage3_paths is not None else "monster_v1_3"
     simulated = _summaries(
-        simulated_store, source="monster_v1_3", scope="2026_week1_12_game_slate"
+        simulated_store, source=simulation_source, scope="2026_week1_12_game_slate"
     )
     historical = _summaries(
         historical_store, source="nflverse", scope=f"{args.history}_regular_season"
@@ -364,30 +438,28 @@ def main() -> None:
     by_game = [
         row
         for game, store in simulated_by_game.items()
-        for row in _summaries(store, source="monster_v1_3", scope=game)
+        for row in _summaries(store, source=simulation_source, scope=game)
     ]
     comparison = _comparison(simulated, historical)
 
     comp_by_key = {(row["family"], row["metric"]): row for row in comparison}
+
+    def _relative(family: str, metric: str) -> float | None:
+        return comp_by_key.get((family, metric), {}).get("relative_delta")
+
     diagnosis = {
-        "all_scrimmage_explosive_15_relative_delta": comp_by_key[
-            ("all_scrimmage", "explosive_15_rate")
-        ]["relative_delta"],
-        "designed_run_explosive_15_relative_delta": comp_by_key[
-            ("designed_run", "explosive_15_rate")
-        ]["relative_delta"],
-        "scramble_explosive_15_relative_delta": comp_by_key[
-            ("scramble", "explosive_15_rate")
-        ]["relative_delta"],
-        "complete_pass_explosive_15_relative_delta": comp_by_key[
-            ("complete_pass", "explosive_15_rate")
-        ]["relative_delta"],
-        "complete_pass_air_yards_relative_delta": comp_by_key.get(
-            ("complete_pass", "air_yards_mean"), {}
-        ).get("relative_delta"),
-        "complete_pass_yac_relative_delta": comp_by_key.get(
-            ("complete_pass", "yac_mean"), {}
-        ).get("relative_delta"),
+        "all_dropbacks_negative_gain_relative_delta": _relative("all_dropbacks", "negative_gain_rate"),
+        "all_dropbacks_gain_3plus_relative_delta": _relative("all_dropbacks", "gain_3plus_rate"),
+        "all_dropbacks_gain_5plus_relative_delta": _relative("all_dropbacks", "gain_5plus_rate"),
+        "all_dropbacks_gain_10plus_relative_delta": _relative("all_dropbacks", "gain_10plus_rate"),
+        "designed_run_gain_3plus_relative_delta": _relative("designed_run", "gain_3plus_rate"),
+        "designed_run_gain_5plus_relative_delta": _relative("designed_run", "gain_5plus_rate"),
+        "designed_run_gain_10plus_relative_delta": _relative("designed_run", "gain_10plus_rate"),
+        "scramble_gain_5plus_relative_delta": _relative("scramble", "gain_5plus_rate"),
+        "complete_pass_gain_5plus_relative_delta": _relative("complete_pass", "gain_5plus_rate"),
+        "complete_pass_gain_10plus_relative_delta": _relative("complete_pass", "gain_10plus_rate"),
+        "complete_pass_air_yards_relative_delta": _relative("complete_pass", "air_yards_mean"),
+        "complete_pass_yac_relative_delta": _relative("complete_pass", "yac_mean"),
         "principle": "This audit localizes gain-generation mismatch by causal play family. It does not authorize probability or efficiency tuning.",
     }
 
@@ -407,11 +479,13 @@ def main() -> None:
         "seed": args.seed,
         "market_blind": True,
         "behavior_changed_by_audit": False,
+        "stage3_active": stage3_paths is not None,
         "goal_line_yardage_conservation_active": True,
         "definitions": {
             "designed_run": "Monster RUN; nflverse rush_attempt == 1 and qb_dropback != 1",
             "scramble": "Monster PASS->SCRAMBLE; nflverse qb_scramble == 1",
             "complete_pass": "Monster PASS->COMPLETE; nflverse complete_pass == 1 after sack/scramble/interception exclusions",
+            "gain_thresholds": "credited scrimmage yards >= 3, 5, or 10; negative means credited scrimmage yards < 0",
             "explosive": "credited scrimmage yards >= 15",
             "air_yards_yac": "reported only for completed passes; missing historical values are excluded from those component means",
         },
