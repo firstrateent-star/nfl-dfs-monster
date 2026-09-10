@@ -55,7 +55,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 250 --seed 2026090920
+          --worlds 1000 --seed 2026090921
           --out artifacts/week1-v13-first-sim
       - name: Verify shadow manifest
         run: |
@@ -69,7 +69,7 @@ jobs:
           assert m['definition_safe_anatomy'] is True
           assert m['empirical_situational_pass_context_active'] is True
           assert m['games'] == 12
-          assert m['worlds_per_game'] == 250
+          assert m['worlds_per_game'] == 1000
           print(json.dumps(m, indent=2))
           PY
       - uses: actions/upload-artifact@v4
