@@ -6,7 +6,6 @@ from pathlib import Path
 
 import polars as pl
 
-
 REQUIRED = {
     "terminal",
     "scrimmage_plays",
@@ -46,21 +45,35 @@ def _summarize(frame: pl.DataFrame, label: str) -> dict[str, float | str]:
     ).height
     third_down_snaps = float(sums["third_down_snaps"] or 0)
     third_long_snaps = float(sums["third_and_long_snaps"] or 0)
-    early_down_snaps = float((sums["first_down_snaps"] or 0) + (sums["second_down_snaps"] or 0))
+    early_down_snaps = float(
+        (sums["first_down_snaps"] or 0) + (sums["second_down_snaps"] or 0)
+    )
 
     return {
         "scope": label,
         "drives": float(drives),
         "punt_rate": _rate(punts, drives),
         "scrimmage_three_and_out_rate": _rate(scrimmage_three_and_outs, drives),
-        "series_conversion_rate": _rate(float(sums["series_converted"] or 0), float(sums["series_started"] or 0)),
-        "third_down_conversion_rate": _rate(float(sums["third_down_conversions"] or 0), third_down_snaps),
+        "series_conversion_rate": _rate(
+            float(sums["series_converted"] or 0), float(sums["series_started"] or 0)
+        ),
+        "third_down_conversion_rate": _rate(
+            float(sums["third_down_conversions"] or 0), third_down_snaps
+        ),
         "third_and_long_share_of_third_downs": _rate(third_long_snaps, third_down_snaps),
-        "third_and_long_conversion_rate": _rate(float(sums["third_and_long_conversions"] or 0), third_long_snaps),
-        "mean_third_down_distance": _rate(float(sums["third_down_distance_total"] or 0), third_down_snaps),
-        "early_down_5plus_rate": _rate(float(sums["early_down_5plus_gains"] or 0), early_down_snaps),
+        "third_and_long_conversion_rate": _rate(
+            float(sums["third_and_long_conversions"] or 0), third_long_snaps
+        ),
+        "mean_third_down_distance": _rate(
+            float(sums["third_down_distance_total"] or 0), third_down_snaps
+        ),
+        "early_down_5plus_rate": _rate(
+            float(sums["early_down_5plus_gains"] or 0), early_down_snaps
+        ),
         "third_downs_per_drive": _rate(third_down_snaps, drives),
-        "fourth_down_snaps_per_drive": _rate(float(sums["fourth_down_snaps"] or 0), drives),
+        "fourth_down_snaps_per_drive": _rate(
+            float(sums["fourth_down_snaps"] or 0), drives
+        ),
     }
 
 
@@ -101,7 +114,9 @@ def main() -> None:
 
     ranked = sorted(
         rows,
-        key=lambda row: abs(float(row["relative_delta"])) if row["relative_delta"] is not None else -1.0,
+        key=lambda row: (
+            abs(float(row["relative_delta"])) if row["relative_delta"] is not None else -1.0
+        ),
         reverse=True,
     )
     metric_map = {str(row["metric"]): row for row in rows}
@@ -142,7 +157,9 @@ def main() -> None:
         "largest_relative_mismatches": ranked,
         "promotion_status": "SHADOW_DIAGNOSTIC_ONLY",
     }
-    (args.out / "drive_survival_ledger.json").write_text(json.dumps(report, indent=2) + "\n")
+    (args.out / "drive_survival_ledger.json").write_text(
+        json.dumps(report, indent=2) + "\n"
+    )
     print(json.dumps(report, indent=2))
 
 
