@@ -1,0 +1,71 @@
+interactions:
+  age_years:
+    entity_scopes: [player]
+    interaction_scales: [game_state]
+    phases: [pre_snap, post_play]
+    mechanisms: [durability_uncertainty, fatigue_update]
+  career_workload:
+    entity_scopes: [player]
+    interaction_scales: [game_state]
+    phases: [pre_snap, post_play]
+    mechanisms: [durability_uncertainty, fatigue_update]
+  drives_per_game:
+    entity_scopes: [team]
+    interaction_scales: [game_state]
+    phases: [pre_snap, post_play]
+    mechanisms: [drive_volume_context, drive_calibration]
+  plays_per_drive:
+    entity_scopes: [team]
+    interaction_scales: [game_state]
+    phases: [pre_snap, post_play]
+    mechanisms: [drive_volume_context, drive_calibration]
+  defensive_success_rate_allowed:
+    entity_scopes: [team]
+    interaction_scales: [11v11]
+    phases: [development, resolution]
+    mechanisms: [drive_progress, conversion]
+  defensive_epa_allowed_per_play:
+    entity_scopes: [team]
+    interaction_scales: [11v11]
+    phases: [development, resolution]
+    mechanisms: [drive_progress, explosive_prevention]
+  pressure_rate:
+    entity_scopes: [team, unit]
+    interaction_scales: [unit, 11v11]
+    phases: [development]
+    mechanisms: [pressure]
+  catch_rate:
+    entity_scopes: [player]
+    interaction_scales: [1v1]
+    phases: [resolution]
+    mechanisms: [catchpoint]
+  yards_per_reception:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group]
+    phases: [resolution]
+    mechanisms: [catchpoint, yac_space]
+  yards_per_carry:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group]
+    phases: [resolution]
+    mechanisms: [run_contact]
+  depth_rank:
+    entity_scopes: [player]
+    interaction_scales: [11v11, game_state]
+    phases: [pre_snap]
+    mechanisms: [active_roster, personnel_package, substitution]
+  conditional_offense_snap_share:
+    entity_scopes: [player]
+    interaction_scales: [11v11]
+    phases: [pre_snap]
+    mechanisms: [personnel_package, substitution, route_assignment, rusher_selection]
+  defense_snap_share:
+    entity_scopes: [player]
+    interaction_scales: [11v11, unit]
+    phases: [pre_snap]
+    mechanisms: [personnel_package, substitution, pass_rush_assignment, coverage_assignment]
+  participation_uncertainty:
+    entity_scopes: [player]
+    interaction_scales: [11v11, game_state]
+    phases: [pre_snap]
+    mechanisms: [personnel_package, substitution, role_uncertainty]
