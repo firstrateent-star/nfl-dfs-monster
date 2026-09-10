@@ -12,6 +12,7 @@ from monster.sim.play_anatomy import (
     CatchpointResult,
     ContactResult,
     QBResponse,
+    condition_throw_probabilities,
     resolve_catchpoint,
     resolve_qb_response,
     resolve_run_contact,
@@ -255,6 +256,12 @@ def simulate_scrimmage_play(
         )
 
     pressured = rng.random() < pressure
+    if completion_probability is not None and interception_probability is not None:
+        completion_probability, interception_probability = condition_throw_probabilities(
+            completion_probability=completion_probability,
+            interception_probability=interception_probability,
+            pressured=pressured,
+        )
     response = resolve_qb_response(
         pressured=pressured,
         mobility=offense.quarterback.explosive,
