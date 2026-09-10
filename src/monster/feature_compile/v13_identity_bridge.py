@@ -34,11 +34,18 @@ def compile_v13_player_identity(
     position: str,
     usage_weight: float,
     inputs: PlayerMechanismInputs,
+    availability_already_sampled: bool = False,
 ) -> tuple[PlayerIdentity, V13IdentityTrace]:
-    """Compile existing Full-Reality evidence into bounded play-level identity traits.
+    """Compile Full-Reality evidence into bounded play-level identity traits.
 
     Missing evidence is neutral. These traits have football-event jurisdiction only and never
     receive market, salary, ownership, optimizer or fantasy authority.
+
+    ``availability_already_sampled`` is the seam for world-specific personnel reality. When
+    false, the legacy bridge preserves its historical expected-state behavior. When true, the
+    caller has already decided whether the player exists in this game world, so active
+    probability MUST NOT reduce that player's ability again. Only effectiveness-if-active may
+    alter active-world capability.
     """
     speed_parts = [
         _signal(inputs.forty_time, 4.55, 0.18, reverse=True),
@@ -67,11 +74,17 @@ def compile_v13_player_identity(
     health = 1.0
     if inputs.effectiveness_if_active is not None:
         health *= float(np.clip(inputs.effectiveness_if_active, 0.35, 1.10))
-    if inputs.active_probability is not None:
+    if not availability_already_sampled and inputs.active_probability is not None:
         health *= float(np.clip(inputs.active_probability, 0.0, 1.0))
-    continuity = 0.0 if inputs.unit_continuity is None else float(np.clip((inputs.unit_continuity - 0.5) * 2.0, -1.0, 1.0))
+    continuity = (
+        0.0
+        if inputs.unit_continuity is None
+        else float(np.clip((inputs.unit_continuity - 0.5) * 2.0, -1.0, 1.0))
+    )
 
-    efficiency = float(np.clip(health * (1.0 + 0.035 * catch + 0.025 * continuity), 0.35, 1.10))
+    efficiency = float(
+        np.clip(health * (1.0 + 0.035 * catch + 0.025 * continuity), 0.35, 1.10)
+    )
     explosive = float(np.clip(1.0 + 0.07 * speed, 0.90, 1.10))
     turnover_security = float(np.clip(1.0 + 0.025 * power, 0.94, 1.06))
     evidence_fields = sum(
