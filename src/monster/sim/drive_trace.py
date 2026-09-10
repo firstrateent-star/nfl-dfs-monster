@@ -12,6 +12,9 @@ class DriveTrace:
 
     This is an audit record, not a scoring prior. It describes what the event engine did so
     drive conversion can be compared with historical football before any mechanism changes.
+    ``red_zone_entered`` means the possession reached the red zone, including on a scoring
+    play from outside it. ``red_zone_snap_seen`` is stricter: the offense actually began an
+    observed event with the ball in the red zone.
     """
 
     offense_team_id: str
@@ -30,7 +33,9 @@ class DriveTrace:
     first_downs: int
     explosive_plays: int
     red_zone_entered: bool
+    red_zone_snap_seen: bool
     goal_to_go_reached: bool
+    goal_to_go_snap_seen: bool
     pressured_dropbacks: int
     sacks: int
     turnovers: int
@@ -47,7 +52,9 @@ class DriveTraceRecorder:
         self.first_downs = 0
         self.explosive_plays = 0
         self.red_zone_entered = start.yardline_100 >= 80.0
+        self.red_zone_snap_seen = start.yardline_100 >= 80.0
         self.goal_to_go_reached = _goal_to_go(start)
+        self.goal_to_go_snap_seen = _goal_to_go(start)
         self.pressured_dropbacks = 0
         self.sacks = 0
         self.turnovers = 0
@@ -59,6 +66,8 @@ class DriveTraceRecorder:
         if before.possession != self.start.possession:
             raise ValueError("drive observer received an event from a different offense")
         self.observed_events += 1
+        self.red_zone_snap_seen = self.red_zone_snap_seen or before.yardline_100 >= 80.0
+        self.goal_to_go_snap_seen = self.goal_to_go_snap_seen or _goal_to_go(before)
         if event.play_type not in {PlayType.RUN, PlayType.PASS}:
             return
 
@@ -85,6 +94,8 @@ class DriveTraceRecorder:
         if before.possession != self.start.possession:
             raise ValueError("drive observer received a penalty from a different offense")
         self.observed_events += 1
+        self.red_zone_snap_seen = self.red_zone_snap_seen or before.yardline_100 >= 80.0
+        self.goal_to_go_snap_seen = self.goal_to_go_snap_seen or _goal_to_go(before)
         if after.possession == self.start.possession:
             self.last_offense_yardline = after.yardline_100
             self.red_zone_entered = self.red_zone_entered or after.yardline_100 >= 80.0
@@ -118,7 +129,9 @@ class DriveTraceRecorder:
             first_downs=self.first_downs,
             explosive_plays=self.explosive_plays,
             red_zone_entered=self.red_zone_entered,
+            red_zone_snap_seen=self.red_zone_snap_seen,
             goal_to_go_reached=self.goal_to_go_reached,
+            goal_to_go_snap_seen=self.goal_to_go_snap_seen,
             pressured_dropbacks=self.pressured_dropbacks,
             sacks=self.sacks,
             turnovers=self.turnovers,
