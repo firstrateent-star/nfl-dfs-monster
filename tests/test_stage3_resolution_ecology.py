@@ -4,7 +4,12 @@ import numpy as np
 
 from monster.sim.intent_ecology import PassDepthOutcome, RunGeometryOutcome, sample_air_yards
 from monster.sim.play_anatomy import CatchpointResult, resolve_catchpoint
-from monster.sim.resolution_ecology import completed_pass_yards, resolve_run_ecology
+from monster.sim.resolution_ecology import (
+    completed_pass_yards,
+    depth_throw_probabilities,
+    resolve_run_ecology,
+    sample_yac,
+)
 
 
 class _FixedRandom:
@@ -119,7 +124,63 @@ def test_air_yards_respect_depth_family_and_field_geometry() -> None:
     assert max(goal_limited) <= 23.0
 
 
-def test_neutral_run_ecology_reproduces_branch_priors_and_tails() -> None:
+def test_coarse_matchup_only_perturbs_depth_prior_partially() -> None:
+    profile = _pass_profile("short_0_5")
+    neutral = depth_throw_probabilities(
+        profile,
+        matchup_completion_probability=0.64,
+        matchup_interception_probability=0.022,
+        pressured=False,
+    )
+    favorable = depth_throw_probabilities(
+        profile,
+        matchup_completion_probability=0.84,
+        matchup_interception_probability=0.012,
+        pressured=False,
+    )
+    raw_relative = 0.84 / 0.64
+    modeled_relative = favorable.completion / neutral.completion
+    assert 1.0 < modeled_relative < raw_relative
+    assert favorable.interception < neutral.interception
+
+
+def test_behind_los_yac_uses_actual_air_depth_to_match_total_gain_branches() -> None:
+    profile = PassDepthOutcome(
+        category="behind_los",
+        attempts=10000,
+        completion_rate=0.77,
+        interception_rate=0.008,
+        touchdown_rate=0.01,
+        air_yards_mean=-3.7,
+        air_yards_sd=2.1,
+        yac_mean_completed=9.1,
+        yac_sd_completed=9.0,
+        negative_completion_rate=0.143,
+        zero_completion_rate=0.025,
+    )
+    rng = np.random.default_rng(20260912)
+    air_yards = -4.0
+    total = np.asarray(
+        [
+            completed_pass_yards(
+                air_yards,
+                sample_yac(
+                    profile,
+                    receiver_explosiveness=1.0,
+                    coverage_strength=1.0,
+                    air_yards=air_yards,
+                    rng=rng,
+                ),
+            )
+            for _ in range(30000)
+        ],
+        dtype=float,
+    )
+    assert abs(float((total < 0).mean()) - profile.negative_completion_rate) < 0.012
+    assert abs(float(np.isclose(total, 0.0).mean()) - profile.zero_completion_rate) < 0.010
+
+
+def test_neutral_run_ecology_reproduces_branch_priors_mean_and_tails() -> None:
     profile = _run_profile()
     rng = np.random.default_rng(20260911)
     yards = np.asarray(
@@ -138,6 +199,7 @@ def test_neutral_run_ecology_reproduces_branch_priors_and_tails() -> None:
         dtype=float,
     )
 
+    assert abs(float(yards.mean()) - profile.yards_mean) < 0.15
     assert abs(float((yards < 0).mean()) - profile.negative_rate) < 0.012
     assert abs(float((yards == 0).mean()) - profile.zero_rate) < 0.010
     assert abs(float((yards >= 10).mean()) - profile.explosive_10_rate) < 0.012
@@ -145,3 +207,44 @@ def test_neutral_run_ecology_reproduces_branch_priors_and_tails() -> None:
     assert abs(float((yards >= 20).mean()) - profile.explosive_20_rate) < 0.008
     assert float((yards <= -5).mean()) > 0.005
     assert float((yards >= 20).mean()) > 0.015
+
+
+def test_other_geometry_stays_empirical_instead_of_inventing_a_lane() -> None:
+    profile = RunGeometryOutcome(
+        category="other",
+        attempts=4000,
+        yards_mean=-0.85,
+        yards_sd=1.4,
+        negative_rate=0.782,
+        zero_rate=0.05,
+        loss_2_plus_rate=0.035,
+        loss_5_plus_rate=0.009,
+        explosive_10_rate=0.002,
+        explosive_15_rate=0.002,
+        explosive_20_rate=0.0,
+        touchdown_rate=0.0,
+        fumble_lost_rate=0.003,
+        yards_p10=-1.25,
+        yards_p50=-1.0,
+        yards_p90=1.0,
+        yards_p99=1.5,
+    )
+    rng = np.random.default_rng(20260913)
+    yards = np.asarray(
+        [
+            resolve_run_ecology(
+                profile,
+                matchup_stuff_probability=0.35,
+                matchup_yards_multiplier=1.30,
+                runner_power=1.20,
+                tackling=0.80,
+                explosiveness=1.20,
+                rng=rng,
+            ).total_yards
+            for _ in range(30000)
+        ],
+        dtype=float,
+    )
+    assert abs(float(yards.mean()) - profile.yards_mean) < 0.12
+    assert abs(float((yards < 0).mean()) - profile.negative_rate) < 0.012
+    assert float((yards >= 10).mean()) == 0.0
