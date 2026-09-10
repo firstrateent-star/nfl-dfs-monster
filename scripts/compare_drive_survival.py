@@ -21,6 +21,18 @@ REQUIRED = {
     "third_and_long_conversions",
     "third_down_distance_total",
     "early_down_5plus_gains",
+    "early_down_run_snaps",
+    "early_down_run_yards_total",
+    "early_down_run_negative_gains",
+    "early_down_run_3plus_gains",
+    "early_down_run_5plus_gains",
+    "early_down_run_10plus_gains",
+    "early_down_pass_snaps",
+    "early_down_pass_yards_total",
+    "early_down_pass_negative_gains",
+    "early_down_pass_3plus_gains",
+    "early_down_pass_5plus_gains",
+    "early_down_pass_10plus_gains",
 }
 
 
@@ -48,6 +60,8 @@ def _summarize(frame: pl.DataFrame, label: str) -> dict[str, float | str]:
     early_down_snaps = float(
         (sums["first_down_snaps"] or 0) + (sums["second_down_snaps"] or 0)
     )
+    early_run = float(sums["early_down_run_snaps"] or 0)
+    early_pass = float(sums["early_down_pass_snaps"] or 0)
 
     return {
         "scope": label,
@@ -70,6 +84,17 @@ def _summarize(frame: pl.DataFrame, label: str) -> dict[str, float | str]:
         "early_down_5plus_rate": _rate(
             float(sums["early_down_5plus_gains"] or 0), early_down_snaps
         ),
+        "early_down_run_share": _rate(early_run, early_run + early_pass),
+        "early_down_run_mean_yards": _rate(float(sums["early_down_run_yards_total"] or 0), early_run),
+        "early_down_run_negative_rate": _rate(float(sums["early_down_run_negative_gains"] or 0), early_run),
+        "early_down_run_3plus_rate": _rate(float(sums["early_down_run_3plus_gains"] or 0), early_run),
+        "early_down_run_5plus_rate": _rate(float(sums["early_down_run_5plus_gains"] or 0), early_run),
+        "early_down_run_10plus_rate": _rate(float(sums["early_down_run_10plus_gains"] or 0), early_run),
+        "early_down_pass_mean_yards": _rate(float(sums["early_down_pass_yards_total"] or 0), early_pass),
+        "early_down_pass_negative_rate": _rate(float(sums["early_down_pass_negative_gains"] or 0), early_pass),
+        "early_down_pass_3plus_rate": _rate(float(sums["early_down_pass_3plus_gains"] or 0), early_pass),
+        "early_down_pass_5plus_rate": _rate(float(sums["early_down_pass_5plus_gains"] or 0), early_pass),
+        "early_down_pass_10plus_rate": _rate(float(sums["early_down_pass_10plus_gains"] or 0), early_pass),
         "third_downs_per_drive": _rate(third_down_snaps, drives),
         "fourth_down_snaps_per_drive": _rate(
             float(sums["fourth_down_snaps"] or 0), drives
@@ -130,6 +155,23 @@ def main() -> None:
         "third_and_long_survival": metric_map["third_and_long_conversion_rate"],
         "third_down_distance": metric_map["mean_third_down_distance"],
         "early_down_chunk_creation": metric_map["early_down_5plus_rate"],
+        "early_down_ownership": {
+            "run": {
+                "share": metric_map["early_down_run_share"],
+                "mean_yards": metric_map["early_down_run_mean_yards"],
+                "negative_rate": metric_map["early_down_run_negative_rate"],
+                "three_plus_rate": metric_map["early_down_run_3plus_rate"],
+                "five_plus_rate": metric_map["early_down_run_5plus_rate"],
+                "ten_plus_rate": metric_map["early_down_run_10plus_rate"],
+            },
+            "pass": {
+                "mean_yards": metric_map["early_down_pass_mean_yards"],
+                "negative_rate": metric_map["early_down_pass_negative_rate"],
+                "three_plus_rate": metric_map["early_down_pass_3plus_rate"],
+                "five_plus_rate": metric_map["early_down_pass_5plus_rate"],
+                "ten_plus_rate": metric_map["early_down_pass_10plus_rate"],
+            },
+        },
         "interpretation_rule": (
             "This ledger is observational. A mismatch identifies a candidate causal organ, not a coefficient target. "
             "Any intervention must be owned by the mechanism that creates the mismatch and rerun paired under the same seed/world universe."
@@ -150,6 +192,7 @@ def main() -> None:
             "scrimmage_three_and_out": "punt drive with exactly three definition-safe scrimmage plays and no scrimmage first down",
             "third_and_long": "third down with distance >= 7 yards",
             "early_down_5plus": "first/second-down scrimmage gain >= 5 yards",
+            "early_down_ownership": "first/second-down scrimmage events split into designed runs versus dropbacks; each branch reports mean, negative, 3+, 5+, and 10+ gain anatomy",
         },
         "simulated": sim,
         "historical": hist,
