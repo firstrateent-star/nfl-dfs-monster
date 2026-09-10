@@ -1,0 +1,35 @@
+name: Apply drive trace integration
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/apply_drive_trace_patch.py
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Apply deterministic patch
+        run: python scripts/apply_drive_trace_patch.py
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Test
+        run: uv run pytest -q
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Commit validated integration
+        run: |
+          rm scripts/apply_drive_trace_patch.py .github/workflows/apply-drive-trace-patch.yml
+          git config user.name "monster-ci"
+          git config user.email "monster-ci@users.noreply.github.com"
+          git add -A
+          git commit -m "Integrate passive drive traces into v1.3 game loop"
+          git push origin HEAD:feature/football-state-v13-clock
