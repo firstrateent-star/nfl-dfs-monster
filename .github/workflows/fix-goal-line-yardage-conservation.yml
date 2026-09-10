@@ -1,0 +1,86 @@
+name: Fix goal-line yardage conservation
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - .github/workflows/fix-goal-line-yardage-conservation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/football-state-v13-clock
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Apply deterministic conservation patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/monster/sim/play_kernel.py')
+          text = path.read_text()
+
+          anchor = '''def _weighted_player(players: tuple[PlayerIdentity, ...], rng: np.random.Generator) -> PlayerIdentity:\n'''
+          helper = '''def _credit_scrimmage_yards(state: FootballState, raw_yards: float) -> float:\n    """Return official gain/loss without allowing positive credit beyond the goal line."""\n    if raw_yards <= 0.0:\n        return float(raw_yards)\n    yards_to_goal = max(100.0 - state.yardline_100, 0.0)\n    return float(min(raw_yards, yards_to_goal))\n\n\n'''
+          if '_credit_scrimmage_yards' not in text:
+              if text.count(anchor) != 1:
+                  raise SystemExit('weighted-player anchor count changed')
+              text = text.replace(anchor, helper + anchor, 1)
+
+          old = '''        yards = anatomy.total_yards\n        fumble_p = _lost_fumble_probability(\n'''
+          new = '''        raw_yards = anatomy.total_yards\n        yards = _credit_scrimmage_yards(state, raw_yards)\n        fumble_p = _lost_fumble_probability(\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'run yard anchor count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''        touchdown = state.yardline_100 + yards >= 100.0 and not turnover\n        return PlayEvent(\n'''
+          new = '''        touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover\n        return PlayEvent(\n'''
+          if text.count(old) != 2:
+              raise SystemExit(f'run/pass touchdown anchor count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '''        turnover = rng.random() < _lost_fumble_probability(\n            security=offense.quarterback.turnover_security,\n            contact=anatomy.contact,\n            base_rate=0.012,\n        )\n        touchdown = state.yardline_100 + anatomy.total_yards >= 100.0 and not turnover\n        return PlayEvent(\n            play_type=play_type,\n            elapsed_seconds=elapsed,\n            yards=anatomy.total_yards,\n'''
+          new = '''        raw_yards = anatomy.total_yards\n        yards = _credit_scrimmage_yards(state, raw_yards)\n        turnover = rng.random() < _lost_fumble_probability(\n            security=offense.quarterback.turnover_security,\n            contact=anatomy.contact,\n            base_rate=0.012,\n        )\n        touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover\n        return PlayEvent(\n            play_type=play_type,\n            elapsed_seconds=elapsed,\n            yards=yards,\n'''
+          if text.count(old) != 1:
+              raise SystemExit('scramble yard anchor changed')
+          text = text.replace(old, new, 1)
+
+          old = '''    yards = max(air_yards, 0.0) + yac\n    turnover = rng.random() < _lost_fumble_probability(\n'''
+          new = '''    raw_yards = max(air_yards, 0.0) + yac\n    yards = _credit_scrimmage_yards(state, raw_yards)\n    turnover = rng.random() < _lost_fumble_probability(\n'''
+          if text.count(old) != 1:
+              raise SystemExit('completion yard anchor changed')
+          text = text.replace(old, new, 1)
+
+          old = '''    touchdown = state.yardline_100 + yards >= 100.0 and not turnover\n    return PlayEvent(\n'''
+          new = '''    touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover\n    return PlayEvent(\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'completion touchdown anchor count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - name: Verify focused invariant
+        run: uv run pytest -q tests/test_goal_line_yardage_conservation.py
+      - name: Verify full suite and lint
+        run: |
+          uv run pytest -q
+          uv run ruff check src tests
+      - name: Commit validated repair
+        run: |
+          if git diff --quiet -- src/monster/sim/play_kernel.py; then
+            echo 'No source change required.'
+            exit 0
+          fi
+          git config user.name monster-ci
+          git config user.email monster-ci@users.noreply.github.com
+          git add src/monster/sim/play_kernel.py
+          git commit -m 'Enforce goal-line yardage conservation'
+          git push origin HEAD:feature/football-state-v13-clock
