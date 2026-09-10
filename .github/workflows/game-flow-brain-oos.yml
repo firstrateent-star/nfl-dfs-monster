@@ -28,15 +28,21 @@ jobs:
         run: >-
           uv run python scripts/audit_game_flow_brain_oos.py
           --out artifacts/game-flow-brain-oos
-      - name: Verify observational OOS audit
+      - name: Enforce OOS decision-realism gate
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-          m=json.loads(Path('artifacts/game-flow-brain-oos/manifest.json').read_text())
+
+          m = json.loads(Path('artifacts/game-flow-brain-oos/manifest.json').read_text())
+          fold_count = len(m['folds'])
           assert m['market_blind'] is True
           assert m['behavior_changed_by_audit'] is False
-          assert len(m['folds']) == 2
+          assert fold_count == 2
+          assert m['mean_brier_gain'] > 0.0, m
+          assert m['mean_log_loss_gain'] > 0.0, m
+          assert m['positive_brier_folds'] == fold_count, m
+          assert m['positive_log_loss_folds'] == fold_count, m
           print(json.dumps(m, indent=2))
           PY
       - uses: actions/upload-artifact@v4
