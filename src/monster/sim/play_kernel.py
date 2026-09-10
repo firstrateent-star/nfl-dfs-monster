@@ -197,6 +197,33 @@ def choose_play_type(
     )
 
 
+def _event_elapsed_seconds(
+    cadence_elapsed: int,
+    *,
+    play_type: PlayType,
+    pass_result: PassResult | None = None,
+    touchdown: bool = False,
+    turnover: bool = False,
+) -> int:
+    """Convert snap cadence into game-clock loss using the resolved event.
+
+    The event engine has no separate between-play clock phase yet. For an in-bounds live-ball
+    result, elapsed time therefore represents snap-to-next-snap cadence. An incompletion or
+    terminal score/change of possession stops the game clock at the end of the play, so only a
+    short live-ball duration is charged. This broadens real-football drive-time tails without
+    changing play choice or yardage.
+    """
+    stopped = int(np.clip(round(cadence_elapsed * 0.20), 3, 10))
+    if touchdown or turnover:
+        return stopped
+    if play_type == PlayType.PASS and pass_result in {
+        PassResult.INCOMPLETE,
+        PassResult.INTERCEPTION,
+    }:
+        return stopped
+    return cadence_elapsed
+
+
 def _lane_for_geometry(
     category: str,
     rusher: PlayerIdentity,
@@ -225,7 +252,9 @@ def simulate_scrimmage_play(
 ) -> PlayEvent:
     play_type = choose_play_type(state, offense, rng)
     hurry = _policy_for_state(state, offense).hurry_probability
-    elapsed = int(np.clip(rng.normal(29.0 - 13.0 * hurry, 7.0), 5.0, 45.0))
+    cadence_elapsed = int(
+        np.clip(rng.normal(34.0 - 18.0 * hurry, 8.5), 12.0, 48.0)
+    )
 
     if play_type == PlayType.PUNT:
         return PlayEvent(play_type=play_type, elapsed_seconds=8)
@@ -361,7 +390,12 @@ def simulate_scrimmage_play(
         touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=_event_elapsed_seconds(
+                cadence_elapsed,
+                play_type=play_type,
+                touchdown=touchdown,
+                turnover=turnover,
+            ),
             yards=yards,
             rusher_id=rusher.player_id,
             fumbler_id=rusher.player_id if turnover else None,
@@ -454,7 +488,12 @@ def simulate_scrimmage_play(
         )
         return PlayEvent(
             play_type=play_type,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=_event_elapsed_seconds(
+                cadence_elapsed,
+                play_type=play_type,
+                pass_result=PassResult.SACK,
+                turnover=turnover,
+            ),
             yards=yards,
             passer_id=offense.quarterback.player_id,
             fumbler_id=offense.quarterback.player_id if turnover else None,
@@ -483,7 +522,13 @@ def simulate_scrimmage_play(
         touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=_event_elapsed_seconds(
+                cadence_elapsed,
+                play_type=play_type,
+                pass_result=PassResult.SCRAMBLE,
+                touchdown=touchdown,
+                turnover=turnover,
+            ),
             yards=yards,
             passer_id=offense.quarterback.player_id,
             rusher_id=offense.quarterback.player_id,
@@ -550,7 +595,12 @@ def simulate_scrimmage_play(
     if catchpoint == CatchpointResult.INTERCEPTION:
         return PlayEvent(
             play_type=play_type,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=_event_elapsed_seconds(
+                cadence_elapsed,
+                play_type=play_type,
+                pass_result=PassResult.INTERCEPTION,
+                turnover=True,
+            ),
             passer_id=offense.quarterback.player_id,
             target_id=target.player_id,
             primary_defender_id=primary_defender_id,
@@ -565,7 +615,11 @@ def simulate_scrimmage_play(
     if catchpoint != CatchpointResult.CATCH:
         return PlayEvent(
             play_type=play_type,
-            elapsed_seconds=elapsed,
+            elapsed_seconds=_event_elapsed_seconds(
+                cadence_elapsed,
+                play_type=play_type,
+                pass_result=PassResult.INCOMPLETE,
+            ),
             passer_id=offense.quarterback.player_id,
             target_id=target.player_id,
             primary_defender_id=primary_defender_id,
@@ -577,7 +631,7 @@ def simulate_scrimmage_play(
             pass_depth_category=depth_category,
         )
 
-    if profile is None:
+    if offense.intent_ecology is None:
         yac = float(
             np.clip(
                 rng.lognormal(1.25, 0.65)
@@ -616,7 +670,13 @@ def simulate_scrimmage_play(
     touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
     return PlayEvent(
         play_type=play_type,
-        elapsed_seconds=elapsed,
+        elapsed_seconds=_event_elapsed_seconds(
+            cadence_elapsed,
+            play_type=play_type,
+            pass_result=PassResult.COMPLETE,
+            touchdown=touchdown,
+            turnover=turnover,
+        ),
         yards=yards,
         passer_id=offense.quarterback.player_id,
         target_id=target.player_id,
