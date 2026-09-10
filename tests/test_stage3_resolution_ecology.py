@@ -5,6 +5,7 @@ import numpy as np
 from monster.sim.intent_ecology import PassDepthOutcome, RunGeometryOutcome, sample_air_yards
 from monster.sim.play_anatomy import CatchpointResult, resolve_catchpoint
 from monster.sim.resolution_ecology import (
+    _shrink_run_relative,
     completed_pass_yards,
     depth_throw_probabilities,
     resolve_run_ecology,
@@ -142,6 +143,14 @@ def test_coarse_matchup_only_perturbs_depth_prior_partially() -> None:
     modeled_relative = favorable.completion / neutral.completion
     assert 1.0 < modeled_relative < raw_relative
     assert favorable.interception < neutral.interception
+
+
+def test_coarse_run_matchup_authority_is_directional_but_shrunk() -> None:
+    favorable = _shrink_run_relative(1.38, low=0.72, high=1.38)
+    adverse = _shrink_run_relative(0.72, low=0.72, high=1.38)
+    assert 1.0 < favorable < 1.38
+    assert 0.72 < adverse < 1.0
+    assert _shrink_run_relative(1.0, low=0.72, high=1.38) == 1.0
 
 
 def test_behind_los_yac_uses_actual_air_depth_to_match_total_gain_branches() -> None:
