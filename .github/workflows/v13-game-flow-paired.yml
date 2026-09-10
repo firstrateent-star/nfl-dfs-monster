@@ -1,0 +1,118 @@
+name: Monster v1.3 paired game-flow shadow
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/run_week1_v13_game_flow_shadow.py
+      - scripts/run_week1_v13_first_sim.py
+      - scripts/build_league_policy.py
+      - src/monster/feature_compile/game_flow_policy.py
+      - src/monster/sim/game_flow.py
+      - src/monster/sim/game_flow_brain.py
+      - src/monster/sim/game_flow_lookup.py
+      - src/monster/sim/play_kernel.py
+      - .github/workflows/v13-game-flow-paired.yml
+  workflow_dispatch:
+
+jobs:
+  paired-game-flow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Causal architecture gates
+        run: |
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_game_flow_shadow.py scripts/build_league_policy.py
+          uv run pytest -q
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run paired legacy-brain baseline
+        run: >-
+          uv run python scripts/run_week1_v13_first_sim.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 1000 --seed 2026091040
+          --out artifacts/game-flow-paired/baseline
+      - name: Run paired hierarchical Game Flow shadow
+        run: >-
+          uv run python scripts/run_week1_v13_game_flow_shadow.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 1000 --seed 2026091040
+          --out artifacts/game-flow-paired/game-flow
+      - name: Compare paired anatomy
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/game-flow-paired')
+          b=pl.read_csv(root/'baseline'/'football_anatomy.csv').rename({
+              c:f'{c}_baseline' for c in pl.read_csv(root/'baseline'/'football_anatomy.csv').columns if c!='game'
+          })
+          g=pl.read_csv(root/'game-flow'/'football_anatomy.csv').rename({
+              c:f'{c}_game_flow' for c in pl.read_csv(root/'game-flow'/'football_anatomy.csv').columns if c!='game'
+          })
+          joined=b.join(g,on='game')
+          metrics=['scrimmage_plays_mean','dropbacks_mean','run_plays_mean','completion_percentage','sack_rate','scramble_rate','interception_rate','total_mean']
+          for m in metrics:
+              joined=joined.with_columns(
+                  (pl.col(f'{m}_game_flow')-pl.col(f'{m}_baseline')).alias(f'{m}_delta')
+              )
+          joined.write_csv(root/'paired_anatomy_comparison.csv')
+          summary={
+              'artifact':'Monster v1.3 Paired Game Flow Stage 2 Experiment',
+              'market_blind':True,
+              'worlds_per_game':1000,
+              'seed':2026091040,
+              'baseline_game_flow_active':False,
+              'shadow_game_flow_active':True,
+              'resolution_engine_identical':True,
+              'mean_abs_dropback_change':float(joined.get_column('dropbacks_mean_delta').abs().mean()),
+              'mean_abs_run_change':float(joined.get_column('run_plays_mean_delta').abs().mean()),
+              'mean_abs_completion_rate_change':float(joined.get_column('completion_percentage_delta').abs().mean()),
+              'mean_abs_sack_rate_change':float(joined.get_column('sack_rate_delta').abs().mean()),
+              'mean_abs_total_change':float(joined.get_column('total_mean_delta').abs().mean()),
+              'promotion_status':'SHADOW_STAGE_2_EVIDENCE_ONLY',
+          }
+          (root/'manifest.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(joined.select(['game',*[f'{m}_delta' for m in metrics]]))
+          print(json.dumps(summary,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-game-flow-paired
+          path: artifacts/game-flow-paired/
+          retention-days: 14
