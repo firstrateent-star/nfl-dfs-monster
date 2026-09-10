@@ -166,7 +166,7 @@ def sample_event_rush_share_plan(
             38,
         )
     )
-    expected_non_qb_runs = max(int(round(expected_total_runs * non_qb_mass)), 1)
+    expected_non_qb_runs = max(round(expected_total_runs * non_qb_mass), 1)
     core_count = _sample_core_count(rng, expected_non_qb_runs, len(eligible))
     core = _sample_core_roles(
         rng,
