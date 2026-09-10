@@ -138,11 +138,25 @@ def _drive_row(
     third_and_long_conversions = 0
     third_down_distance_total = 0.0
     early_down_5plus_gains = 0
+    early_down_run_snaps = 0
+    early_down_run_yards_total = 0.0
+    early_down_run_negative_gains = 0
+    early_down_run_3plus_gains = 0
+    early_down_run_5plus_gains = 0
+    early_down_run_10plus_gains = 0
+    early_down_pass_snaps = 0
+    early_down_pass_yards_total = 0.0
+    early_down_pass_negative_gains = 0
+    early_down_pass_3plus_gains = 0
+    early_down_pass_5plus_gains = 0
+    early_down_pass_10plus_gains = 0
 
     for row in rows:
         if not _is_scrimmage(row):
             continue
 
+        dropback = _flag(row, "qb_dropback")
+        designed_run = _flag(row, "rush_attempt") and not dropback
         yardline_to_goal = row.get("yardline_100")
         yards = _number(row, "yards_gained")
         down = int(_number(row, "down", 0.0))
@@ -187,8 +201,22 @@ def _drive_row(
                 if distance >= 7.0:
                     third_and_long_conversions += 1
 
-        if down in {1, 2} and yards >= 5.0:
-            early_down_5plus_gains += 1
+        if down in {1, 2}:
+            early_down_5plus_gains += int(yards >= 5.0)
+            if designed_run:
+                early_down_run_snaps += 1
+                early_down_run_yards_total += yards
+                early_down_run_negative_gains += int(yards < 0.0)
+                early_down_run_3plus_gains += int(yards >= 3.0)
+                early_down_run_5plus_gains += int(yards >= 5.0)
+                early_down_run_10plus_gains += int(yards >= 10.0)
+            elif dropback:
+                early_down_pass_snaps += 1
+                early_down_pass_yards_total += yards
+                early_down_pass_negative_gains += int(yards < 0.0)
+                early_down_pass_3plus_gains += int(yards >= 3.0)
+                early_down_pass_5plus_gains += int(yards >= 5.0)
+                early_down_pass_10plus_gains += int(yards >= 10.0)
 
     terminal = _terminal(rows)
     return {
@@ -224,6 +252,18 @@ def _drive_row(
         "third_and_long_conversions": third_and_long_conversions,
         "third_down_distance_total": float(third_down_distance_total),
         "early_down_5plus_gains": early_down_5plus_gains,
+        "early_down_run_snaps": early_down_run_snaps,
+        "early_down_run_yards_total": float(early_down_run_yards_total),
+        "early_down_run_negative_gains": early_down_run_negative_gains,
+        "early_down_run_3plus_gains": early_down_run_3plus_gains,
+        "early_down_run_5plus_gains": early_down_run_5plus_gains,
+        "early_down_run_10plus_gains": early_down_run_10plus_gains,
+        "early_down_pass_snaps": early_down_pass_snaps,
+        "early_down_pass_yards_total": float(early_down_pass_yards_total),
+        "early_down_pass_negative_gains": early_down_pass_negative_gains,
+        "early_down_pass_3plus_gains": early_down_pass_3plus_gains,
+        "early_down_pass_5plus_gains": early_down_pass_5plus_gains,
+        "early_down_pass_10plus_gains": early_down_pass_10plus_gains,
     }
 
 
@@ -308,6 +348,7 @@ def main() -> None:
             "survival_series": "scrimmage series begins on down == 1; conversion uses nflverse first_down_pass/first_down_rush or first_down fallback",
             "third_and_long": "definition-safe third down with ydstogo >= 7",
             "early_down_5plus": "definition-safe first/second-down scrimmage gain >= 5 yards",
+            "early_down_ownership": "first/second-down scrimmage events split into designed runs versus qb_dropbacks with mean, negative, 3+, 5+, and 10+ gain anatomy",
             "pressure": "not compared here; play-level pressure requires nflverse participation join",
         },
         "terminal_precedence": [
