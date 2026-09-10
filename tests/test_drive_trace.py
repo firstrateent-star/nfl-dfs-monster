@@ -59,8 +59,31 @@ def test_drive_trace_detects_red_zone_and_goal_to_go() -> None:
     trace = recorder.finish(end, PossessionTerminal.FIELD_GOAL, points=3)
 
     assert trace.red_zone_entered is True
+    assert trace.red_zone_snap_seen is True
     assert trace.goal_to_go_reached is True
+    assert trace.goal_to_go_snap_seen is True
     assert trace.end_yardline_100 == 95.0
+
+
+def test_long_touchdown_reaches_red_zone_without_red_zone_snap() -> None:
+    start = _state(yardline_100=30.0)
+    recorder = DriveTraceRecorder(start)
+    touchdown = PlayEvent(
+        play_type=PlayType.PASS,
+        elapsed_seconds=9,
+        yards=70.0,
+        passer_id="qb",
+        target_id="wr",
+        pass_result=PassResult.COMPLETE,
+        touchdown=True,
+    )
+    recorder.observe(start, touchdown)
+    scored = replace(start, seconds_remaining=start.seconds_remaining - 9, away_score=7)
+    trace = recorder.finish(scored, PossessionTerminal.TOUCHDOWN)
+
+    assert trace.red_zone_entered is True
+    assert trace.red_zone_snap_seen is False
+    assert trace.goal_to_go_snap_seen is False
 
 
 def test_drive_trace_uses_scoreboard_delta_for_points() -> None:
