@@ -1,0 +1,96 @@
+name: Monster v1.3 drive reality audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - src/monster/sim/drive_trace.py
+      - src/monster/sim/game_loop_v13.py
+      - scripts/audit_week1_drive_reality.py
+      - scripts/audit_historical_drive_reality.py
+      - scripts/compare_drive_reality.py
+      - .github/workflows/drive-reality-audit.yml
+  workflow_dispatch:
+
+jobs:
+  drive-reality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code and causal guards
+        run: |
+          uv run ruff check src tests scripts/audit_week1_drive_reality.py scripts/audit_historical_drive_reality.py scripts/compare_drive_reality.py
+          uv run pytest -q
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Audit 2025 historical drive reality
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --out artifacts/historical-drive-reality
+      - name: Audit 1,000-world Week 1 simulated drive reality
+        run: >-
+          uv run python scripts/audit_week1_drive_reality.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 1000 --seed 2026091021
+          --out artifacts/week1-drive-reality
+      - name: Compare causal drive anatomy
+        run: >-
+          uv run python scripts/compare_drive_reality.py
+          --simulated artifacts/week1-drive-reality/simulated_drive_reality_overall.csv
+          --historical artifacts/historical-drive-reality/historical_drive_reality_overall.csv
+          --sim-manifest artifacts/week1-drive-reality/manifest.json
+          --out artifacts/drive-reality-comparison
+      - name: Verify audit remained observational
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          sim=json.loads(Path('artifacts/week1-drive-reality/manifest.json').read_text())
+          hist=json.loads(Path('artifacts/historical-drive-reality/manifest.json').read_text())
+          comp=json.loads(Path('artifacts/drive-reality-comparison/drive_reality_comparison.json').read_text())
+          assert sim['market_blind'] is True
+          assert sim['behavior_changed_by_audit'] is False
+          assert sim['worlds_per_game'] == 1000
+          assert sim['games'] == 12
+          assert hist['market_blind'] is True
+          assert comp['market_blind'] is True
+          assert comp['behavior_changed_by_comparison'] is False
+          print(json.dumps(comp['diagnosis'], indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-drive-reality-audit
+          path: |
+            artifacts/week1-drive-reality/
+            artifacts/historical-drive-reality/
+            artifacts/drive-reality-comparison/
+          retention-days: 14
