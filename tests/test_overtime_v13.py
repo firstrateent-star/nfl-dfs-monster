@@ -5,7 +5,7 @@ from monster.sim.clock import OVERTIME_SECONDS, advance_game_clock
 from monster.sim.decision_policy import FourthDownDecision, fourth_down_decision
 from monster.sim.event_ledger import assert_event_conservation
 from monster.sim.football_state import FootballState
-from monster.sim.play_kernel import PlayEvent, PlayType, PlayerIdentity, TeamIdentity
+from monster.sim.play_kernel import PlayerIdentity, PlayEvent, PlayType, TeamIdentity
 
 
 def _team(team: str) -> TeamIdentity:
