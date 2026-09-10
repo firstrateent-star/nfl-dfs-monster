@@ -322,6 +322,33 @@ First passive audit should preserve exact or fine-grained situation and measure:
 
 The current 12-cell neutral situational pass table remains a valid baseline layer, but it is not the final game-flow model.
 
+## Initial 2025 game-flow audit evidence
+
+The first passive audit observed 32,813 regular-season scrimmage decisions across 3,290 fine-grained context cells without changing simulator behavior.
+
+League-level special states show that play-family intent is highly nonlinear:
+
+- second-and-2-or-less: 31.5% dropback / 68.5% designed run;
+- third-and-short: 35.9% dropback / 64.1% designed run;
+- third-and-medium: 86.7% dropback;
+- third-and-7-to-10: 94.1% dropback;
+- third-and-11-to-17: 91.4% dropback;
+- third-and-18-plus: 80.3% dropback / 19.7% designed run;
+- end of first half: 80.4% dropback;
+- late trailing: 85.9% dropback;
+- four-minute lead: 14.4% dropback / 85.6% designed run;
+- low goal-to-go: 43.4% dropback / 56.6% designed run.
+
+This falsifies a simple monotonic "longer distance -> more passing" model. Extreme long-yardage states reintroduce screen/draw/field-position behavior rather than forcing literal conversion attempts.
+
+Pass-depth intent also changes by situation. Ordinary throws were approximately 21.6% behind LOS, 33.8% at 0-5 yards, 12.4% at 6-9, 21.2% at 10-19, 9.5% at 20-39 and 1.5% at 40+. Third-and-7-to-10 shifted toward 10-19-yard intent, while third-and-18-plus shifted strongly back toward behind-LOS and very short throws. This is evidence that pass depth must be conditioned on strategic state rather than sampled from one global distribution.
+
+Second-and-short was strongly run-heavy. Within its pass attempts, the 0-5-yard band was the largest observed depth family; the first audit did not show a universal deep-shot explosion. Any second-and-short shot tendency should therefore be learned as a team/coach/personnel/context deviation rather than hardcoded as a league rule.
+
+Team variation is material. With reasonable minimum sample counts, second-and-short team dropback rates ranged roughly 7%-56%, third-and-short roughly 18%-54%, end-first-half roughly 61%-96%, low-goal-to-go roughly 26%-66%, and four-minute-lead behavior roughly 0%-31% dropback. Sparse extreme-long cells are even more variable. This supports hierarchical team/coach identity layered over league context.
+
+The audit also showed run-location shifts: middle runs become more common on third-and-short and fourth-and-short than in ordinary states. This is an early observable proxy for run concept intent; richer concept classification can be added as data support improves.
+
 ## Governance
 
 - Game Flow chooses intent; it does not determine success.
@@ -332,6 +359,20 @@ The current 12-cell neutral situational pass table remains a valid baseline laye
 - Historical frequencies are priors/falsification targets, not instructions to reproduce league averages blindly.
 - Sparse coach/team/situation cells must shrink toward broader context rather than overfit.
 - No new behavior is promoted until definition-matched historical audits and paired simulation evidence show the mechanism improves realism.
+
+## Current implementation seam
+
+The live v1.3 engine currently asks `situation_policy` for one contextual pass probability and then samples `PASS` versus `RUN`; pass depth is subsequently drawn from a single shared air-yard distribution and run lane is sampled separately. The next implementation should insert GameFlowState and PlayIntent between FootballState and those resolution branches rather than replacing the event engine wholesale.
+
+Recommended progression:
+
+1. compile a hierarchical historical Game Flow prior from the new fine-grained context audit;
+2. create non-authoritative GameFlowState / StrategicObjective / PlayIntent data structures and deterministic classification tests;
+3. introduce play-family policy first while keeping the existing run/pass resolution kernels unchanged;
+4. paired simulation audit of play-family decisions and game anatomy;
+5. add pass concept/depth intent conditioned on Game Flow;
+6. add run concept/lane intent conditioned on Game Flow;
+7. only then deepen defensive counter-call, personnel packages, sequence memory and coach-specific adaptation.
 
 ## Current hypothesis from the September 10 audits
 
