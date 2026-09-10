@@ -269,9 +269,15 @@ def main() -> None:
         for pair in MATCHUPS
         for team in pair
     }
+    pool_players = {
+        (team_id, player.player_id): player
+        for team_id, pool in pools.items()
+        for player in pool.players
+    }
 
     game_rows = []
     player_acc = defaultdict(lambda: defaultdict(list))
+    rush_plan_acc = defaultdict(list)
     anatomy_acc = defaultdict(lambda: defaultdict(list))
     outcome_acc = defaultdict(lambda: {"away_wins": 0, "home_wins": 0, "ties": 0})
 
@@ -293,6 +299,11 @@ def main() -> None:
                 pools[home],
                 rng=np.random.default_rng(seed + 202_007),
             )
+            for team_id, plan in ((away, away_plan), (home, home_plan)):
+                for player in pools[team_id].players:
+                    rush_plan_acc[(game, team_id, player.player_id)].append(
+                        float(plan.get(player.player_id, 0.0))
+                    )
             result = simulate_regulation_game(
                 _with_event_rush_plan(teams[away], away_plan),
                 _with_event_rush_plan(teams[home], home_plan),
@@ -410,13 +421,39 @@ def main() -> None:
                 world_row[key] = float(arr[world])
             player_world_rows.append(world_row)
 
+    rush_plan_rows = []
+    for (game, team_id, player_id), values in rush_plan_acc.items():
+        player = pool_players[(team_id, player_id)]
+        arr = np.asarray(values, dtype=float)
+        rush_plan_rows.append(
+            {
+                "game": game,
+                "team": team_id,
+                "player_id": player_id,
+                "player": player.display_name,
+                "position": player.position,
+                "base_rush_share": float(player.rush_share),
+                "rush_role_probability": float(player.rush_role_probability),
+                "active_probability": float(player.active_probability),
+                "role_uncertainty": float(player.role_uncertainty),
+                "plan_share_mean": float(arr.mean()),
+                "plan_share_p50": float(np.quantile(arr, 0.50)),
+                "plan_share_p90": float(np.quantile(arr, 0.90)),
+                "plan_participation_probability": float(np.mean(arr > 0.0)),
+            }
+        )
+
     args.out.mkdir(parents=True, exist_ok=True)
     game_df = pl.DataFrame(game_rows).sort("total_mean", descending=True)
     player_df = pl.DataFrame(player_rows).sort("fanduel_mean", descending=True)
     world_df = pl.DataFrame(player_world_rows).sort(["game", "world", "player_id"])
+    rush_plan_df = pl.DataFrame(rush_plan_rows).sort(
+        ["team", "plan_share_mean"], descending=[False, True]
+    )
     game_df.write_csv(args.out / "game_distributions.csv")
     player_df.write_csv(args.out / "player_distributions.csv")
     world_df.write_csv(args.out / "player_world_fanduel.csv")
+    rush_plan_df.write_csv(args.out / "rushing_role_plan_audit.csv")
 
     projection_cols = [
         "game",
@@ -494,11 +531,13 @@ def main() -> None:
         "full_reality_player_bridge_active": True,
         "unit_bridge_active": True,
         "stable_event_rushing_roles_active": True,
+        "rushing_role_plan_audit_active": True,
         "zero_inclusive_player_worlds": True,
         "fanduel_scoring_downstream_only": True,
         "projection_summary": "projected_scores_and_outcomes.csv",
         "football_anatomy": "football_anatomy.csv",
         "player_world_fanduel": "player_world_fanduel.csv",
+        "rushing_role_plan_audit": "rushing_role_plan_audit.csv",
         "situational_pass_context": "situational_pass_context.csv",
         "team_play_call_inputs": "team_play_call_inputs.csv",
         "promotion_status": "SHADOW_FIRST_SIMULATION_NOT_PROMOTED",
