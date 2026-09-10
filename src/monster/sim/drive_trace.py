@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from monster.sim.football_state import FootballState, PossessionTerminal
+from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
+
+
+@dataclass(frozen=True)
+class DriveTrace:
+    """Observed anatomy of one simulated possession.
+
+    This is an audit record, not a scoring prior. It describes what the event engine did so
+    drive conversion can be compared with historical football before any mechanism changes.
+    """
+
+    offense_team_id: str
+    defense_team_id: str
+    start_quarter: int
+    start_seconds_remaining: int
+    start_yardline_100: float
+    start_score_margin: int
+    end_quarter: int
+    end_seconds_remaining: int
+    end_yardline_100: float
+    terminal: PossessionTerminal
+    points: int
+    scrimmage_plays: int
+    net_scrimmage_yards: float
+    first_downs: int
+    explosive_plays: int
+    red_zone_entered: bool
+    goal_to_go_reached: bool
+    pressured_dropbacks: int
+    sacks: int
+    turnovers: int
+    overtime: bool
+
+
+class DriveTraceRecorder:
+    """Passive possession observer with no authority over simulation behavior."""
+
+    def __init__(self, start: FootballState) -> None:
+        self.start = start
+        self.scrimmage_plays = 0
+        self.net_scrimmage_yards = 0.0
+        self.first_downs = 0
+        self.explosive_plays = 0
+        self.red_zone_entered = start.yardline_100 >= 80.0
+        self.goal_to_go_reached = _goal_to_go(start)
+        self.pressured_dropbacks = 0
+        self.sacks = 0
+        self.turnovers = 0
+        self.last_offense_yardline = start.yardline_100
+
+    def observe(self, before: FootballState, event: PlayEvent) -> None:
+        """Observe a resolved event while it still belongs to the current offense."""
+        if before.possession != self.start.possession:
+            raise ValueError("drive observer received an event from a different offense")
+        if event.play_type not in {PlayType.RUN, PlayType.PASS}:
+            return
+
+        self.scrimmage_plays += 1
+        self.net_scrimmage_yards += float(event.yards)
+        end_yardline = min(max(before.yardline_100 + float(event.yards), 1.0), 100.0)
+        self.last_offense_yardline = end_yardline
+        self.red_zone_entered = self.red_zone_entered or end_yardline >= 80.0
+        self.goal_to_go_reached = self.goal_to_go_reached or _goal_to_go(before)
+        self.explosive_plays += int(float(event.yards) >= 15.0)
+        self.pressured_dropbacks += int(event.play_type == PlayType.PASS and event.pressured)
+        self.sacks += int(event.pass_result == PassResult.SACK)
+        self.turnovers += int(event.turnover)
+
+        if not event.touchdown and not event.turnover and float(event.yards) >= before.distance:
+            self.first_downs += 1
+
+    def finish(
+        self,
+        end: FootballState,
+        terminal: PossessionTerminal,
+        *,
+        points: int | None = None,
+    ) -> DriveTrace:
+        if points is None:
+            points = _score_for_team(end, self.start.possession) - _score_for_team(
+                self.start, self.start.possession
+            )
+        return DriveTrace(
+            offense_team_id=self.start.possession,
+            defense_team_id=self.start.defense,
+            start_quarter=self.start.quarter,
+            start_seconds_remaining=self.start.seconds_remaining,
+            start_yardline_100=self.start.yardline_100,
+            start_score_margin=self.start.score_margin_for_offense,
+            end_quarter=end.quarter,
+            end_seconds_remaining=end.seconds_remaining,
+            end_yardline_100=float(self.last_offense_yardline),
+            terminal=terminal,
+            points=int(points),
+            scrimmage_plays=self.scrimmage_plays,
+            net_scrimmage_yards=float(self.net_scrimmage_yards),
+            first_downs=self.first_downs,
+            explosive_plays=self.explosive_plays,
+            red_zone_entered=self.red_zone_entered,
+            goal_to_go_reached=self.goal_to_go_reached,
+            pressured_dropbacks=self.pressured_dropbacks,
+            sacks=self.sacks,
+            turnovers=self.turnovers,
+            overtime=self.start.quarter == 5,
+        )
+
+
+def _goal_to_go(state: FootballState) -> bool:
+    yards_to_goal = 100.0 - state.yardline_100
+    return yards_to_goal <= 10.0 and state.distance >= yards_to_goal - 1e-9
+
+
+def _score_for_team(state: FootballState, team_id: str) -> int:
+    if state.away_team_id is not None:
+        if team_id == state.away_team_id:
+            return state.away_score
+        if team_id == state.home_team_id:
+            return state.home_score
+        raise ValueError("team_id must match away or home team")
+    if team_id == "away":
+        return state.away_score
+    if team_id == "home":
+        return state.home_score
+    raise ValueError("explicit away/home ids required for non-literal team ids")
