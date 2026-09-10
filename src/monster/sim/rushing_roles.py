@@ -70,10 +70,14 @@ def _core_role_probabilities(rng: np.random.Generator, core_candidates: np.ndarr
     if count == 1:
         return np.array([1.0])
     if count == 2:
-        center = np.array([0.66, 0.34])
+        # 2022-25 ranked rushing shares normalize to approximately 70/30 within
+        # a two-role core. Keep the core finite while preserving empirical Role A dominance.
+        center = np.array([0.70, 0.30])
         concentration = 38.0
     else:
-        center = np.array([0.57, 0.29, 0.14])
+        # Pooled 2022-25 rank-1/2/3 shares (58.6/24.6/11.3% of team attempts)
+        # normalize to approximately 62/26/12 within the three-role core.
+        center = np.array([0.62, 0.26, 0.12])
         concentration = 32.0
     return rng.dirichlet(center * concentration)
 
