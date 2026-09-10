@@ -7,6 +7,9 @@ on:
       - src/monster/sim/play_kernel.py
       - src/monster/sim/play_anatomy.py
       - src/monster/sim/matchup_kernel.py
+      - src/monster/sim/resolution_ecology.py
+      - src/monster/sim/intent_ecology.py
+      - src/monster/sim/game_flow_lookup.py
       - scripts/audit_play_gain_reality.py
       - .github/workflows/play-gain-reality-audit.yml
   workflow_dispatch:
@@ -46,9 +49,20 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Audit play-family gain reality
+      - name: Audit Stage 3 play-family gain reality
         run: >-
           uv run python scripts/audit_play_gain_reality.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
@@ -63,6 +77,7 @@ jobs:
           manifest=json.loads(Path('artifacts/play-gain-reality/manifest.json').read_text())
           assert manifest['market_blind'] is True
           assert manifest['behavior_changed_by_audit'] is False
+          assert manifest['stage3_active'] is True
           assert manifest['worlds_per_game'] == 1000
           assert manifest['games'] == 12
           assert manifest['goal_line_yardage_conservation_active'] is True
