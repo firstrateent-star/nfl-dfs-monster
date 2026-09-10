@@ -73,7 +73,7 @@ jobs:
           --out artifacts/game-flow-paired/game-flow
       - name: Compare paired anatomy and live situational calls
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           import polars as pl
@@ -106,6 +106,11 @@ jobs:
               float(well_sampled.get_column('sampler_calibration_error').max())
               if well_sampled.height else None
           )
+          assert traced_samples >= 1_000_000
+          assert aggregate.height >= 8
+          assert weighted_sampler_error < 0.002
+          assert max_well_sampled_error is not None and max_well_sampled_error < 0.015
+
           summary={
               'artifact':'Monster v1.3 Paired Game Flow Stage 2 Experiment',
               'market_blind':True,
