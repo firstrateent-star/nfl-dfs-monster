@@ -129,16 +129,22 @@ def resolve_catchpoint(
     rng: np.random.Generator,
     completion_probability: float | None = None,
     interception_probability: float | None = None,
+    completion_probability_includes_depth: bool = False,
 ) -> CatchpointResult:
     """Resolve a targeted throw from one coherent matchup probability path.
 
     When the matchup kernel supplies completion/interception probabilities, those
-    probabilities already contain QB, target and defensive-unit interaction. The
-    catchpoint layer adds only throw-depth pressure and the drop/breakup split instead
-    of applying the same player/coverage traits a second time. Callers without a
-    matchup retain the legacy neutral fallback.
+    probabilities already contain QB, target and defensive-unit interaction. Stage 3
+    depth-aware callers may additionally declare that completion probability already
+    contains throw-depth difficulty; in that path the legacy generic depth penalty is
+    disabled so depth enters exactly once. Catch skill still governs the drop/breakup
+    split after an incompletion reservoir is established.
     """
-    depth_penalty = max(air_yards - 10.0, 0.0) * 0.008
+    depth_penalty = (
+        0.0
+        if completion_probability_includes_depth
+        else max(air_yards - 10.0, 0.0) * 0.008
+    )
     if interception_probability is None:
         interception_p = float(
             np.clip(0.018 * ball_hawk * coverage_strength, 0.004, 0.08)
