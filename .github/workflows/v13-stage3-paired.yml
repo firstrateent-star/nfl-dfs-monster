@@ -17,9 +17,11 @@ on:
       - src/monster/sim/categorical_policy.py
       - src/monster/sim/intent_ecology.py
       - src/monster/sim/resolution_ecology.py
+      - src/monster/sim/decision_policy.py
       - src/monster/sim/play_kernel.py
       - src/monster/sim/play_anatomy.py
       - src/monster/sim/drive_trace.py
+      - tests/test_decision_policy.py
       - tests/test_stage3_resolution_ecology.py
       - tests/test_drive_survival_trace.py
       - tests/test_availability_world.py
