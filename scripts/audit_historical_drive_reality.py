@@ -112,6 +112,12 @@ def _drive_row(
         return None
     start_yardline_from_own = 100.0 - first_yardline_to_goal
 
+    start_seconds_remaining = _first_scrimmage_number(rows, "game_seconds_remaining")
+    end_seconds_remaining = _last_number(rows, "game_seconds_remaining")
+    start_quarter = _first_scrimmage_number(rows, "qtr")
+    if start_seconds_remaining is None or end_seconds_remaining is None:
+        return None
+
     scrimmage_plays = 0
     net_scrimmage_yards = 0.0
     first_downs = 0
@@ -190,6 +196,8 @@ def _drive_row(
         "fixed_drive": fixed_drive,
         "offense_team_id": posteam,
         "defense_team_id": "historical_opponent",
+        "start_seconds_remaining": float(start_seconds_remaining),
+        "end_seconds_remaining": float(end_seconds_remaining),
         "start_yardline_100": float(start_yardline_from_own),
         "terminal": terminal,
         "points": _drive_points(rows, terminal),
@@ -204,7 +212,7 @@ def _drive_row(
         "pressured_dropbacks": 0,
         "sacks": sacks,
         "turnovers": turnovers,
-        "overtime": False,
+        "overtime": bool(start_quarter is not None and start_quarter >= 5.0),
         "series_started": series_started,
         "series_converted": series_converted,
         "first_down_snaps": first_down_snaps,
@@ -234,7 +242,7 @@ def main() -> None:
         pbp = pbp.filter(pl.col("qb_kneel").fill_null(0) == 0)
     if "qb_spike" in pbp.columns:
         pbp = pbp.filter(pl.col("qb_spike").fill_null(0) == 0)
-    required = {"game_id", "fixed_drive", "posteam", "play_id"}
+    required = {"game_id", "fixed_drive", "posteam", "play_id", "game_seconds_remaining"}
     missing = sorted(required.difference(pbp.columns))
     if missing:
         raise ValueError(f"historical drive audit missing required nflverse fields: {missing}")
@@ -243,6 +251,7 @@ def main() -> None:
         pl.col("game_id").is_not_null()
         & pl.col("fixed_drive").is_not_null()
         & pl.col("posteam").is_not_null()
+        & pl.col("game_seconds_remaining").is_not_null()
     ).sort(["game_id", "fixed_drive", "play_id"])
 
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
@@ -290,6 +299,7 @@ def main() -> None:
             "drive_population": "unique game_id + fixed_drive + posteam groups containing at least one definition-safe scrimmage play",
             "drive_start": "first definition-safe scrimmage play in play_id order; kickoff and other non-scrimmage events cannot define field position",
             "start_yardline_100": "100 - nflverse yardline_100 from the first definition-safe scrimmage play",
+            "drive_clock": "start uses game_seconds_remaining at the first definition-safe scrimmage snap; end uses game_seconds_remaining on the last retained event in the fixed-drive group",
             "scrimmage_play": "qb_dropback == 1 OR (rush_attempt == 1 AND not qb_dropback)",
             "explosive_play": "scrimmage yards_gained >= 15",
             "red_zone_reach": "definition-safe scrimmage snap starts at nflverse yardline_100 <= 20 OR its endpoint reaches <= 20",
