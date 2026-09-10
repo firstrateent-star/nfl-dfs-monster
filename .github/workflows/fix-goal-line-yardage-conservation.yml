@@ -43,8 +43,8 @@ jobs:
 
           old = '''        touchdown = state.yardline_100 + yards >= 100.0 and not turnover\n        return PlayEvent(\n'''
           new = '''        touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover\n        return PlayEvent(\n'''
-          if text.count(old) != 2:
-              raise SystemExit(f'run/pass touchdown anchor count={text.count(old)}')
+          if text.count(old) != 1:
+              raise SystemExit(f'run touchdown anchor count={text.count(old)}')
           text = text.replace(old, new, 1)
 
           old = '''        turnover = rng.random() < _lost_fumble_probability(\n            security=offense.quarterback.turnover_security,\n            contact=anatomy.contact,\n            base_rate=0.012,\n        )\n        touchdown = state.yardline_100 + anatomy.total_yards >= 100.0 and not turnover\n        return PlayEvent(\n            play_type=play_type,\n            elapsed_seconds=elapsed,\n            yards=anatomy.total_yards,\n'''
