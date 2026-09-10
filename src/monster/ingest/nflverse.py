@@ -37,6 +37,7 @@ PBP_COLUMNS = [
     "sack",
     "qb_hit",
     "qb_scramble",
+    "qb_sneak",
     "air_yards",
     "yards_after_catch",
     "yards_gained",
@@ -48,6 +49,12 @@ PBP_COLUMNS = [
     "receiver_player_id",
     "rusher_player_id",
     "passer_player_id",
+    "run_location",
+    "run_gap",
+    "pass_location",
+    "pass_length",
+    "shotgun",
+    "no_huddle",
 ]
 
 
