@@ -134,6 +134,59 @@ def test_catchpoint_has_catch_drop_breakup_and_interception_paths() -> None:
     assert CatchpointResult.INTERCEPTION in outcomes
 
 
+def test_matchup_probabilities_govern_catchpoint_outcomes() -> None:
+    n = 50_000
+    rng = np.random.default_rng(31)
+    outcomes = [
+        resolve_catchpoint(
+            catch_skill=1.25,
+            coverage_strength=0.75,
+            ball_hawk=1.25,
+            air_yards=8.0,
+            completion_probability=0.62,
+            interception_probability=0.025,
+            rng=rng,
+        )
+        for _ in range(n)
+    ]
+    catch_rate = outcomes.count(CatchpointResult.CATCH) / n
+    interception_rate = outcomes.count(CatchpointResult.INTERCEPTION) / n
+    assert abs(catch_rate - 0.62) < 0.01
+    assert abs(interception_rate - 0.025) < 0.005
+
+
+def test_supplied_matchup_probabilities_override_legacy_trait_path() -> None:
+    n = 20_000
+    low_rng = np.random.default_rng(32)
+    high_rng = np.random.default_rng(32)
+    low = [
+        resolve_catchpoint(
+            catch_skill=1.0,
+            coverage_strength=1.0,
+            ball_hawk=1.0,
+            air_yards=8.0,
+            completion_probability=0.45,
+            interception_probability=0.01,
+            rng=low_rng,
+        )
+        for _ in range(n)
+    ]
+    high = [
+        resolve_catchpoint(
+            catch_skill=1.0,
+            coverage_strength=1.0,
+            ball_hawk=1.0,
+            air_yards=8.0,
+            completion_probability=0.75,
+            interception_probability=0.05,
+            rng=high_rng,
+        )
+        for _ in range(n)
+    ]
+    assert high.count(CatchpointResult.CATCH) > low.count(CatchpointResult.CATCH)
+    assert high.count(CatchpointResult.INTERCEPTION) > low.count(CatchpointResult.INTERCEPTION)
+
+
 def test_run_contact_can_stuff_tackle_or_break_tackle() -> None:
     rng = np.random.default_rng(4)
     outcomes = {
