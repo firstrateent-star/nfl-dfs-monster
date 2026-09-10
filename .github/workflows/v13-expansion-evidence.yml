@@ -1,0 +1,69 @@
+name: Monster v1.3 expansion evidence
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_special_teams_ecology.py
+      - scripts/audit_schedule_environment_ecology.py
+      - scripts/audit_defensive_tactical_field_coverage.py
+      - src/monster/sim/defensive_intent.py
+      - src/monster/sim/assignment_matchups.py
+      - src/monster/sim/system_identity.py
+      - src/monster/audit/probabilistic_score.py
+      - src/monster/audit/freeze_gate.py
+      - tests/test_defensive_intent.py
+      - tests/test_assignment_matchups.py
+      - tests/test_system_identity.py
+      - tests/test_probabilistic_score.py
+      - tests/test_freeze_gate.py
+      - .github/workflows/v13-expansion-evidence.yml
+  workflow_dispatch:
+
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Software gates
+        run: |
+          uv run ruff check src tests scripts/audit_special_teams_ecology.py scripts/audit_schedule_environment_ecology.py scripts/audit_defensive_tactical_field_coverage.py
+          uv run pytest -q
+      - name: Discover defensive tactical evidence
+        run: >-
+          uv run python scripts/audit_defensive_tactical_field_coverage.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/expansion-evidence/defensive-tactics
+      - name: Audit special teams
+        run: >-
+          uv run python scripts/audit_special_teams_ecology.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/expansion-evidence/special-teams
+      - name: Audit schedule rest venue surface
+        run: >-
+          uv run python scripts/audit_schedule_environment_ecology.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/expansion-evidence/environment
+      - name: Verify shadow isolation
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('artifacts/expansion-evidence')
+          defensive = json.loads((root/'defensive-tactics'/'defensive_tactical_field_coverage.json').read_text())
+          special = json.loads((root/'special-teams'/'special_teams_ecology.json').read_text())
+          environment = json.loads((root/'environment'/'schedule_environment_ecology.json').read_text())
+          assert defensive['market_blind'] is True and defensive['production_authority'] == 0.0
+          assert special['market_blind'] is True and special['behavior_changed_by_audit'] is False
+          assert environment['market_blind'] is True and environment['behavior_changed_by_audit'] is False
+          print(json.dumps({'defensive': defensive, 'special': special, 'environment': environment}, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-expansion-evidence
+          path: artifacts/expansion-evidence/
+          retention-days: 14
