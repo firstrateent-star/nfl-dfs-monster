@@ -1,0 +1,127 @@
+name: Monster v1.3 availability and fourth-down shadow
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_week1_stage3_availability_world.py
+      - scripts/compare_availability_world_shadow.py
+      - scripts/audit_fourth_down_decision_ecology.py
+      - src/monster/sim/availability_world.py
+      - src/monster/feature_compile/v13_identity_bridge.py
+      - tests/test_availability_world.py
+      - tests/test_v13_availability_bridge.py
+      - .github/workflows/v13-availability-fourthdown-shadow.yml
+  workflow_dispatch:
+
+jobs:
+  shadow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Software and semantic gates
+        run: |
+          uv run ruff check src tests scripts/audit_week1_stage3_availability_world.py scripts/compare_availability_world_shadow.py scripts/audit_fourth_down_decision_ecology.py
+          uv run pytest -q
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Run Stage 3 control
+        run: >-
+          uv run python scripts/run_week1_v13_stage3_shadow.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/availability-shadow/control
+      - name: Run world-specific availability treatment
+        run: >-
+          uv run python scripts/audit_week1_stage3_availability_world.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/availability-shadow/treatment
+      - name: Compare availability treatment with control
+        run: >-
+          uv run python scripts/compare_availability_world_shadow.py
+          --control artifacts/availability-shadow/control/game_distributions.csv
+          --treatment artifacts/availability-shadow/treatment/availability_world_game_anatomy.csv
+          --treatment-manifest artifacts/availability-shadow/treatment/manifest.json
+          --out artifacts/availability-shadow/comparison
+      - name: Audit fourth-down decisions on historical states
+        run: >-
+          uv run python scripts/audit_fourth_down_decision_ecology.py
+          --season 2025 --cache-dir .cache/monster
+          --out artifacts/availability-shadow/fourth-down
+      - name: Verify isolation
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('artifacts/availability-shadow')
+          treatment = json.loads((root/'treatment'/'manifest.json').read_text())
+          comparison = json.loads((root/'comparison'/'manifest.json').read_text())
+          fourth = json.loads((root/'fourth-down'/'manifest.json').read_text())
+          assert treatment['market_blind'] is True
+          assert treatment['promotion_status'] == 'SHADOW_AVAILABILITY_EXPERIMENT_ONLY'
+          assert treatment['defensive_and_ol_world_substitution'] is False
+          assert comparison['market_blind'] is True
+          assert comparison['promotion_status'] == 'SHADOW_AVAILABILITY_EXPERIMENT_ONLY'
+          assert fourth['market_blind'] is True
+          assert fourth['behavior_changed_by_audit'] is False
+          print(json.dumps({'availability': comparison, 'fourth_down': fourth}, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-availability-fourthdown-shadow
+          path: artifacts/availability-shadow/
+          retention-days: 14
