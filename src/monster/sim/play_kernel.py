@@ -226,6 +226,8 @@ def simulate_scrimmage_play(
     primary_defender_id = None
     coverage_strength = max(defense_strength, 0.65)
     ball_hawk = max(defense_strength, 0.65)
+    completion_probability = None
+    interception_probability = None
     if defense is not None:
         from monster.sim.matchup_kernel import resolve_pass_matchup
 
@@ -239,6 +241,8 @@ def simulate_scrimmage_play(
         primary_defender_id = matchup.primary_defender_id
         coverage_strength = matchup.coverage_strength
         ball_hawk = matchup.ball_hawk_strength
+        completion_probability = matchup.completion_probability
+        interception_probability = matchup.interception_probability
     else:
         # Same 2025 FTN pressure-family baseline used by DefensiveUnit, retained here
         # for callers that intentionally omit a player-level defensive unit.
@@ -315,6 +319,8 @@ def simulate_scrimmage_play(
         ball_hawk=ball_hawk,
         air_yards=air_yards,
         rng=rng,
+        completion_probability=completion_probability,
+        interception_probability=interception_probability,
     )
     if catchpoint == CatchpointResult.INTERCEPTION:
         return PlayEvent(
