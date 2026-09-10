@@ -93,7 +93,7 @@ jobs:
           --out artifacts/stage3-paired/comparison
       - name: Verify Stage 3 was actually exercised
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           import polars as pl
