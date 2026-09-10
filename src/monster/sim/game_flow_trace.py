@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from monster.sim.game_flow import FlowTag, GameFlowState
 
+from monster.sim.game_flow import FlowTag, GameFlowState
 
 _STATE_PRIORITY = (
     (FlowTag.THIRD_AND_EXTREME, "third_and_18_plus"),
