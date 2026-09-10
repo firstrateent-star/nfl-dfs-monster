@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from monster.sim.rushing_roles import sample_event_rush_share_plan
+from monster.sim.rushing_roles import (
+    _core_role_probabilities,
+    sample_event_rush_share_plan,
+)
 from monster.snapshot.player import PlayerState, TeamPlayerPool
 
 
@@ -81,6 +84,18 @@ def test_event_role_plan_concentrates_non_qb_work_into_stable_core() -> None:
     # At least 92% of the non-QB reservoir belongs to no more than three sampled core roles.
     assert sum(ordered[:3]) >= 0.92 * sum(ordered) - 1e-12
     assert max(non_qb, key=non_qb.get) in {"rb1", "rb2"}
+
+
+def test_core_role_probability_centers_match_historical_rank_shape() -> None:
+    rng = np.random.default_rng(105)
+    two = np.asarray(
+        [_core_role_probabilities(rng, np.array([0, 1])) for _ in range(4000)]
+    )
+    three = np.asarray(
+        [_core_role_probabilities(rng, np.array([0, 1, 2])) for _ in range(4000)]
+    )
+    assert np.allclose(two.mean(axis=0), np.array([0.70, 0.30]), atol=0.01)
+    assert np.allclose(three.mean(axis=0), np.array([0.62, 0.26, 0.12]), atol=0.01)
 
 
 def test_unavailable_non_qb_cannot_enter_event_role_plan() -> None:
