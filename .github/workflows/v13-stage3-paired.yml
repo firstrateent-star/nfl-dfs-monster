@@ -21,6 +21,7 @@ on:
       - src/monster/sim/play_kernel.py
       - src/monster/sim/play_anatomy.py
       - src/monster/sim/drive_trace.py
+      - tests/test_historical_drive_audit.py
       - tests/test_decision_policy.py
       - tests/test_stage3_resolution_ecology.py
       - tests/test_drive_survival_trace.py
