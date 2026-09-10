@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Iterable, Mapping
 
 from monster.sim.game_flow import GameFlowState
 from monster.sim.game_flow_brain import (
@@ -220,12 +220,28 @@ def build_team_game_flow_policy(
     return TeamGameFlowPolicy(
         team_id=team_id,
         league_exact=league_exact,
-        league_no_score={key: value for key, parts in no_score_parts.items() if (value := _rate(parts)) is not None},
-        league_down_distance_field={key: value for key, parts in ddf_parts.items() if (value := _rate(parts)) is not None},
-        league_down_distance={key: value for key, parts in dd_parts.items() if (value := _rate(parts)) is not None},
+        league_no_score={
+            key: value
+            for key, parts in no_score_parts.items()
+            if (value := _rate(parts)) is not None
+        },
+        league_down_distance_field={
+            key: value
+            for key, parts in ddf_parts.items()
+            if (value := _rate(parts)) is not None
+        },
+        league_down_distance={
+            key: value
+            for key, parts in dd_parts.items()
+            if (value := _rate(parts)) is not None
+        },
         league_overall=league_overall,
         team_exact=team_exact,
-        team_down_distance={key: value for key, parts in team_dd_parts.items() if (value := _rate(parts)) is not None},
+        team_down_distance={
+            key: value
+            for key, parts in team_dd_parts.items()
+            if (value := _rate(parts)) is not None
+        },
         team_overall=_rate(team_all),
         team_neutral_rate=team_neutral_rate,
         league_neutral_rate=league_neutral_rate,
