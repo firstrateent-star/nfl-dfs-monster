@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from monster.dfs.fanduel import FANDUEL_SCORING, score_offensive_player_worlds
 from monster.feature_compile.health_pools import apply_health_to_skill_pools
 from monster.feature_compile.league_units import compile_league_unit_player_map
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
@@ -17,7 +18,7 @@ from monster.feature_compile.skill_pools import compile_current_skill_pools
 from monster.feature_compile.units import compile_team_unit_effects
 from monster.feature_compile.v13_identity_bridge import compile_v13_player_identity
 from monster.sim.event_ledger import assert_event_conservation, summarize_game
-from monster.sim.game_loop_v13 import simulate_regulation_game
+from monster.sim.game_loop_v13 import PlayerBoxScore, simulate_regulation_game
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
 from monster.snapshot.league import compile_team_state_map
@@ -265,6 +266,12 @@ def main() -> None:
 
     for game_idx, (away, home) in enumerate(MATCHUPS):
         game = f"{away}@{home}"
+        game_player_ids = tuple(
+            dict.fromkeys(
+                [player.player_id for player in pools[away].players]
+                + [player.player_id for player in pools[home].players]
+            )
+        )
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
             result = simulate_regulation_game(
@@ -284,7 +291,12 @@ def main() -> None:
                 outcome_acc[game]["home_wins"] += 1
             else:
                 outcome_acc[game]["ties"] += 1
-            for player_id, box in result.player_stats.items():
+
+            # Preserve every rostered skill player's complete box in every world. A player
+            # with no recorded event receives a true zero box rather than disappearing from
+            # the denominator, which is essential for honest DFS means and ceiling rates.
+            for player_id in game_player_ids:
+                box = result.player_stats.get(player_id, PlayerBoxScore())
                 for key, value in asdict(box).items():
                     player_acc[(game, player_id)][key].append(value)
 
@@ -324,26 +336,68 @@ def main() -> None:
         )
         game_rows.append(row)
 
-    names = {player.player_id: player.display_name for pool in pools.values() for player in pool.players}
-    positions = {player.player_id: player.position for pool in pools.values() for player in pool.players}
+    names = {
+        player.player_id: player.display_name
+        for pool in pools.values()
+        for player in pool.players
+    }
+    positions = {
+        player.player_id: player.position
+        for pool in pools.values()
+        for player in pool.players
+    }
     player_rows = []
+    player_world_rows = []
     for (game, player_id), metrics in player_acc.items():
+        arrays = {key: np.asarray(values, dtype=float) for key, values in metrics.items()}
+        fd_scores = score_offensive_player_worlds(
+            {stat: arrays[stat] for stat in FANDUEL_SCORING}
+        )
         row = {
             "game": game,
             "player_id": player_id,
             "player": names.get(player_id, player_id),
             "position": positions.get(player_id, ""),
         }
-        for key, values in metrics.items():
-            arr = np.asarray(values, dtype=float)
+        for key, arr in arrays.items():
             row[f"{key}_mean"] = float(arr.mean())
             row[f"{key}_p90"] = float(np.quantile(arr, 0.90))
+        row.update(
+            {
+                "fanduel_mean": float(fd_scores.mean()),
+                "fanduel_p50": float(np.quantile(fd_scores, 0.50)),
+                "fanduel_p75": float(np.quantile(fd_scores, 0.75)),
+                "fanduel_p90": float(np.quantile(fd_scores, 0.90)),
+                "fanduel_p95": float(np.quantile(fd_scores, 0.95)),
+                "fanduel_p99": float(np.quantile(fd_scores, 0.99)),
+                "fanduel_15_plus_probability": float(np.mean(fd_scores >= 15.0)),
+                "fanduel_20_plus_probability": float(np.mean(fd_scores >= 20.0)),
+                "fanduel_25_plus_probability": float(np.mean(fd_scores >= 25.0)),
+                "fanduel_30_plus_probability": float(np.mean(fd_scores >= 30.0)),
+            }
+        )
         player_rows.append(row)
+
+        for world, fd_points in enumerate(fd_scores):
+            world_row = {
+                "game": game,
+                "world": world,
+                "player_id": player_id,
+                "player": names.get(player_id, player_id),
+                "position": positions.get(player_id, ""),
+                "fanduel_points": float(fd_points),
+            }
+            for key, arr in arrays.items():
+                world_row[key] = float(arr[world])
+            player_world_rows.append(world_row)
 
     args.out.mkdir(parents=True, exist_ok=True)
     game_df = pl.DataFrame(game_rows).sort("total_mean", descending=True)
+    player_df = pl.DataFrame(player_rows).sort("fanduel_mean", descending=True)
+    world_df = pl.DataFrame(player_world_rows).sort(["game", "world", "player_id"])
     game_df.write_csv(args.out / "game_distributions.csv")
-    pl.DataFrame(player_rows).write_csv(args.out / "player_distributions.csv")
+    player_df.write_csv(args.out / "player_distributions.csv")
+    world_df.write_csv(args.out / "player_world_fanduel.csv")
 
     projection_cols = [
         "game",
@@ -420,8 +474,11 @@ def main() -> None:
         "defensive_identity_active": True,
         "full_reality_player_bridge_active": True,
         "unit_bridge_active": True,
+        "zero_inclusive_player_worlds": True,
+        "fanduel_scoring_downstream_only": True,
         "projection_summary": "projected_scores_and_outcomes.csv",
         "football_anatomy": "football_anatomy.csv",
+        "player_world_fanduel": "player_world_fanduel.csv",
         "situational_pass_context": "situational_pass_context.csv",
         "team_play_call_inputs": "team_play_call_inputs.csv",
         "promotion_status": "SHADOW_FIRST_SIMULATION_NOT_PROMOTED",
