@@ -4,6 +4,7 @@ import argparse
 import json
 from collections import defaultdict
 from datetime import date
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +74,7 @@ def main() -> None:
     rest_observations = 0
     for dates in team_games.values():
         ordered = sorted(set(dates))
-        for previous, current in zip(ordered, ordered[1:], strict=False):
+        for previous, current in pairwise(ordered):
             rest = (current - previous).days
             rest_days.append(float(rest))
             rest_observations += 1
