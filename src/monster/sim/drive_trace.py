@@ -15,6 +15,9 @@ class DriveTrace:
     ``red_zone_entered`` means the possession reached the red zone, including on a scoring
     play from outside it. ``red_zone_snap_seen`` is stricter: the offense actually began an
     observed event with the ball in the red zone.
+
+    Survival fields are intentionally scrimmage-defined. They localize where possessions
+    live or die without giving the audit any authority over play selection or resolution.
     """
 
     offense_team_id: str
@@ -40,6 +43,17 @@ class DriveTrace:
     sacks: int
     turnovers: int
     overtime: bool
+    series_started: int
+    series_converted: int
+    first_down_snaps: int
+    second_down_snaps: int
+    third_down_snaps: int
+    fourth_down_snaps: int
+    third_down_conversions: int
+    third_and_long_snaps: int
+    third_and_long_conversions: int
+    third_down_distance_total: float
+    early_down_5plus_gains: int
 
 
 class DriveTraceRecorder:
@@ -60,6 +74,17 @@ class DriveTraceRecorder:
         self.turnovers = 0
         self.last_offense_yardline = start.yardline_100
         self.observed_events = 0
+        self.series_started = 0
+        self.series_converted = 0
+        self.first_down_snaps = 0
+        self.second_down_snaps = 0
+        self.third_down_snaps = 0
+        self.fourth_down_snaps = 0
+        self.third_down_conversions = 0
+        self.third_and_long_snaps = 0
+        self.third_and_long_conversions = 0
+        self.third_down_distance_total = 0.0
+        self.early_down_5plus_gains = 0
 
     def observe(self, before: FootballState, event: PlayEvent) -> None:
         """Observe a resolved event while it still belongs to the current offense."""
@@ -82,8 +107,34 @@ class DriveTraceRecorder:
         self.sacks += int(event.pass_result == PassResult.SACK)
         self.turnovers += int(event.turnover)
 
-        if not event.touchdown and not event.turnover and float(event.yards) >= before.distance:
+        if before.down == 1:
+            self.series_started += 1
+            self.first_down_snaps += 1
+        elif before.down == 2:
+            self.second_down_snaps += 1
+        elif before.down == 3:
+            self.third_down_snaps += 1
+            self.third_down_distance_total += float(before.distance)
+            if before.distance >= 7.0:
+                self.third_and_long_snaps += 1
+        elif before.down == 4:
+            self.fourth_down_snaps += 1
+
+        converted = (
+            not event.touchdown
+            and not event.turnover
+            and float(event.yards) >= float(before.distance)
+        )
+        if converted:
             self.first_downs += 1
+            self.series_converted += 1
+            if before.down == 3:
+                self.third_down_conversions += 1
+                if before.distance >= 7.0:
+                    self.third_and_long_conversions += 1
+
+        if before.down in {1, 2} and float(event.yards) >= 5.0:
+            self.early_down_5plus_gains += 1
 
     @property
     def has_activity(self) -> bool:
@@ -136,6 +187,17 @@ class DriveTraceRecorder:
             sacks=self.sacks,
             turnovers=self.turnovers,
             overtime=self.start.quarter == 5,
+            series_started=self.series_started,
+            series_converted=self.series_converted,
+            first_down_snaps=self.first_down_snaps,
+            second_down_snaps=self.second_down_snaps,
+            third_down_snaps=self.third_down_snaps,
+            fourth_down_snaps=self.fourth_down_snaps,
+            third_down_conversions=self.third_down_conversions,
+            third_and_long_snaps=self.third_and_long_snaps,
+            third_and_long_conversions=self.third_and_long_conversions,
+            third_down_distance_total=float(self.third_down_distance_total),
+            early_down_5plus_gains=self.early_down_5plus_gains,
         )
 
 
