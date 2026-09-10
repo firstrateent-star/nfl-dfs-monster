@@ -51,7 +51,7 @@ def fourth_down_decision(state: FootballState) -> FourthDownDecision:
     yards_to_goal = 100.0 - state.yardline_100
     margin = state.score_margin_for_offense
     q_clock = seconds_remaining_in_quarter(state.seconds_remaining)
-    desperate = state.quarter == 4 and q_clock <= 360 and margin < 0
+    desperate = state.quarter >= 4 and q_clock <= 360 and margin < 0
 
     if desperate and state.distance <= 8.0:
         return FourthDownDecision.GO
