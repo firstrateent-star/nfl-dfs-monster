@@ -4,7 +4,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from monster.feature_compile.identity_channels import compile_player_identity_channels
 from monster.feature_compile.mechanisms import PlayerMechanismInputs
+from monster.feature_compile.units import UnitPlayerInputs
 from monster.sim.play_kernel import PlayerIdentity
 
 
@@ -16,6 +18,12 @@ class V13IdentityTrace:
     health: float
     continuity: float
     evidence_fields: int
+    primary_skill: float = 0.0
+    mobility: float = 0.0
+    route_separation: float = 0.0
+    rush_creation: float = 0.0
+    ball_security: float = 0.0
+    rich_capability_active: bool = False
 
 
 def _signal(value: float | None, center: float, scale: float, reverse: bool = False) -> float:
@@ -27,6 +35,19 @@ def _signal(value: float | None, center: float, scale: float, reverse: bool = Fa
     return float(np.tanh(raw))
 
 
+def _health_multiplier(
+    inputs: PlayerMechanismInputs,
+    *,
+    availability_already_sampled: bool,
+) -> float:
+    health = 1.0
+    if inputs.effectiveness_if_active is not None:
+        health *= float(np.clip(inputs.effectiveness_if_active, 0.35, 1.10))
+    if not availability_already_sampled and inputs.active_probability is not None:
+        health *= float(np.clip(inputs.active_probability, 0.0, 1.0))
+    return health
+
+
 def compile_v13_player_identity(
     *,
     player_id: str,
@@ -35,6 +56,7 @@ def compile_v13_player_identity(
     usage_weight: float,
     inputs: PlayerMechanismInputs,
     availability_already_sampled: bool = False,
+    capability_inputs: UnitPlayerInputs | None = None,
 ) -> tuple[PlayerIdentity, V13IdentityTrace]:
     """Compile Full-Reality evidence into bounded play-level identity traits.
 
@@ -46,65 +68,122 @@ def compile_v13_player_identity(
     caller has already decided whether the player exists in this game world, so active
     probability MUST NOT reduce that player's ability again. Only effectiveness-if-active may
     alter active-world capability.
+
+    ``capability_inputs`` activates the richer position-aware identity bridge. The default
+    ``None`` path intentionally preserves the pre-repair v1.3 behavior so paired experiments
+    can isolate the identity-authority change. Rich capability evidence is routed through
+    source-agnostic football mechanism channels rather than directly changing points.
     """
-    speed_parts = [
-        _signal(inputs.forty_time, 4.55, 0.18, reverse=True),
-        _signal(inputs.madden_speed, 85.0, 8.0),
-        _signal(inputs.madden_acceleration, 85.0, 8.0),
-    ]
-    speed = float(np.mean(speed_parts))
-    catch = float(
-        np.mean(
-            [
-                _signal(inputs.madden_catching, 82.0, 10.0),
-                _signal(inputs.madden_route_running, 82.0, 10.0),
-                _signal(inputs.height_in, 73.0, 4.0),
-                _signal(inputs.wingspan_in, 78.0, 5.0),
-            ]
-        )
+    health = _health_multiplier(
+        inputs,
+        availability_already_sampled=availability_already_sampled,
     )
-    power = float(
-        np.mean(
-            [
-                _signal(inputs.weight_lbs, 215.0, 28.0),
-                _signal(inputs.height_in, 73.0, 4.0),
-            ]
-        )
-    )
-    health = 1.0
-    if inputs.effectiveness_if_active is not None:
-        health *= float(np.clip(inputs.effectiveness_if_active, 0.35, 1.10))
-    if not availability_already_sampled and inputs.active_probability is not None:
-        health *= float(np.clip(inputs.active_probability, 0.0, 1.0))
     continuity = (
         0.0
         if inputs.unit_continuity is None
         else float(np.clip((inputs.unit_continuity - 0.5) * 2.0, -1.0, 1.0))
     )
 
-    efficiency = float(
-        np.clip(health * (1.0 + 0.035 * catch + 0.025 * continuity), 0.35, 1.10)
-    )
-    explosive = float(np.clip(1.0 + 0.07 * speed, 0.90, 1.10))
-    turnover_security = float(np.clip(1.0 + 0.025 * power, 0.94, 1.06))
-    evidence_fields = sum(
-        value is not None
-        for value in (
-            inputs.height_in,
-            inputs.weight_lbs,
-            inputs.wingspan_in,
-            inputs.forty_time,
-            inputs.madden_speed,
-            inputs.madden_acceleration,
-            inputs.madden_route_running,
-            inputs.madden_catching,
-            inputs.age_years,
-            inputs.career_workload,
-            inputs.unit_continuity,
-            inputs.active_probability,
-            inputs.effectiveness_if_active,
+    if capability_inputs is None:
+        speed_parts = [
+            _signal(inputs.forty_time, 4.55, 0.18, reverse=True),
+            _signal(inputs.madden_speed, 85.0, 8.0),
+            _signal(inputs.madden_acceleration, 85.0, 8.0),
+        ]
+        speed = float(np.mean(speed_parts))
+        catch = float(
+            np.mean(
+                [
+                    _signal(inputs.madden_catching, 82.0, 10.0),
+                    _signal(inputs.madden_route_running, 82.0, 10.0),
+                    _signal(inputs.height_in, 73.0, 4.0),
+                    _signal(inputs.wingspan_in, 78.0, 5.0),
+                ]
+            )
         )
-    )
+        power = float(
+            np.mean(
+                [
+                    _signal(inputs.weight_lbs, 215.0, 28.0),
+                    _signal(inputs.height_in, 73.0, 4.0),
+                ]
+            )
+        )
+        efficiency = float(
+            np.clip(health * (1.0 + 0.035 * catch + 0.025 * continuity), 0.35, 1.10)
+        )
+        explosive = float(np.clip(1.0 + 0.07 * speed, 0.90, 1.10))
+        turnover_security = float(np.clip(1.0 + 0.025 * power, 0.94, 1.06))
+        evidence_fields = sum(
+            value is not None
+            for value in (
+                inputs.height_in,
+                inputs.weight_lbs,
+                inputs.wingspan_in,
+                inputs.forty_time,
+                inputs.madden_speed,
+                inputs.madden_acceleration,
+                inputs.madden_route_running,
+                inputs.madden_catching,
+                inputs.age_years,
+                inputs.career_workload,
+                inputs.unit_continuity,
+                inputs.active_probability,
+                inputs.effectiveness_if_active,
+            )
+        )
+        trace = V13IdentityTrace(
+            speed=speed,
+            catch_skill=catch,
+            power=power,
+            health=health,
+            continuity=continuity,
+            evidence_fields=evidence_fields,
+        )
+    else:
+        channels = compile_player_identity_channels(
+            position=position,
+            physical=inputs,
+            capability=capability_inputs,
+        )
+        p = position.upper()
+        if p == "QB":
+            primary = channels.qb_execution
+            shape = 0.70 * channels.mobility + 0.30 * channels.speed
+        elif p == "RB":
+            primary = 0.65 * channels.rush_creation + 0.35 * channels.runner_power
+            shape = 0.65 * channels.open_field + 0.35 * channels.speed
+        elif p in {"WR", "TE"}:
+            primary = 0.55 * channels.route_separation + 0.45 * channels.catchpoint
+            shape = 0.70 * channels.speed + 0.30 * channels.open_field
+        else:
+            primary = 0.0
+            shape = channels.speed
+
+        # Candidate identity authority is deliberately bounded. Stage 3 still owns the
+        # league-wide outcome prior; these signals only bend the player-relative mechanism.
+        efficiency = float(
+            np.clip(health * (1.0 + 0.085 * primary + 0.025 * continuity), 0.35, 1.16)
+        )
+        explosive = float(np.clip(1.0 + 0.11 * shape, 0.88, 1.15))
+        turnover_security = float(
+            np.clip(1.0 + 0.065 * channels.ball_security, 0.90, 1.10)
+        )
+        trace = V13IdentityTrace(
+            speed=channels.speed,
+            catch_skill=channels.catchpoint,
+            power=channels.runner_power,
+            health=health,
+            continuity=continuity,
+            evidence_fields=channels.evidence_fields,
+            primary_skill=float(primary),
+            mobility=channels.mobility,
+            route_separation=channels.route_separation,
+            rush_creation=channels.rush_creation,
+            ball_security=channels.ball_security,
+            rich_capability_active=True,
+        )
+
     identity = PlayerIdentity(
         player_id=player_id,
         name=name,
@@ -114,4 +193,4 @@ def compile_v13_player_identity(
         explosive=explosive,
         turnover_security=turnover_security,
     )
-    return identity, V13IdentityTrace(speed, catch, power, health, continuity, evidence_fields)
+    return identity, trace
