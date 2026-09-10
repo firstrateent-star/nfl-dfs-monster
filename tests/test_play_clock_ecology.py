@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from monster.sim.play_kernel import PassResult, PlayType, _event_elapsed_seconds
+import numpy as np
+
+from monster.sim.play_kernel import (
+    PassResult,
+    PlayType,
+    _event_elapsed_seconds,
+    _sample_snap_cadence,
+)
 
 
 def test_in_bounds_scrimmage_keeps_snap_to_snap_cadence() -> None:
@@ -59,3 +66,21 @@ def test_clock_stop_duration_is_bounded() -> None:
         )
         == 10
     )
+
+
+def test_rebalanced_snap_cadence_has_slow_and_fast_in_bounds_tail() -> None:
+    rng = np.random.default_rng(2026091042)
+    ordinary = np.asarray(
+        [_sample_snap_cadence(hurry=0.0, rng=rng) for _ in range(20000)],
+        dtype=float,
+    )
+    hurry = np.asarray(
+        [_sample_snap_cadence(hurry=1.0, rng=rng) for _ in range(20000)],
+        dtype=float,
+    )
+
+    assert 37.0 < float(ordinary.mean()) < 41.0
+    assert float(np.quantile(ordinary, 0.10)) < 27.0
+    assert float(np.quantile(ordinary, 0.90)) > 50.0
+    assert 15.0 < float(hurry.mean()) < 21.0
+    assert float(hurry.mean()) < float(ordinary.mean()) - 15.0
