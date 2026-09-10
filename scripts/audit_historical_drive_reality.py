@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+import argparse
+import json
+from collections import defaultdict
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import nflreadpy as nfl
+import polars as pl
+
+from monster.ingest.nflverse import configure_cache
+from monster.sim.football_state import PossessionTerminal
+from audit_week1_drive_reality import _summarize
+
+
+def _number(row: dict[str, Any], name: str, default: float = 0.0) -> float:
+    value = row.get(name)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _flag(row: dict[str, Any], name: str) -> bool:
+    return _number(row, name) == 1.0
+
+
+def _first_number(rows: list[dict[str, Any]], name: str) -> float | None:
+    for row in rows:
+        value = row.get(name)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _last_number(rows: list[dict[str, Any]], name: str) -> float | None:
+    for row in reversed(rows):
+        value = row.get(name)
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _terminal(rows: list[dict[str, Any]]) -> str:
+    offensive_td = any(_flag(row, "pass_touchdown") or _flag(row, "rush_touchdown") for row in rows)
+    if offensive_td:
+        return PossessionTerminal.TOUCHDOWN.value
+    if any(_flag(row, "safety") for row in rows):
+        return PossessionTerminal.SAFETY.value
+
+    fg_rows = [row for row in rows if _flag(row, "field_goal_attempt")]
+    if fg_rows:
+        made = any(str(row.get("field_goal_result", "")).lower() == "made" for row in fg_rows)
+        return (
+            PossessionTerminal.FIELD_GOAL.value
+            if made
+            else PossessionTerminal.MISSED_FIELD_GOAL.value
+        )
+    if any(str(row.get("play_type", "")).lower() == "punt" for row in rows):
+        return PossessionTerminal.PUNT.value
+    if any(_flag(row, "interception") or _flag(row, "fumble_lost") for row in rows):
+        return PossessionTerminal.TURNOVER.value
+    if any(_flag(row, "fourth_down_failed") for row in rows):
+        return PossessionTerminal.TURNOVER_ON_DOWNS.value
+    return PossessionTerminal.END_GAME.value
+
+
+def _drive_points(rows: list[dict[str, Any]], terminal: str) -> int:
+    start_score = _first_number(rows, "posteam_score")
+    end_score = _last_number(rows, "posteam_score_post")
+    if start_score is not None and end_score is not None and end_score >= start_score:
+        delta = int(round(end_score - start_score))
+        if 0 <= delta <= 8:
+            return delta
+    if terminal == PossessionTerminal.FIELD_GOAL.value:
+        return 3
+    if terminal == PossessionTerminal.TOUCHDOWN.value:
+        return 7
+    return 0
+
+
+def _drive_row(game_id: str, fixed_drive: str, posteam: str, rows: list[dict[str, Any]]) -> dict[str, object]:
+    first_yardline_to_goal = _first_number(rows, "yardline_100")
+    start_yardline_from_own = (
+        100.0 - first_yardline_to_goal if first_yardline_to_goal is not None else 25.0
+    )
+
+    scrimmage_plays = 0
+    net_scrimmage_yards = 0.0
+    first_downs = 0
+    explosive_plays = 0
+    red_zone_reached = False
+    red_zone_snap_seen = False
+    goal_to_go_snap_seen = False
+    sacks = 0
+    turnovers = 0
+
+    for row in rows:
+        dropback = _flag(row, "qb_dropback")
+        designed_run = _flag(row, "rush_attempt") and not dropback
+        scrimmage = dropback or designed_run
+        yardline_to_goal = row.get("yardline_100")
+        yards = _number(row, "yards_gained")
+
+        if yardline_to_goal is not None:
+            yardline_to_goal_f = float(yardline_to_goal)
+            red_zone_snap_seen = red_zone_snap_seen or yardline_to_goal_f <= 20.0
+            if "goal_to_go" in row and row.get("goal_to_go") is not None:
+                goal_to_go_snap_seen = goal_to_go_snap_seen or _flag(row, "goal_to_go")
+            else:
+                distance = _number(row, "ydstogo", 10.0)
+                goal_to_go_snap_seen = goal_to_go_snap_seen or (
+                    yardline_to_goal_f <= 10.0 and distance >= yardline_to_goal_f
+                )
+            if scrimmage:
+                end_yardline_to_goal = yardline_to_goal_f - yards
+                red_zone_reached = red_zone_reached or yardline_to_goal_f <= 20.0 or end_yardline_to_goal <= 20.0
+            else:
+                red_zone_reached = red_zone_reached or yardline_to_goal_f <= 20.0
+
+        if not scrimmage:
+            continue
+        scrimmage_plays += 1
+        net_scrimmage_yards += yards
+        explosive_plays += int(yards >= 15.0)
+        sacks += int(_flag(row, "sack"))
+        turnovers += int(_flag(row, "interception") or _flag(row, "fumble_lost"))
+        if "first_down_pass" in row or "first_down_rush" in row:
+            first_downs += int(_flag(row, "first_down_pass") or _flag(row, "first_down_rush"))
+        else:
+            first_downs += int(_flag(row, "first_down"))
+
+    terminal = _terminal(rows)
+    return {
+        "game_id": game_id,
+        "fixed_drive": fixed_drive,
+        "offense_team_id": posteam,
+        "defense_team_id": "historical_opponent",
+        "start_yardline_100": float(start_yardline_from_own),
+        "terminal": terminal,
+        "points": _drive_points(rows, terminal),
+        "scrimmage_plays": scrimmage_plays,
+        "net_scrimmage_yards": float(net_scrimmage_yards),
+        "first_downs": first_downs,
+        "explosive_plays": explosive_plays,
+        "red_zone_entered": red_zone_reached,
+        "red_zone_snap_seen": red_zone_snap_seen,
+        "goal_to_go_reached": goal_to_go_snap_seen,
+        "goal_to_go_snap_seen": goal_to_go_snap_seen,
+        "pressured_dropbacks": 0,
+        "sacks": sacks,
+        "turnovers": turnovers,
+        "overtime": False,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--season", type=int, default=2025)
+    parser.add_argument("--cache-dir", type=Path, default=Path(".cache/monster"))
+    parser.add_argument("--out", type=Path, default=Path("artifacts/historical-drive-reality"))
+    args = parser.parse_args()
+
+    configure_cache(args.cache_dir)
+    pbp = nfl.load_pbp([args.season])
+    if "season_type" in pbp.columns:
+        pbp = pbp.filter(pl.col("season_type") == "REG")
+    if "qb_kneel" in pbp.columns:
+        pbp = pbp.filter(pl.col("qb_kneel").fill_null(0) == 0)
+    if "qb_spike" in pbp.columns:
+        pbp = pbp.filter(pl.col("qb_spike").fill_null(0) == 0)
+    required = {"game_id", "fixed_drive", "posteam", "play_id"}
+    missing = sorted(required.difference(pbp.columns))
+    if missing:
+        raise ValueError(f"historical drive audit missing required nflverse fields: {missing}")
+
+    usable = pbp.filter(
+        pl.col("game_id").is_not_null()
+        & pl.col("fixed_drive").is_not_null()
+        & pl.col("posteam").is_not_null()
+    ).sort(["game_id", "fixed_drive", "play_id"])
+
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in usable.to_dicts():
+        key = (str(row["game_id"]), str(row["fixed_drive"]), str(row["posteam"]))
+        grouped[key].append(row)
+
+    drive_rows = [
+        _drive_row(game_id, fixed_drive, posteam, rows)
+        for (game_id, fixed_drive, posteam), rows in grouped.items()
+    ]
+    if not drive_rows:
+        raise ValueError("historical audit produced no drives")
+
+    schedules = nfl.load_schedules([args.season])
+    regular = schedules.filter(
+        pl.col("home_score").is_not_null() & pl.col("away_score").is_not_null()
+    )
+    if "game_type" in regular.columns:
+        regular = regular.filter(pl.col("game_type") == "REG")
+    games = regular.height
+    if games <= 0:
+        raise ValueError("no completed regular-season games found")
+
+    overall = _summarize(drive_rows, scope=f"{args.season}_regular_season")
+    overall["drives_per_game"] = len(drive_rows) / games
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(drive_rows).write_parquet(args.out / "historical_drive_traces.parquet")
+    pl.DataFrame([overall]).write_csv(args.out / "historical_drive_reality_overall.csv")
+
+    manifest = {
+        "artifact": "Monster Historical Drive Reality Audit",
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "season": args.season,
+        "games": games,
+        "drives": len(drive_rows),
+        "market_blind": True,
+        "scope": "regular season; kneels/spikes excluded where provider fields exist",
+        "definitions": {
+            "drive": "unique game_id + fixed_drive + posteam",
+            "start_yardline_100": "converted to Monster offense-relative coordinate: 100 - nflverse yardline_100",
+            "scrimmage_play": "qb_dropback == 1 OR (rush_attempt == 1 AND not qb_dropback)",
+            "explosive_play": "scrimmage yards_gained >= 15",
+            "red_zone_reach": "pre-snap nflverse yardline_100 <= 20 OR scrimmage endpoint reaches <= 20",
+            "red_zone_snap": "an offensive play/event begins with nflverse yardline_100 <= 20",
+            "touchdown_terminal": "pass_touchdown or rush_touchdown; return scores remain turnover drives",
+            "pressure": "not compared here; play-level pressure requires nflverse participation join",
+        },
+        "terminal_precedence": [
+            "offensive_touchdown",
+            "safety",
+            "field_goal_attempt",
+            "punt",
+            "interception_or_fumble_lost",
+            "fourth_down_failed",
+            "period_or_other_end",
+        ],
+        "files": {
+            "raw": "historical_drive_traces.parquet",
+            "overall": "historical_drive_reality_overall.csv",
+        },
+    }
+    (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(json.dumps({"manifest": manifest, "overall": overall}, indent=2))
+
+
+if __name__ == "__main__":
+    main()
