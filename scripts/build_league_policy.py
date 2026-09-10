@@ -9,11 +9,20 @@ import polars as pl
 
 from monster.feature_compile.game_flow_policy import compile_game_flow_policy
 from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
+from monster.feature_compile.play_intent import (
+    compile_pass_intent_policy,
+    compile_run_intent_policy,
+)
 from monster.feature_compile.player import compile_player_usage
 from monster.feature_compile.situation import compile_situational_pass_context
 from monster.feature_compile.team import compile_team_policy
 from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
 from monster.teams import NFL_TEAMS
+
+
+def _write(frame: pl.DataFrame, out: Path, stem: str) -> None:
+    frame.write_csv(out / f"{stem}.csv")
+    frame.write_parquet(out / f"{stem}.parquet", compression="zstd")
 
 
 def main() -> None:
@@ -36,6 +45,16 @@ def main() -> None:
     policy = compile_team_policy(pbp)
     situational_pass_context = compile_situational_pass_context(pbp)
     game_flow_league, game_flow_team = compile_game_flow_policy(pbp)
+    (
+        pass_depth_league,
+        pass_depth_team,
+        pass_depth_qb,
+        pass_depth_outcomes,
+        target_depth,
+    ) = compile_pass_intent_policy(pbp)
+    run_geometry_league, run_geometry_team, run_geometry_rusher, run_geometry_outcomes = (
+        compile_run_intent_policy(pbp)
+    )
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
@@ -43,20 +62,21 @@ def main() -> None:
     ol_outcomes = canonical.join(ol_outcomes, on="team_id", how="left").sort("team_id")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    policy.write_csv(args.out / "team_policy.csv")
-    policy.write_parquet(args.out / "team_policy.parquet", compression="zstd")
-    situational_pass_context.write_csv(args.out / "situational_pass_context.csv")
-    situational_pass_context.write_parquet(
-        args.out / "situational_pass_context.parquet", compression="zstd"
-    )
-    game_flow_league.write_csv(args.out / "game_flow_league.csv")
-    game_flow_league.write_parquet(args.out / "game_flow_league.parquet", compression="zstd")
-    game_flow_team.write_csv(args.out / "game_flow_team.csv")
-    game_flow_team.write_parquet(args.out / "game_flow_team.parquet", compression="zstd")
-    ol_outcomes.write_csv(args.out / "offensive_line_outcomes.csv")
-    ol_outcomes.write_parquet(args.out / "offensive_line_outcomes.parquet", compression="zstd")
-    player_usage.write_csv(args.out / "player_usage.csv")
-    player_usage.write_parquet(args.out / "player_usage.parquet", compression="zstd")
+    _write(policy, args.out, "team_policy")
+    _write(situational_pass_context, args.out, "situational_pass_context")
+    _write(game_flow_league, args.out, "game_flow_league")
+    _write(game_flow_team, args.out, "game_flow_team")
+    _write(pass_depth_league, args.out, "pass_depth_league")
+    _write(pass_depth_team, args.out, "pass_depth_team")
+    _write(pass_depth_qb, args.out, "pass_depth_qb")
+    _write(pass_depth_outcomes, args.out, "pass_depth_outcomes")
+    _write(target_depth, args.out, "target_depth")
+    _write(run_geometry_league, args.out, "run_geometry_league")
+    _write(run_geometry_team, args.out, "run_geometry_team")
+    _write(run_geometry_rusher, args.out, "run_geometry_rusher")
+    _write(run_geometry_outcomes, args.out, "run_geometry_outcomes")
+    _write(ol_outcomes, args.out, "offensive_line_outcomes")
+    _write(player_usage, args.out, "player_usage")
 
     missing = int(policy.select(pl.col("games_observed").is_null().sum()).item())
     ol_missing = int(
@@ -76,13 +96,24 @@ def main() -> None:
         "game_flow_team_rows": game_flow_team.height,
         "game_flow_team_evidence_raw_unshrunk": True,
         "game_flow_runtime_shrinkage_required": True,
+        "pass_depth_league_rows": pass_depth_league.height,
+        "pass_depth_team_rows": pass_depth_team.height,
+        "pass_depth_qb_rows": pass_depth_qb.height,
+        "pass_depth_outcome_rows": pass_depth_outcomes.height,
+        "target_depth_rows": target_depth.height,
+        "run_geometry_league_rows": run_geometry_league.height,
+        "run_geometry_team_rows": run_geometry_team.height,
+        "run_geometry_rusher_rows": run_geometry_rusher.height,
+        "run_geometry_outcome_rows": run_geometry_outcomes.height,
+        "intent_ecology_runtime_authority": "shadow_until_oos_and_paired_gates",
         "player_usage_rows": player_usage.height,
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
         "principle": (
             "Historical outcomes are priors and audit targets; simulation policy remains "
-            "contextual and season-scope aligned."
+            "contextual and season-scope aligned. Pass and run intent evidence is compiled "
+            "separately from execution success."
         ),
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
