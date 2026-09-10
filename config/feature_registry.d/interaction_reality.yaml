@@ -24,12 +24,6 @@ features:
     jurisdiction: [allocation, confidence]
     authority: 0.90
     market_derived: false
-  defense_snap_share:
-    family: role
-    cadence: weekly
-    jurisdiction: [allocation, confidence]
-    authority: 0.90
-    market_derived: false
   participation_uncertainty:
     family: role
     cadence: event_driven
