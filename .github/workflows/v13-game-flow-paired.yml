@@ -11,6 +11,7 @@ on:
       - src/monster/sim/game_flow.py
       - src/monster/sim/game_flow_brain.py
       - src/monster/sim/game_flow_lookup.py
+      - src/monster/sim/game_flow_trace.py
       - src/monster/sim/play_kernel.py
       - .github/workflows/v13-game-flow-paired.yml
   workflow_dispatch:
@@ -70,7 +71,7 @@ jobs:
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 1000 --seed 2026091040
           --out artifacts/game-flow-paired/game-flow
-      - name: Compare paired anatomy
+      - name: Compare paired anatomy and live situational calls
         run: |
           python - <<'PY'
           import json
@@ -78,12 +79,12 @@ jobs:
           import polars as pl
 
           root=Path('artifacts/game-flow-paired')
-          b=pl.read_csv(root/'baseline'/'football_anatomy.csv').rename({
-              c:f'{c}_baseline' for c in pl.read_csv(root/'baseline'/'football_anatomy.csv').columns if c!='game'
-          })
-          g=pl.read_csv(root/'game-flow'/'football_anatomy.csv').rename({
-              c:f'{c}_game_flow' for c in pl.read_csv(root/'game-flow'/'football_anatomy.csv').columns if c!='game'
-          })
+          baseline_path=root/'baseline'/'football_anatomy.csv'
+          game_flow_path=root/'game-flow'/'football_anatomy.csv'
+          b_raw=pl.read_csv(baseline_path)
+          g_raw=pl.read_csv(game_flow_path)
+          b=b_raw.rename({c:f'{c}_baseline' for c in b_raw.columns if c!='game'})
+          g=g_raw.rename({c:f'{c}_game_flow' for c in g_raw.columns if c!='game'})
           joined=b.join(g,on='game')
           metrics=['scrimmage_plays_mean','dropbacks_mean','run_plays_mean','completion_percentage','sack_rate','scramble_rate','interception_rate','total_mean']
           for m in metrics:
@@ -91,6 +92,20 @@ jobs:
                   (pl.col(f'{m}_game_flow')-pl.col(f'{m}_baseline')).alias(f'{m}_delta')
               )
           joined.write_csv(root/'paired_anatomy_comparison.csv')
+
+          trace=pl.read_csv(root/'game-flow'/'game_flow_situational_call_trace.csv')
+          aggregate=trace.filter(pl.col('game')=='ALL').sort('special_state')
+          aggregate.write_csv(root/'situational_call_summary.csv')
+          traced_samples=int(aggregate.get_column('samples').sum())
+          weighted_sampler_error=float(
+              (aggregate.get_column('sampler_calibration_error')*aggregate.get_column('samples')).sum()
+              / traced_samples
+          )
+          well_sampled=aggregate.filter(pl.col('samples')>=1000)
+          max_well_sampled_error=(
+              float(well_sampled.get_column('sampler_calibration_error').max())
+              if well_sampled.height else None
+          )
           summary={
               'artifact':'Monster v1.3 Paired Game Flow Stage 2 Experiment',
               'market_blind':True,
@@ -99,15 +114,24 @@ jobs:
               'baseline_game_flow_active':False,
               'shadow_game_flow_active':True,
               'resolution_engine_identical':True,
+              'league_context_hierarchically_shrunk':True,
+              'situational_call_trace_active':True,
+              'situational_call_trace_samples':traced_samples,
+              'situational_call_states':aggregate.height,
+              'weighted_sampler_calibration_error':weighted_sampler_error,
+              'max_well_sampled_state_calibration_error':max_well_sampled_error,
               'mean_abs_dropback_change':float(joined.get_column('dropbacks_mean_delta').abs().mean()),
               'mean_abs_run_change':float(joined.get_column('run_plays_mean_delta').abs().mean()),
               'mean_abs_completion_rate_change':float(joined.get_column('completion_percentage_delta').abs().mean()),
               'mean_abs_sack_rate_change':float(joined.get_column('sack_rate_delta').abs().mean()),
+              'mean_abs_scramble_rate_change':float(joined.get_column('scramble_rate_delta').abs().mean()),
+              'mean_abs_interception_rate_change':float(joined.get_column('interception_rate_delta').abs().mean()),
               'mean_abs_total_change':float(joined.get_column('total_mean_delta').abs().mean()),
               'promotion_status':'SHADOW_STAGE_2_EVIDENCE_ONLY',
           }
           (root/'manifest.json').write_text(json.dumps(summary,indent=2)+'\n')
           print(joined.select(['game',*[f'{m}_delta' for m in metrics]]))
+          print(aggregate)
           print(json.dumps(summary,indent=2))
           PY
       - uses: actions/upload-artifact@v4
