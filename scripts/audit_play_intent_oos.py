@@ -25,8 +25,8 @@ from monster.sim.game_flow import GameFlowState
 def _period_seconds(qtr: int, game_seconds: float) -> int:
     offsets = {1: 2700, 2: 1800, 3: 900, 4: 0}
     if qtr in offsets:
-        return max(int(round(game_seconds - offsets[qtr])), 0)
-    return max(int(round(game_seconds)), 0)
+        return max(round(game_seconds - offsets[qtr]), 0)
+    return max(round(game_seconds), 0)
 
 
 def _flow(row: dict) -> GameFlowState:
@@ -38,15 +38,19 @@ def _flow(row: dict) -> GameFlowState:
         distance=float(row["ydstogo"]),
         yardline=yardline,
         quarter=qtr,
-        seconds_remaining=max(int(round(game_seconds)), 0),
+        seconds_remaining=max(round(game_seconds), 0),
         seconds_remaining_in_period=_period_seconds(qtr, game_seconds),
-        score_margin=int(round(float(row["score_differential"]))),
+        score_margin=round(float(row["score_differential"])),
         yards_to_goal=float(row["yardline_100"]),
         tags=frozenset(),
     )
 
 
-def _metrics(actual: list[str], probabilities: list[np.ndarray], categories: tuple[str, ...]) -> tuple[float, float]:
+def _metrics(
+    actual: list[str],
+    probabilities: list[np.ndarray],
+    categories: tuple[str, ...],
+) -> tuple[float, float]:
     index = {category: i for i, category in enumerate(categories)}
     brier = 0.0
     log_loss = 0.0
@@ -75,7 +79,9 @@ def _evaluate_family(
     team_rows = team.to_dicts()
     actor_rows = actor.to_dicts()
 
-    teams = sorted(set(str(value) for value in test.get_column("posteam").drop_nulls().to_list()))
+    teams = sorted(
+        {str(value) for value in test.get_column("posteam").drop_nulls().to_list()}
+    )
     policies = {
         team_id: build_contextual_categorical_policy(
             categories=categories,
@@ -170,7 +176,9 @@ def main() -> None:
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "market_blind": True,
         "folds": folds,
-        "gate_requires": "positive Brier and log-loss improvement for pass and run in both folds",
+        "gate_requires": (
+            "positive Brier and log-loss improvement for pass and run in both folds"
+        ),
         "gate_passed": passed,
         "principle": (
             "Intent may gain runtime authority only when richer pre-snap context generalizes "
