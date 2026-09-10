@@ -98,6 +98,59 @@ def _summarize_run(store: dict[str, dict[str, object]]) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def _summarize_pressure(store: dict[tuple[str, bool], dict[str, int]]) -> pl.DataFrame:
+    rows = []
+    for (category, pressured), bucket in sorted(store.items()):
+        intents = int(bucket["intents"])
+        throws = int(bucket["throws"])
+        rows.append(
+            {
+                "category": category,
+                "pressured": pressured,
+                "intents": intents,
+                "throws": throws,
+                "completions": int(bucket["completions"]),
+                "interceptions": int(bucket["interceptions"]),
+                "sacks": int(bucket["sacks"]),
+                "scrambles": int(bucket["scrambles"]),
+                "completion_rate_on_throws": _safe_rate(int(bucket["completions"]), throws),
+                "interception_rate_on_throws": _safe_rate(int(bucket["interceptions"]), throws),
+                "sack_rate_on_intents": _safe_rate(int(bucket["sacks"]), intents),
+                "scramble_rate_on_intents": _safe_rate(int(bucket["scrambles"]), intents),
+            }
+        )
+    return pl.DataFrame(rows)
+
+
+def _summarize_run_contact(store: dict[str, dict[str, list[float]]]) -> pl.DataFrame:
+    rows = []
+    for category, bucket in sorted(store.items()):
+        yards = np.asarray(bucket["yards"], dtype=float)
+        before = np.asarray(bucket["before_contact"], dtype=float)
+        after = np.asarray(bucket["after_contact"], dtype=float)
+        attempts = len(yards)
+        explosive = yards >= 20.0 if attempts else np.asarray([], dtype=bool)
+        rows.append(
+            {
+                "category": category,
+                "attempts": attempts,
+                "yards_before_contact_mean": float(before.mean()) if attempts else None,
+                "yards_after_contact_mean": float(after.mean()) if attempts else None,
+                "second_level_rate": float(np.mean(before >= 4.0)) if attempts else None,
+                "after_contact_3plus_rate": float(np.mean(after >= 3.0)) if attempts else None,
+                "breakaway_20plus_rate": float(np.mean(explosive)) if attempts else None,
+                "breakaway_20plus_yards_mean": float(yards[explosive].mean()) if explosive.any() else None,
+                "breakaway_20plus_before_contact_mean": (
+                    float(before[explosive].mean()) if explosive.any() else None
+                ),
+                "breakaway_20plus_after_contact_mean": (
+                    float(after[explosive].mean()) if explosive.any() else None
+                ),
+            }
+        )
+    return pl.DataFrame(rows)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--game-flow-league", type=Path, required=True)
@@ -141,6 +194,19 @@ def main() -> None:
         }
     )
     run_trace: dict[str, dict[str, object]] = defaultdict(lambda: {"yards": []})
+    pressure_trace: dict[tuple[str, bool], dict[str, int]] = defaultdict(
+        lambda: {
+            "intents": 0,
+            "throws": 0,
+            "completions": 0,
+            "interceptions": 0,
+            "sacks": 0,
+            "scrambles": 0,
+        }
+    )
+    run_contact_trace: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: {"yards": [], "before_contact": [], "after_contact": []}
+    )
     attached_teams: set[str] = set()
 
     def team_identity_with_stage3(
@@ -195,30 +261,41 @@ def main() -> None:
         if event.play_type == PlayType.PASS and event.pass_depth_category is not None:
             bucket = pass_trace[event.pass_depth_category]
             bucket["intents"] = int(bucket["intents"]) + 1
+            conditioned = pressure_trace[(event.pass_depth_category, bool(event.pressured))]
+            conditioned["intents"] += 1
             if event.pass_result == PassResult.SACK:
                 bucket["sacks"] = int(bucket["sacks"]) + 1
+                conditioned["sacks"] += 1
             elif event.pass_result == PassResult.SCRAMBLE:
                 bucket["scrambles"] = int(bucket["scrambles"]) + 1
+                conditioned["scrambles"] += 1
             elif event.pass_result in {
                 PassResult.COMPLETE,
                 PassResult.INCOMPLETE,
                 PassResult.INTERCEPTION,
             }:
                 bucket["throws"] = int(bucket["throws"]) + 1
+                conditioned["throws"] += 1
                 cast_air = bucket["air_yards"]
                 assert isinstance(cast_air, list)
                 cast_air.append(float(event.air_yards))
                 if event.pass_result == PassResult.COMPLETE:
                     bucket["completions"] = int(bucket["completions"]) + 1
+                    conditioned["completions"] += 1
                     cast_yards = bucket["completed_yards"]
                     assert isinstance(cast_yards, list)
                     cast_yards.append(float(event.yards))
                 elif event.pass_result == PassResult.INTERCEPTION:
                     bucket["interceptions"] = int(bucket["interceptions"]) + 1
+                    conditioned["interceptions"] += 1
         elif event.play_type == PlayType.RUN and event.run_geometry_category is not None:
             yards = run_trace[event.run_geometry_category]["yards"]
             assert isinstance(yards, list)
             yards.append(float(event.yards))
+            contact = run_contact_trace[event.run_geometry_category]
+            contact["yards"].append(float(event.yards))
+            contact["before_contact"].append(float(event.yards_before_contact))
+            contact["after_contact"].append(float(event.yards_after_contact))
         return event
 
     baseline._team_identity = team_identity_with_stage3
@@ -237,8 +314,12 @@ def main() -> None:
 
     pass_df = _summarize_pass(pass_trace)
     run_df = _summarize_run(run_trace)
+    pressure_df = _summarize_pressure(pressure_trace)
+    run_contact_df = _summarize_run_contact(run_contact_trace)
     pass_df.write_csv(known.out / "stage3_pass_depth_anatomy.csv")
     run_df.write_csv(known.out / "stage3_run_geometry_anatomy.csv")
+    pressure_df.write_csv(known.out / "stage3_pressure_depth_anatomy.csv")
+    run_contact_df.write_csv(known.out / "stage3_run_second_level_anatomy.csv")
 
     manifest_path = known.out / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
@@ -258,12 +339,18 @@ def main() -> None:
             "stage3_attached_team_count": len(attached_teams),
             "stage3_pass_depth_anatomy": "stage3_pass_depth_anatomy.csv",
             "stage3_run_geometry_anatomy": "stage3_run_geometry_anatomy.csv",
+            "stage3_pressure_depth_anatomy": "stage3_pressure_depth_anatomy.csv",
+            "stage3_run_second_level_anatomy": "stage3_run_second_level_anatomy.csv",
+            "pressure_depth_trace_behavioral_authority": False,
+            "run_second_level_trace_behavioral_authority": False,
             "promotion_status": "SHADOW_STAGE3_NOT_PROMOTED",
         }
     )
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(pass_df)
     print(run_df)
+    print(pressure_df)
+    print(run_contact_df)
     print(json.dumps(manifest, indent=2))
 
 
