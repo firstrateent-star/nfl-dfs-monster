@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import nflreadpy as nfl
+
 from monster.ingest.nflverse import configure_cache
 
 TACTICAL_TOKENS = (
