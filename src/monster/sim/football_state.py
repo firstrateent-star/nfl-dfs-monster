@@ -8,6 +8,7 @@ class PossessionTerminal(StrEnum):
     TOUCHDOWN = "touchdown"
     FIELD_GOAL = "field_goal"
     MISSED_FIELD_GOAL = "missed_field_goal"
+    SAFETY = "safety"
     PUNT = "punt"
     TURNOVER = "turnover"
     TURNOVER_ON_DOWNS = "turnover_on_downs"

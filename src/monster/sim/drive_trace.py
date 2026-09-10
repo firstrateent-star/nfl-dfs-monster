@@ -52,11 +52,13 @@ class DriveTraceRecorder:
         self.sacks = 0
         self.turnovers = 0
         self.last_offense_yardline = start.yardline_100
+        self.observed_events = 0
 
     def observe(self, before: FootballState, event: PlayEvent) -> None:
         """Observe a resolved event while it still belongs to the current offense."""
         if before.possession != self.start.possession:
             raise ValueError("drive observer received an event from a different offense")
+        self.observed_events += 1
         if event.play_type not in {PlayType.RUN, PlayType.PASS}:
             return
 
@@ -73,6 +75,20 @@ class DriveTraceRecorder:
 
         if not event.touchdown and not event.turnover and float(event.yards) >= before.distance:
             self.first_downs += 1
+
+    @property
+    def has_activity(self) -> bool:
+        return self.observed_events > 0
+
+    def observe_penalty(self, before: FootballState, after: FootballState) -> None:
+        """Observe an enforced penalty without counting it as a scrimmage play."""
+        if before.possession != self.start.possession:
+            raise ValueError("drive observer received a penalty from a different offense")
+        self.observed_events += 1
+        if after.possession == self.start.possession:
+            self.last_offense_yardline = after.yardline_100
+            self.red_zone_entered = self.red_zone_entered or after.yardline_100 >= 80.0
+            self.goal_to_go_reached = self.goal_to_go_reached or _goal_to_go(after)
 
     def finish(
         self,

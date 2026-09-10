@@ -11,8 +11,10 @@ from monster.sim.clock import (
     overtime_complete,
     regulation_complete,
 )
+from monster.sim.drive_trace import DriveTrace, DriveTraceRecorder
 from monster.sim.football_state import (
     FootballState,
+    PossessionTerminal,
     apply_scrimmage_yards,
     kickoff_transition,
     missed_field_goal_transition,
@@ -81,6 +83,7 @@ class GameResultV13:
     plays: tuple[PlayEvent, ...]
     player_stats: dict[str, PlayerBoxScore]
     drives: int
+    drive_traces: tuple[DriveTrace, ...] = ()
     defensive_stats: dict[str, DefensiveBoxScore] | None = None
     special_teams_events: tuple[SpecialTeamsEvent, ...] = ()
     try_events: tuple[TryEvent, ...] = ()
@@ -218,6 +221,8 @@ def simulate_regulation_game(
     tries: list[TryEvent] = []
     penalties: list[PenaltyEvent] = []
     drives = 1
+    drive_traces: list[DriveTrace] = []
+    drive_recorder = DriveTraceRecorder(state)
     safeties = 0
     second_half_receiver = home.team_id
     halftime_done = False
@@ -235,9 +240,11 @@ def simulate_regulation_game(
         if penalty is not None and event.play_type in (PlayType.RUN, PlayType.PASS):
             penalties.append(penalty)
             state = enforce_penalty(state, penalty, elapsed_seconds=event.elapsed_seconds)
+            drive_recorder.observe_penalty(before, state)
         else:
             plays.append(event)
             _record(event, stats, defensive_stats)
+            drive_recorder.observe(before, event)
             if event.play_type == PlayType.PUNT:
                 punt = simulate_punt(rng, punter_skill=offense.punt_skill)
                 special.append(punt)
@@ -254,7 +261,9 @@ def simulate_regulation_game(
                         return_yards=punt.return_yards,
                         elapsed_seconds=event.elapsed_seconds,
                     )
+                drive_traces.append(drive_recorder.finish(state, PossessionTerminal.PUNT, points=0))
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             elif event.play_type == PlayType.FIELD_GOAL:
                 fg = simulate_field_goal(
                     rng,
@@ -264,12 +273,18 @@ def simulate_regulation_game(
                 special.append(fg)
                 state = advance_game_clock(state, event.elapsed_seconds)
                 if fg.made:
-                    state = _kickoff(
-                        _add_score(state, 3, away_team_id=away.team_id), rng, special
+                    scored_state = _add_score(state, 3, away_team_id=away.team_id)
+                    drive_traces.append(
+                        drive_recorder.finish(scored_state, PossessionTerminal.FIELD_GOAL)
                     )
+                    state = _kickoff(scored_state, rng, special)
                 else:
                     state = missed_field_goal_transition(state, elapsed_seconds=0)
+                    drive_traces.append(
+                        drive_recorder.finish(state, PossessionTerminal.MISSED_FIELD_GOAL, points=0)
+                    )
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             elif is_safety(yardline_100=state.yardline_100, yards=event.yards):
                 scoring_team = state.defense
                 state = advance_game_clock(state, event.elapsed_seconds)
@@ -281,12 +296,20 @@ def simulate_regulation_game(
                     home_team_id=home.team_id,
                 )
                 safeties += 1
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.SAFETY, points=0)
+                )
                 state = _kickoff(state, rng, special)
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             elif event.turnover:
                 spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
                 state = turnover_at_spot(state, spot, elapsed_seconds=event.elapsed_seconds)
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.TURNOVER, points=0)
+                )
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             elif event.touchdown:
                 state = advance_game_clock(state, event.elapsed_seconds)
                 state = _add_score(state, 6, away_team_id=away.team_id)
@@ -307,14 +330,26 @@ def simulate_regulation_game(
                 )
                 tries.append(trial)
                 state = _add_score(state, trial.points, away_team_id=away.team_id)
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
+                )
                 state = _kickoff(state, rng, special)
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             else:
                 state = apply_scrimmage_yards(state, event.yards, event.elapsed_seconds)
                 if before.down == 4 and event.yards < before.distance:
                     state = turnover_on_downs(state)
+                    drive_traces.append(
+                        drive_recorder.finish(state, PossessionTerminal.TURNOVER_ON_DOWNS, points=0)
+                    )
                     drives += 1
+                    drive_recorder = DriveTraceRecorder(state)
         if not halftime_done and before.seconds_remaining > 1800 >= state.seconds_remaining:
+            if drive_recorder.has_activity and drive_recorder.start.possession == before.possession:
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.HALFTIME)
+                )
             halftime_done = True
             state = FootballState(
                 possession=second_half_receiver,
@@ -328,13 +363,17 @@ def simulate_regulation_game(
                 home_team_id=home.team_id,
             )
             drives += 1
+            drive_recorder = DriveTraceRecorder(state)
     if state.seconds_remaining > 0:
         state = replace(state, seconds_remaining=0, quarter=4)
+    if drive_recorder.has_activity:
+        drive_traces.append(drive_recorder.finish(state, PossessionTerminal.END_GAME))
     return GameResultV13(
         final_state=state,
         plays=tuple(plays),
         player_stats=stats,
         drives=drives,
+        drive_traces=tuple(drive_traces),
         defensive_stats=defensive_stats,
         special_teams_events=tuple(special),
         try_events=tuple(tries),
@@ -381,6 +420,7 @@ def _simulate_regular_season_overtime(
     tries = list(regulation.try_events)
     penalties = list(regulation.penalty_events)
     drives = regulation.drives
+    drive_traces = list(regulation.drive_traces)
     safeties = regulation.safeties
     overtime_touchdowns_without_try = 0
 
@@ -401,6 +441,7 @@ def _simulate_regular_season_overtime(
     )
     state = _kickoff(state, rng, special)
     drives += 1
+    drive_recorder = DriveTraceRecorder(state)
     initial_completed: set[str] = set()
 
     for _ in range(max_plays):
@@ -421,10 +462,12 @@ def _simulate_regular_season_overtime(
         if penalty is not None and event.play_type in (PlayType.RUN, PlayType.PASS):
             penalties.append(penalty)
             state = enforce_penalty(state, penalty, elapsed_seconds=event.elapsed_seconds)
+            drive_recorder.observe_penalty(before, state)
             continue
 
         plays.append(event)
         _record(event, stats, defensive_stats)
+        drive_recorder.observe(before, event)
 
         if event.play_type == PlayType.PUNT:
             punt = simulate_punt(rng, punter_skill=offense.punt_skill)
@@ -442,7 +485,9 @@ def _simulate_regular_season_overtime(
                     return_yards=punt.return_yards,
                     elapsed_seconds=event.elapsed_seconds,
                 )
+            drive_traces.append(drive_recorder.finish(state, PossessionTerminal.PUNT, points=0))
             drives += 1
+            drive_recorder = DriveTraceRecorder(state)
             initial_completed.add(offense.team_id)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
@@ -458,6 +503,10 @@ def _simulate_regular_season_overtime(
             state = advance_game_clock(state, event.elapsed_seconds)
             if fg.made:
                 state = _add_score(state, 3, away_team_id=away.team_id)
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.FIELD_GOAL)
+                )
+                drive_recorder = DriveTraceRecorder(state)
                 initial_completed.add(offense.team_id)
                 if sudden_death or (
                     len(initial_completed) >= 2
@@ -468,8 +517,13 @@ def _simulate_regular_season_overtime(
                     break
                 state = _kickoff(state, rng, special)
                 drives += 1
+                drive_recorder = DriveTraceRecorder(state)
             else:
                 state = missed_field_goal_transition(state, elapsed_seconds=0)
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.MISSED_FIELD_GOAL, points=0)
+                )
+                drive_recorder = DriveTraceRecorder(state)
                 drives += 1
                 initial_completed.add(offense.team_id)
                 if (
@@ -490,6 +544,10 @@ def _simulate_regular_season_overtime(
                 home_team_id=home.team_id,
             )
             safeties += 1
+            drive_traces.append(
+                drive_recorder.finish(state, PossessionTerminal.SAFETY, points=0)
+            )
+            drive_recorder = DriveTraceRecorder(state)
             initial_completed.add(offense.team_id)
 
             # 2026 Rule 16 exception: the team that kicked off wins immediately if it
@@ -505,11 +563,16 @@ def _simulate_regular_season_overtime(
                 break
             state = _kickoff(state, rng, special)
             drives += 1
+            drive_recorder = DriveTraceRecorder(state)
             continue
 
         if event.turnover:
             spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
             state = turnover_at_spot(state, spot, elapsed_seconds=event.elapsed_seconds)
+            drive_traces.append(
+                drive_recorder.finish(state, PossessionTerminal.TURNOVER, points=0)
+            )
+            drive_recorder = DriveTraceRecorder(state)
             drives += 1
             initial_completed.add(offense.team_id)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
@@ -530,6 +593,10 @@ def _simulate_regular_season_overtime(
                 > _opponent_score(state, offense.team_id, away_team_id=away.team_id)
             )
             if game_ending_td:
+                drive_traces.append(
+                    drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
+                )
+                drive_recorder = DriveTraceRecorder(state)
                 initial_completed.add(offense.team_id)
                 overtime_touchdowns_without_try += 1
                 break
@@ -552,6 +619,10 @@ def _simulate_regular_season_overtime(
             )
             tries.append(trial)
             state = _add_score(state, trial.points, away_team_id=away.team_id)
+            drive_traces.append(
+                drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
+            )
+            drive_recorder = DriveTraceRecorder(state)
             initial_completed.add(offense.team_id)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
@@ -559,11 +630,16 @@ def _simulate_regular_season_overtime(
                 break
             state = _kickoff(state, rng, special)
             drives += 1
+            drive_recorder = DriveTraceRecorder(state)
             continue
 
         state = apply_scrimmage_yards(state, event.yards, event.elapsed_seconds)
         if before.down == 4 and event.yards < before.distance:
             state = turnover_on_downs(state)
+            drive_traces.append(
+                drive_recorder.finish(state, PossessionTerminal.TURNOVER_ON_DOWNS, points=0)
+            )
+            drive_recorder = DriveTraceRecorder(state)
             drives += 1
             initial_completed.add(offense.team_id)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
@@ -571,12 +647,15 @@ def _simulate_regular_season_overtime(
 
     if state.seconds_remaining > 0 and len(plays) - len(regulation.plays) >= max_plays:
         state = replace(state, seconds_remaining=0, quarter=5)
+    if drive_recorder.has_activity:
+        drive_traces.append(drive_recorder.finish(state, PossessionTerminal.END_GAME))
 
     return GameResultV13(
         final_state=state,
         plays=tuple(plays),
         player_stats=stats,
         drives=drives,
+        drive_traces=tuple(drive_traces),
         defensive_stats=defensive_stats,
         special_teams_events=tuple(special),
         try_events=tuple(tries),

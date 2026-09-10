@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from monster.sim.football_state import PossessionTerminal
 from monster.sim.game_loop_v13 import simulate_regulation_game
 from monster.sim.play_kernel import PassResult, PlayerIdentity, TeamIdentity
 
@@ -53,6 +54,7 @@ def test_same_seed_reproduces_same_game_world() -> None:
     assert a.final_state == b.final_state
     assert a.plays == b.plays
     assert a.player_stats == b.player_stats
+    assert a.drive_traces == b.drive_traces
 
 
 def test_score_changes_emerge_from_explicit_scoring_events() -> None:
@@ -66,3 +68,17 @@ def test_score_changes_emerge_from_explicit_scoring_events() -> None:
     )
     try_points = sum(event.points for event in result.try_events)
     assert points == 6 * touchdowns + 3 * made_fgs + try_points + 2 * result.safeties
+
+
+def test_drive_traces_reconcile_to_event_derived_scoring() -> None:
+    result = simulate_regulation_game(_team("away"), _team("home"), seed=66)
+    assert result.drive_traces
+    traced_touchdowns = sum(
+        trace.terminal == PossessionTerminal.TOUCHDOWN for trace in result.drive_traces
+    )
+    event_touchdowns = sum(play.touchdown for play in result.plays)
+    assert traced_touchdowns == event_touchdowns
+    traced_offensive_points = sum(trace.points for trace in result.drive_traces)
+    scoreboard_points = result.final_state.away_score + result.final_state.home_score
+    assert traced_offensive_points + 2 * result.safeties == scoreboard_points
+    assert all(trace.offense_team_id != trace.defense_team_id for trace in result.drive_traces)
