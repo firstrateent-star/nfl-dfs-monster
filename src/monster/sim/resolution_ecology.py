@@ -12,10 +12,12 @@ from monster.sim.play_anatomy import (
     condition_throw_probabilities,
 )
 
-# Stage 3 depth priors already contain league-wide completion/interception difficulty.
-# The current matchup kernel is still a coarse unit/player bridge rather than a true
-# snap-specific coverage assignment, so it earns partial relative authority only.
+# Stage 3 historical outcome priors already contain league-wide difficulty. The current
+# matchup kernel is still a coarse unit/player bridge rather than a snap-specific assignment,
+# so it receives only partial relative authority. Run blocking/front evidence is somewhat
+# more direct than pass coverage assignment, hence the modestly higher run authority.
 _COARSE_MATCHUP_AUTHORITY = 0.35
+_COARSE_RUN_MATCHUP_AUTHORITY = 0.50
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,12 @@ class DepthThrowProbabilities:
 def _shrink_relative(relative: float, *, low: float, high: float) -> float:
     clipped = float(np.clip(relative, low, high))
     return float(exp(_COARSE_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
+
+
+def _shrink_run_relative(relative: float, *, low: float, high: float) -> float:
+    """Grant coarse run matchup evidence bounded authority around a neutral 1.0 prior."""
+    clipped = float(np.clip(relative, low, high))
+    return float(exp(_COARSE_RUN_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
 
 
 def depth_throw_probabilities(
@@ -299,24 +307,31 @@ def resolve_run_ecology(
     """Resolve a run through explicit failure/routine/crease/breakaway branches.
 
     Frequency and severity are separate. Historical geometry provides the branch prior.
-    Front penetration controls loss frequency; runner power can resist that penetration;
-    the matchup yards multiplier owns ordinary efficiency; explosiveness and pursuit own
-    breakaway frequency. Neutral branch composition is calibrated back to the historical
-    geometry mean before live matchup perturbations are applied.
+    Coarse front/player matchup evidence receives bounded relative authority: it can move
+    a world above or below the historical prior without replacing the prior itself. Front
+    penetration controls loss frequency; runner power can resist that penetration; the
+    matchup yards multiplier owns ordinary efficiency; explosiveness and pursuit own
+    breakaway frequency.
     """
 
     if profile.category == "other":
         return _resolve_other_run(profile, rng=rng)
 
-    stuff_factor = float(np.clip(matchup_stuff_probability / 0.18, 0.55, 1.80))
-    power_factor = float(np.clip(runner_power, 0.70, 1.30))
-    efficiency_factor = float(np.clip(matchup_yards_multiplier, 0.72, 1.38))
-    explosive_factor = float(
-        np.clip(
-            explosiveness / max(tackling**0.30, 0.80),
-            0.65,
-            1.45,
-        )
+    stuff_factor = _shrink_run_relative(
+        matchup_stuff_probability / 0.18,
+        low=0.55,
+        high=1.80,
+    )
+    power_factor = _shrink_run_relative(runner_power, low=0.70, high=1.30)
+    efficiency_factor = _shrink_run_relative(
+        matchup_yards_multiplier,
+        low=0.72,
+        high=1.38,
+    )
+    explosive_factor = _shrink_run_relative(
+        explosiveness / max(tackling**0.30, 0.80),
+        low=0.65,
+        high=1.45,
     )
 
     negative_p = float(
