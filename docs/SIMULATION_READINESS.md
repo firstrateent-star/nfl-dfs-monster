@@ -2,103 +2,182 @@
 
 ## Center
 
-The Monster is an independent, market-blind NFL slate simulator. Its production order is:
+The Monster is an independent, market-blind NFL football-reality simulator. Simulation is part of model development; it is not synonymous with promotion or freeze.
 
-`football data -> frozen slate reality -> game/team score worlds -> player opportunity/stat worlds -> validation -> DFS translation later`
+The canonical causal order remains:
 
-A mechanism is not required to be perfect before launch. It is required to be either (a) promoted by evidence, (b) explicitly bounded as a provisional input, or (c) deferred so it cannot masquerade as production authority.
+`football evidence -> player/current state -> unit/system reality -> matchup/environment -> possessions -> plays -> scoring -> players -> blind freeze -> DFS later`
 
-## Promoted / production-authority layers
+A development branch may run diagnostic simulations before every future feature is mature. What matters is that each active mechanism is coherent, attributable, market-blind, reproducible, and explicit about whether it is production, provisional, partial, or shadow.
+
+The older Monster Football Reality v1 release remains a bounded comparison baseline. The v1.3 sequential event engine is a development replacement candidate until it earns its own promotion and freeze gates.
+
+## Readiness tiers
+
+### R0 — Engine integrity
+
+R0 answers: **Can this code generate coherent football worlds at all?**
+
+Required:
+- CI and rule/state-machine tests are green.
+- The sequential game engine terminates without impossible state transitions.
+- Score, possession, down/distance, field-position and opportunity accounting conserve correctly.
+- Seeded runs are reproducible.
+- Market-blind guards are intact.
+
+R0 does not imply that the generated football distribution is realistic.
+
+### R1 — Diagnostic simulation ready
+
+R1 answers: **Can we run simulations that are trustworthy enough to diagnose the next causal defect?**
+
+Required on the exact current commit:
+1. R0 passes.
+2. All intended slate teams compile and attach to the current Game Flow / intent / resolution path.
+3. Current personnel and environment snapshots compile without material identity errors.
+4. Active production mechanisms have explicit provenance and jurisdiction.
+5. Incomplete mechanisms are explicitly marked PARTIAL/SHADOW and have no hidden authority.
+6. The required comparison/audit chain executes end-to-end for the mechanism under study.
+7. Paired experiments use the same games, seeds, world counts and upstream evidence on control and treatment.
+8. Manifests state code version, seed, world count, market-blind status and known limitations.
+
+At R1, 250-world paired experiments are appropriate for causal diagnosis. They are not release evidence.
+
+### R2 — Evaluation simulation ready
+
+R2 answers: **Is the current v1.3 anatomy healthy enough to evaluate as a whole football model rather than one local mutation?**
+
+Required:
+- Drive Survival Ecology is no longer materially distorted by known implementation defects.
+- Fourth-down decision behavior has passed its post-repair paired audit.
+- Clock/possession anatomy has a definition-matched historical comparison, including terminal-conditioned tails.
+- Scoring-state ecology is measured and no known red-zone/goal-to-go bug is being compensated elsewhere.
+- Run negative-play and explosive-tail anatomy are within an evidence-supported range.
+- Pressure-conditioned pass outcomes have been compared against historical football evidence.
+- Skill-player availability is world-specific and stable.
+- Known OL/defensive availability limitations are either repaired or explicitly bounded for the evaluation.
+- Conservation and market-blind gates remain green.
+
+At R2, run at least two disjoint 1,000-world universes before discussing freeze candidacy. Evaluate score distributions, possession anatomy and player opportunity jointly; do not judge only mean game totals.
+
+### R3 — Freeze-candidate simulation ready
+
+R3 answers: **Can this exact football engine reasonably compete to become the new canonical frozen model?**
+
+Required:
+- Drive, clock, scoring, run and pressure anatomy pass their defined evidence gates.
+- Availability propagates through skill players, offensive line and defensive units in sampled worlds.
+- Current roster/health/environment inputs are fresh for the target slate.
+- Any defensive tactical intent, assignment-level matchup, coaching/system identity, special-teams refinement, travel/rest or other expansion with production authority has its own provenance, coverage and causal evidence.
+- All remaining experimental layers have zero production authority and are explicitly classified as SHADOW.
+- Multi-seed stability passes at evaluation scale.
+- Probability-distribution validation is available for completed historical/held-out games where definition-matched v1.3 backtests are possible.
+- Frozen inputs, code SHA, seeds and output artifact hashes are reproducible.
+
+R3 still does not authorize DFS translation. It authorizes a candidate to face the canonical Football Reality Freeze Gate.
+
+### R4 — Canonical football freeze
+
+R4 answers: **Has this exact model state earned canonical upstream authority?**
+
+Required:
+- `src/monster/audit/freeze_gate.py` passes on the exact candidate.
+- Market blindness is proven.
+- Current-state freshness is proven.
+- Required anatomy/audit gates are green.
+- Conservation and multi-seed stability are green.
+- Provenance is complete for every production-authority input.
+- No shadow feature has non-zero production authority.
+- Freeze manifest and artifact hashes are written and immutable for the release.
+
+Only after R4 may frozen football worlds flow into DFS scoring/economics and Monster150.
+
+## Existing promoted / reusable foundations
+
+These are established organs and should be reused rather than rebuilt unless evidence demonstrates a defect.
 
 ### Market blindness
 - Sportsbook totals, spreads, moneylines and props are forbidden upstream.
 - DFS salary, ownership and external fantasy projections are forbidden upstream.
 - Contaminated v0.6.2 remains historical audit/control only.
 
-### Historical score anatomy
+### Historical evidence and score anatomy
 - Regular-season PBP scope is explicit.
 - Canonical team aliases are normalized before aggregation.
 - Offensive TD labels use passing/rushing TDs rather than generic TD events.
-- Possession calibration no longer double-applies pace.
+- Historical drive, score, pressure, play-gain and other anatomy audits already exist and should be extended in place when new definition-matched fields are needed.
 
-### Offseason team identity
-- Continuity-conditioned memory is the promoted bridge.
-- It passed year-forward OOS validation across 2022-2025.
+### Team identity / continuity
+- Continuity-conditioned memory is an established evidence bridge.
 - Continuity controls confidence in inherited identity; it is not a scoring bonus.
+- Richer named coaching/system identity remains shadow until separately justified.
 
-### Shared game clock / finite opportunity
-- Teams share one possession universe rather than independent possession lotteries.
-- Teams share one finite play budget.
-- Opportunity mean and tails are historically realistic.
-- Shared-clock engine passed scoring noninferiority OOS.
+### Sequential game state
+- v1.3 now has explicit shared scoreboard, clock, possession, down/distance, field position, punts, field goals, failed fourth downs, overtime and drive traces.
+- Therefore sequential game-state scoring is no longer a future architectural requirement; its realism is now an evaluation problem.
 
-### Matchup interaction kernel
-The current production kernel expresses opponent-specific collisions through:
-- pass protection vs pass rush + coverage,
-- run blocking vs run defense,
-- pass disruption,
-- run efficiency,
-- drive quality / turnover / scoring propagation.
+### Matchup and player reality
+- Existing unit-interaction, player reality, participation, health, offensive-line, defensive-unit and opportunity systems should be extended rather than replaced.
+- World-specific skill availability exists in shadow form.
+- The remaining availability seam is propagation into OL/defensive unit composition rather than creation of another availability engine.
 
-A controlled 50,000-world elasticity audit passed all 9/9 monotonic direction checks. This establishes mechanical responsiveness, not historical injury-value calibration.
+## Current v1.3 readiness assessment
 
-### Rushing opportunity anatomy
-- Finite core rushing group plus incidental tail.
-- Latent A/B/C hierarchy.
-- Realized-world leader and rank anatomy structurally validated.
+### Already sufficient for R1 diagnostic simulation
+- Sequential v1.3 engine exists and has run complete slate-world experiments.
+- Stage 2 Game Flow is certified and should remain frozen during Stage 3 diagnosis.
+- Stage 3 pass-depth/run-intent ecology is attached across the Week 1 slate.
+- DriveTrace and definition-matched historical drive audits exist.
+- Drive-survival, scoring-state, clock/possession, pass-depth, run-geometry and pressure evidence paths exist.
+- Market-blind and conservation tests exist.
+- Paired Stage 3 workflows exist.
 
-### Receiving opportunity anatomy
-- Separate receiving hierarchy and eligibility state.
-- Rank geometry, middle tier, peripheral tail and route/read eligibility validated with held-out and rolling OOS checks.
+Therefore Monster **should continue diagnostic simulation now**. Waiting for every freeze blocker before simulating would prevent the simulations from doing their intended job: locating which causal mechanisms need repair.
 
-### Current health interface
-Production currently carries separate availability/effectiveness/role inputs and is required to remain score-bounded.
-Health is intentionally shallow for launch because live provider coverage is incomplete. It is not allowed to claim full replacement-chain realism yet.
+### Current blockers to R2 whole-model evaluation
+- Confirm the repaired fourth-down policy in a fresh paired Stage 3 run.
+- Complete terminal-conditioned clock/drive-tail evidence after the historical drive clock-field repair.
+- Repair ordinary early-down/series survival through its owning play-resolution mechanisms; do not tune final score directly.
+- Compare pressure-conditioned Stage 3 outcomes against historical pressure evidence.
+- Reassess run second-level/explosive anatomy after the survival repair.
+- Keep scoring-state conversion bounded; current evidence indicates access to scoring territory is the larger issue than red-zone conversion itself.
 
-## Measured but deferred
+### Current blockers to R3 freeze candidacy
+- Propagate sampled availability through OL and defensive unit composition rather than hardcoding every unit player active.
+- Run disjoint evaluation-scale seeds and demonstrate stability.
+- Complete v1.3 probability-distribution validation on definition-matched completed games where possible.
+- Promote only those newer defensive/coaching/assignment/ST/environment layers that earn evidence; otherwise keep authority at zero.
+- Refresh target-slate personnel/health/environment state immediately before candidate freeze.
 
-### Full sequential game-state scoring
-Historical 2022-2025 PBP strongly confirms score-state behavior. In the final five minutes, teams trailing 7-13 points passed dramatically more often than teams leading 7-13, with the direction stable every season.
+## Simulation cadence
 
-Production currently allows player opportunity to respond to score pressure, but the core scoring engine remains aggregate-drive rather than a drive-by-drive scoreboard state machine.
+Use simulation scale according to the question being asked:
 
-Reason for deferral: do not destabilize an OOS-tested score engine immediately before the first slate launch. Sequential scoring becomes a post-launch structural candidate and must earn its own OOS noninferiority/predictive gate.
+- **Unit tests / micro worlds:** software correctness and conservation.
+- **250-world paired slate:** local causal mutation diagnosis using identical control/treatment seeds.
+- **Two or more disjoint 1,000-world slate universes:** whole-model anatomy and stability at R2.
+- **Larger frozen runs:** only after the model is a credible R3 candidate and the extra worlds answer a real uncertainty/calibration question.
 
-### Deep health replacement realities
-Deferred until better live health data are available. Future design:
-`P(active) -> effectiveness|active -> sampled reality -> replacement chain -> rebuilt unit -> matchup -> scoring`.
+More worlds cannot repair a biased mechanism. Increase world count only after anatomy is credible enough that Monte Carlo error, rather than structural model error, is the uncertainty being reduced.
 
-### Field position / special teams state machine
-Drive-start field position, punts/returns, failed fourth downs and detailed kicking range are not yet explicit sequential states.
+## Anti-duplication rule
 
-### Richer coaching/system transitions
-Current policy and continuity mechanisms capture part of this. Coordinator/HC transitions, personnel-package philosophy and opponent-specific adjustment behavior remain future work.
+Before creating a new model organ, audit, ledger, sampler or workflow, first determine whether an existing component owns the responsibility.
 
-### Individual micro-matchups
-Examples: LT vs specific EDGE, WR route archetype vs specific CB, TE vs LB/S, QB-specific pressure response. Current launch authority is at the unit-interaction level.
+Preferred order:
 
-### Weather refinement
-Environment hooks exist; richer empirically validated wind/rain/temperature/surface mechanisms remain future work.
+`reuse -> expose -> extend -> repair -> consolidate -> create only if genuinely missing`
 
-### Astrology
-Shadow experiment only. Production weight remains zero unless it earns independent OOS evidence.
-
-## Launch blockers
-
-The Monster is ready to begin true slate simulation when all of the following are true on the current production commit:
-
-1. Market-blind production seal is intact.
-2. Continuity-conditioned current team policy compiles.
-3. Shared-clock / finite-play engine is active.
-4. Player opportunity conservation/anatomy regressions remain green.
-5. Current health inputs pass finite/bounded production-safety checks.
-6. Full 60,000-world x 12-game rehearsal completes without technical failure.
-7. QB/current-player identity audit shows no material roster-role ingestion error.
-8. CI is green.
-9. Output manifests explicitly state known data limitations rather than hiding them.
+New diagnostics should normally enrich an existing evidence family rather than becoming permanent parallel architectures.
 
 ## Launch philosophy
 
-The first production slate is a model version, not the end of model development.
+The development loop is:
 
-Once this gate is green, the highest-value next activity is to simulate games, freeze predictions, observe real outcomes, score calibration/error, and use those errors to decide which deferred branch deserves the next Flower cycle. Real Week 1 evidence should outrank speculative pre-launch complexity.
+`simulate -> observe anatomy -> classify mismatch -> identify causal owner -> make one bounded change -> rerun paired -> retain/revert -> expand scale only when justified`
+
+The freeze loop is stricter:
+
+`healthy anatomy -> fresh state -> replicated seeds -> probabilistic validation -> provenance -> freeze gate -> immutable football release -> DFS downstream`
+
+This separation keeps simulation useful as a scientific instrument while preventing a merely runnable model from being mistaken for a canonical one.
