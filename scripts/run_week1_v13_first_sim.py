@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date
 from pathlib import Path
 
@@ -21,6 +21,7 @@ from monster.sim.event_ledger import assert_event_conservation, summarize_game
 from monster.sim.game_loop_v13 import PlayerBoxScore, simulate_regulation_game
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
+from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
 
 MATCHUPS = (
@@ -213,6 +214,16 @@ def _team_identity(
     )
 
 
+def _with_event_rush_plan(team: TeamIdentity, plan: dict[str, float]) -> TeamIdentity:
+    """Apply one world-stable rushing hierarchy without changing team run volume."""
+    planned = tuple(
+        replace(rusher, usage_weight=float(plan[rusher.player_id]))
+        for rusher in team.rushers
+        if plan.get(rusher.player_id, 0.0) > 0.0
+    )
+    return replace(team, rushers=planned or team.rushers)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, required=True)
@@ -274,9 +285,17 @@ def main() -> None:
         )
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
+            away_plan = sample_event_rush_share_plan(
+                pools[away],
+                rng=np.random.default_rng(seed + 101_003),
+            )
+            home_plan = sample_event_rush_share_plan(
+                pools[home],
+                rng=np.random.default_rng(seed + 202_007),
+            )
             result = simulate_regulation_game(
-                teams[away],
-                teams[home],
+                _with_event_rush_plan(teams[away], away_plan),
+                _with_event_rush_plan(teams[home], home_plan),
                 away_defense=defenses[away],
                 home_defense=defenses[home],
                 seed=seed,
@@ -474,6 +493,7 @@ def main() -> None:
         "defensive_identity_active": True,
         "full_reality_player_bridge_active": True,
         "unit_bridge_active": True,
+        "stable_event_rushing_roles_active": True,
         "zero_inclusive_player_worlds": True,
         "fanduel_scoring_downstream_only": True,
         "projection_summary": "projected_scores_and_outcomes.csv",
