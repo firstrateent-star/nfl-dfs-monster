@@ -6,13 +6,18 @@ on:
     paths:
       - scripts/run_week1_v13_stage3_shadow.py
       - scripts/compare_stage3_shadow.py
+      - scripts/audit_week1_stage3_drive_survival.py
+      - scripts/audit_historical_drive_reality.py
+      - scripts/compare_drive_survival.py
       - src/monster/feature_compile/play_intent.py
       - src/monster/sim/categorical_policy.py
       - src/monster/sim/intent_ecology.py
       - src/monster/sim/resolution_ecology.py
       - src/monster/sim/play_kernel.py
       - src/monster/sim/play_anatomy.py
+      - src/monster/sim/drive_trace.py
       - tests/test_stage3_resolution_ecology.py
+      - tests/test_drive_survival_trace.py
       - .github/workflows/v13-stage3-paired.yml
   workflow_dispatch:
 
@@ -26,7 +31,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py scripts/audit_week1_stage3_drive_survival.py scripts/audit_historical_drive_reality.py scripts/compare_drive_survival.py
           uv run pytest -q
       - name: Reconfirm pass and run intent OOS authority
         run: >-
@@ -92,6 +97,38 @@ jobs:
           --pass-historical artifacts/league-policy/pass_depth_outcomes.parquet
           --run-historical artifacts/league-policy/run_geometry_outcomes.parquet
           --out artifacts/stage3-paired/comparison
+      - name: Build historical drive-survival evidence
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --cache-dir .cache/monster
+          --out artifacts/stage3-paired/drive-historical
+      - name: Run Stage 3 drive-survival shadow
+        run: >-
+          uv run python scripts/audit_week1_stage3_drive_survival.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/stage3-paired/drive-stage3
+      - name: Compare Stage 3 drive survival with 2025 football
+        run: >-
+          uv run python scripts/compare_drive_survival.py
+          --simulated artifacts/stage3-paired/drive-stage3/stage3_drive_traces.parquet
+          --historical artifacts/stage3-paired/drive-historical/historical_drive_traces.parquet
+          --out artifacts/stage3-paired/drive-survival
       - name: Verify Stage 3 was actually exercised
         run: |
           uv run python - <<'PY'
@@ -103,6 +140,7 @@ jobs:
           oos = json.loads((root/'intent-oos'/'manifest.json').read_text())
           stage3 = json.loads((root/'stage3'/'manifest.json').read_text())
           comparison = json.loads((root/'comparison'/'manifest.json').read_text())
+          survival = json.loads((root/'drive-survival'/'drive_survival_ledger.json').read_text())
           pass_trace = pl.read_csv(root/'stage3'/'stage3_pass_depth_anatomy.csv')
           run_trace = pl.read_csv(root/'stage3'/'stage3_run_geometry_anatomy.csv')
 
@@ -115,7 +153,12 @@ jobs:
           assert run_trace.get_column('attempts').sum() > 5000
           assert comparison['market_blind'] is True
           assert comparison['promotion_status'] == 'SHADOW_STAGE3_EVIDENCE_ONLY'
-          print(json.dumps(comparison, indent=2))
+          assert survival['market_blind'] is True
+          assert survival['behavior_changed_by_ledger'] is False
+          assert survival['promotion_status'] == 'SHADOW_DIAGNOSTIC_ONLY'
+          assert survival['simulated_drives'] > 10000
+          assert survival['historical_drives'] > 1000
+          print(json.dumps({'stage3': comparison, 'drive_survival': survival}, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
