@@ -15,7 +15,6 @@ def _summary(frame: pl.DataFrame, label: str) -> dict[str, object]:
     rows = frame.to_dicts()
     drives = len(rows)
     td = [row for row in rows if str(row["terminal"]) == "touchdown"]
-    fg = [row for row in rows if str(row["terminal"]) == "field_goal"]
     rz_enter = [row for row in rows if bool(row["red_zone_entered"])]
     rz_snap = [row for row in rows if bool(row["red_zone_snap_seen"])]
     g2g = [row for row in rows if bool(row["goal_to_go_snap_seen"])]
