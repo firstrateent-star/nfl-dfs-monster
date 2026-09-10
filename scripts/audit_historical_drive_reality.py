@@ -29,6 +29,12 @@ def _flag(row: dict[str, Any], name: str) -> bool:
     return _number(row, name) == 1.0
 
 
+def _is_scrimmage(row: dict[str, Any]) -> bool:
+    dropback = _flag(row, "qb_dropback")
+    designed_run = _flag(row, "rush_attempt") and not dropback
+    return dropback or designed_run
+
+
 def _first_number(rows: list[dict[str, Any]], name: str) -> float | None:
     for row in rows:
         value = row.get(name)
@@ -38,6 +44,10 @@ def _first_number(rows: list[dict[str, Any]], name: str) -> float | None:
             except (TypeError, ValueError):
                 continue
     return None
+
+
+def _first_scrimmage_number(rows: list[dict[str, Any]], name: str) -> float | None:
+    return _first_number([row for row in rows if _is_scrimmage(row)], name)
 
 
 def _last_number(rows: list[dict[str, Any]], name: str) -> float | None:
@@ -76,7 +86,7 @@ def _terminal(rows: list[dict[str, Any]]) -> str:
 
 
 def _drive_points(rows: list[dict[str, Any]], terminal: str) -> int:
-    start_score = _first_number(rows, "posteam_score")
+    start_score = _first_scrimmage_number(rows, "posteam_score")
     end_score = _last_number(rows, "posteam_score_post")
     if start_score is not None and end_score is not None and end_score >= start_score:
         delta = round(end_score - start_score)
@@ -89,11 +99,16 @@ def _drive_points(rows: list[dict[str, Any]], terminal: str) -> int:
     return 0
 
 
-def _drive_row(game_id: str, fixed_drive: str, posteam: str, rows: list[dict[str, Any]]) -> dict[str, object]:
-    first_yardline_to_goal = _first_number(rows, "yardline_100")
-    start_yardline_from_own = (
-        100.0 - first_yardline_to_goal if first_yardline_to_goal is not None else 25.0
-    )
+def _drive_row(
+    game_id: str,
+    fixed_drive: str,
+    posteam: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, object] | None:
+    first_yardline_to_goal = _first_scrimmage_number(rows, "yardline_100")
+    if first_yardline_to_goal is None:
+        return None
+    start_yardline_from_own = 100.0 - first_yardline_to_goal
 
     scrimmage_plays = 0
     net_scrimmage_yards = 0.0
@@ -106,12 +121,11 @@ def _drive_row(game_id: str, fixed_drive: str, posteam: str, rows: list[dict[str
     turnovers = 0
 
     for row in rows:
-        dropback = _flag(row, "qb_dropback")
-        designed_run = _flag(row, "rush_attempt") and not dropback
-        scrimmage = dropback or designed_run
+        if not _is_scrimmage(row):
+            continue
+
         yardline_to_goal = row.get("yardline_100")
         yards = _number(row, "yards_gained")
-
         if yardline_to_goal is not None:
             yardline_to_goal_f = float(yardline_to_goal)
             red_zone_snap_seen = red_zone_snap_seen or yardline_to_goal_f <= 20.0
@@ -122,14 +136,13 @@ def _drive_row(game_id: str, fixed_drive: str, posteam: str, rows: list[dict[str
                 goal_to_go_snap_seen = goal_to_go_snap_seen or (
                     yardline_to_goal_f <= 10.0 and distance >= yardline_to_goal_f
                 )
-            if scrimmage:
-                end_yardline_to_goal = yardline_to_goal_f - yards
-                red_zone_reached = red_zone_reached or yardline_to_goal_f <= 20.0 or end_yardline_to_goal <= 20.0
-            else:
-                red_zone_reached = red_zone_reached or yardline_to_goal_f <= 20.0
+            end_yardline_to_goal = yardline_to_goal_f - yards
+            red_zone_reached = (
+                red_zone_reached
+                or yardline_to_goal_f <= 20.0
+                or end_yardline_to_goal <= 20.0
+            )
 
-        if not scrimmage:
-            continue
         scrimmage_plays += 1
         net_scrimmage_yards += yards
         explosive_plays += int(yards >= 15.0)
@@ -195,12 +208,17 @@ def main() -> None:
         key = (str(row["game_id"]), str(row["fixed_drive"]), str(row["posteam"]))
         grouped[key].append(row)
 
-    drive_rows = [
+    groups_first_event_non_scrimmage = sum(
+        bool(rows) and not _is_scrimmage(rows[0]) for rows in grouped.values()
+    )
+    candidate_rows = [
         _drive_row(game_id, fixed_drive, posteam, rows)
         for (game_id, fixed_drive, posteam), rows in grouped.items()
     ]
+    drive_rows = [row for row in candidate_rows if row is not None]
+    groups_without_scrimmage = len(candidate_rows) - len(drive_rows)
     if not drive_rows:
-        raise ValueError("historical audit produced no drives")
+        raise ValueError("historical audit produced no definition-safe offensive drives")
 
     schedules = nfl.load_schedules([args.season])
     regular = schedules.filter(
@@ -224,16 +242,20 @@ def main() -> None:
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "season": args.season,
         "games": games,
-        "drives": len(drive_rows),
+        "drive_groups_seen": len(grouped),
+        "definition_safe_drives": len(drive_rows),
+        "groups_without_scrimmage": groups_without_scrimmage,
+        "groups_first_event_non_scrimmage": groups_first_event_non_scrimmage,
         "market_blind": True,
         "scope": "regular season; kneels/spikes excluded where provider fields exist",
         "definitions": {
-            "drive": "unique game_id + fixed_drive + posteam",
-            "start_yardline_100": "converted to Monster offense-relative coordinate: 100 - nflverse yardline_100",
+            "drive_population": "unique game_id + fixed_drive + posteam groups containing at least one definition-safe scrimmage play",
+            "drive_start": "first definition-safe scrimmage play in play_id order; kickoff and other non-scrimmage events cannot define field position",
+            "start_yardline_100": "100 - nflverse yardline_100 from the first definition-safe scrimmage play",
             "scrimmage_play": "qb_dropback == 1 OR (rush_attempt == 1 AND not qb_dropback)",
             "explosive_play": "scrimmage yards_gained >= 15",
-            "red_zone_reach": "pre-snap nflverse yardline_100 <= 20 OR scrimmage endpoint reaches <= 20",
-            "red_zone_snap": "an offensive play/event begins with nflverse yardline_100 <= 20",
+            "red_zone_reach": "definition-safe scrimmage snap starts at nflverse yardline_100 <= 20 OR its endpoint reaches <= 20",
+            "red_zone_snap": "definition-safe scrimmage play begins with nflverse yardline_100 <= 20",
             "touchdown_terminal": "pass_touchdown or rush_touchdown; return scores remain turnover drives",
             "pressure": "not compared here; play-level pressure requires nflverse participation join",
         },
