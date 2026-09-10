@@ -97,6 +97,14 @@ class PlayEvent:
     yards_after_contact: float = 0.0
 
 
+def _credit_scrimmage_yards(state: FootballState, raw_yards: float) -> float:
+    """Return official gain/loss without allowing positive credit beyond the goal line."""
+    if raw_yards <= 0.0:
+        return float(raw_yards)
+    yards_to_goal = max(100.0 - state.yardline_100, 0.0)
+    return float(min(raw_yards, yards_to_goal))
+
+
 def _weighted_player(players: tuple[PlayerIdentity, ...], rng: np.random.Generator) -> PlayerIdentity:
     if not players:
         raise ValueError("player pool cannot be empty")
@@ -199,14 +207,15 @@ def simulate_scrimmage_play(
             explosiveness=rusher.explosive * offense.rush_efficiency,
             rng=rng,
         )
-        yards = anatomy.total_yards
+        raw_yards = anatomy.total_yards
+        yards = _credit_scrimmage_yards(state, raw_yards)
         fumble_p = _lost_fumble_probability(
             security=rusher.turnover_security,
             contact=anatomy.contact,
             base_rate=0.012,
         )
         turnover = rng.random() < fumble_p
-        touchdown = state.yardline_100 + yards >= 100.0 and not turnover
+        touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
@@ -294,16 +303,18 @@ def simulate_scrimmage_play(
             explosiveness=offense.quarterback.explosive,
             rng=rng,
         )
+        raw_yards = anatomy.total_yards
+        yards = _credit_scrimmage_yards(state, raw_yards)
         turnover = rng.random() < _lost_fumble_probability(
             security=offense.quarterback.turnover_security,
             contact=anatomy.contact,
             base_rate=0.012,
         )
-        touchdown = state.yardline_100 + anatomy.total_yards >= 100.0 and not turnover
+        touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=elapsed,
-            yards=anatomy.total_yards,
+            yards=yards,
             passer_id=offense.quarterback.player_id,
             rusher_id=offense.quarterback.player_id,
             fumbler_id=offense.quarterback.player_id if turnover else None,
@@ -357,13 +368,14 @@ def simulate_scrimmage_play(
             air_yards=air_yards,
         )
     yac = float(np.clip(rng.lognormal(1.25, 0.65) * target.explosive / max(coverage_strength**0.25, 0.75), 0.0, 55.0))
-    yards = max(air_yards, 0.0) + yac
+    raw_yards = max(air_yards, 0.0) + yac
+    yards = _credit_scrimmage_yards(state, raw_yards)
     turnover = rng.random() < _lost_fumble_probability(
         security=target.turnover_security,
         contact=ContactResult.TACKLED,
         base_rate=0.008,
     )
-    touchdown = state.yardline_100 + yards >= 100.0 and not turnover
+    touchdown = state.yardline_100 + raw_yards >= 100.0 and not turnover
     return PlayEvent(
         play_type=play_type,
         elapsed_seconds=elapsed,
