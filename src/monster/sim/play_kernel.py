@@ -8,6 +8,8 @@ import numpy as np
 
 from monster.sim.decision_policy import FourthDownDecision, situation_policy
 from monster.sim.football_state import FootballState
+from monster.sim.game_flow import derive_game_flow_state
+from monster.sim.game_flow_brain import decide_game_flow
 from monster.sim.play_anatomy import (
     CatchpointResult,
     ContactResult,
@@ -19,6 +21,7 @@ from monster.sim.play_anatomy import (
 )
 
 if TYPE_CHECKING:
+    from monster.sim.game_flow_lookup import TeamGameFlowPolicy
     from monster.sim.matchup_kernel import DefensiveUnit
 
 
@@ -69,6 +72,7 @@ class TeamIdentity:
     punt_skill: float = 1.0
     league_neutral_pass_rate: float = 0.56
     situational_pass_rates: tuple[float, ...] | None = None
+    game_flow_policy: TeamGameFlowPolicy | None = None
 
 
 @dataclass(frozen=True)
@@ -105,7 +109,9 @@ def _credit_scrimmage_yards(state: FootballState, raw_yards: float) -> float:
     return float(min(raw_yards, yards_to_goal))
 
 
-def _weighted_player(players: tuple[PlayerIdentity, ...], rng: np.random.Generator) -> PlayerIdentity:
+def _weighted_player(
+    players: tuple[PlayerIdentity, ...], rng: np.random.Generator
+) -> PlayerIdentity:
     if not players:
         raise ValueError("player pool cannot be empty")
     weights = np.asarray([max(p.usage_weight, 0.001) for p in players], dtype=float)
@@ -154,14 +160,27 @@ def _policy_for_state(state: FootballState, offense: TeamIdentity):
     )
 
 
-def choose_play_type(state: FootballState, offense: TeamIdentity, rng: np.random.Generator) -> PlayType:
+def _dropback_probability(state: FootballState, offense: TeamIdentity) -> float:
+    """Choose only top-level run/dropback intent; execution remains downstream."""
+    if offense.game_flow_policy is None:
+        return _policy_for_state(state, offense).pass_probability
+    flow = derive_game_flow_state(state)
+    evidence = offense.game_flow_policy.evidence_for(flow)
+    return decide_game_flow(flow, evidence).dropback_probability
+
+
+def choose_play_type(
+    state: FootballState,
+    offense: TeamIdentity,
+    rng: np.random.Generator,
+) -> PlayType:
     policy = _policy_for_state(state, offense)
     if state.down == 4:
         if policy.fourth_down == FourthDownDecision.PUNT:
             return PlayType.PUNT
         if policy.fourth_down == FourthDownDecision.FIELD_GOAL:
             return PlayType.FIELD_GOAL
-    return PlayType.PASS if rng.random() < policy.pass_probability else PlayType.RUN
+    return PlayType.PASS if rng.random() < _dropback_probability(state, offense) else PlayType.RUN
 
 
 def simulate_scrimmage_play(
@@ -181,23 +200,44 @@ def simulate_scrimmage_play(
         distance = 117.0 - state.yardline_100
         make_p = float(np.clip(0.98 - max(distance - 32.0, 0.0) * 0.012, 0.18, 0.98))
         make_p = float(np.clip(make_p * offense.field_goal_skill, 0.05, 0.995))
-        return PlayEvent(play_type=play_type, elapsed_seconds=5, field_goal_made=rng.random() < make_p)
+        return PlayEvent(
+            play_type=play_type,
+            elapsed_seconds=5,
+            field_goal_made=rng.random() < make_p,
+        )
 
     if play_type == PlayType.RUN:
         rusher = _weighted_player(offense.rushers, rng)
-        lane = RunLane.QB if rusher.position == "QB" else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
+        lane = (
+            RunLane.QB
+            if rusher.position == "QB"
+            else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
+        )
         primary_defender_id = None
         tackling = max(defense_strength, 0.65)
-        penetration_p = float(np.clip(0.18 * defense_strength / max(offense.run_blocking, 0.55), 0.06, 0.42))
+        penetration_p = float(
+            np.clip(
+                0.18 * defense_strength / max(offense.run_blocking, 0.55),
+                0.06,
+                0.42,
+            )
+        )
         if defense is not None:
             from monster.sim.matchup_kernel import resolve_run_matchup
 
-            matchup = resolve_run_matchup(rusher, defense, run_blocking=offense.run_blocking)
+            matchup = resolve_run_matchup(
+                rusher,
+                defense,
+                run_blocking=offense.run_blocking,
+            )
             primary_defender_id = matchup.primary_defender_id
             penetration_p = matchup.stuff_probability
             if primary_defender_id is not None:
                 defenders = defense.front + defense.coverage
-                defender = next((d for d in defenders if d.player_id == primary_defender_id), None)
+                defender = next(
+                    (d for d in defenders if d.player_id == primary_defender_id),
+                    None,
+                )
                 if defender is not None:
                     tackling = defender.tackling
         anatomy = resolve_run_contact(
@@ -367,7 +407,15 @@ def simulate_scrimmage_play(
             catchpoint_result=catchpoint,
             air_yards=air_yards,
         )
-    yac = float(np.clip(rng.lognormal(1.25, 0.65) * target.explosive / max(coverage_strength**0.25, 0.75), 0.0, 55.0))
+    yac = float(
+        np.clip(
+            rng.lognormal(1.25, 0.65)
+            * target.explosive
+            / max(coverage_strength**0.25, 0.75),
+            0.0,
+            55.0,
+        )
+    )
     raw_yards = max(air_yards, 0.0) + yac
     yards = _credit_scrimmage_yards(state, raw_yards)
     turnover = rng.random() < _lost_fumble_probability(
