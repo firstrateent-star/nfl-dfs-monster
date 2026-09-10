@@ -1,0 +1,34 @@
+name: Historical league anatomy audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_historical_league_anatomy.py
+      - .github/workflows/historical-league-anatomy.yml
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code gate
+        run: uv run ruff check scripts/audit_historical_league_anatomy.py
+      - name: Audit 2025 league anatomy
+        run: >-
+          uv run python scripts/audit_historical_league_anatomy.py
+          --season 2025
+          --out artifacts/historical-league-anatomy
+      - name: Show audit
+        run: cat artifacts/historical-league-anatomy/historical_league_anatomy.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-historical-league-anatomy-2025
+          path: artifacts/historical-league-anatomy/
+          retention-days: 14
