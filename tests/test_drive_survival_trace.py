@@ -24,15 +24,25 @@ def test_drive_survival_trace_is_observational_and_conserved() -> None:
             + trace.third_down_snaps
             + trace.fourth_down_snaps
         )
+        early_down_snaps = trace.first_down_snaps + trace.second_down_snaps
         assert down_snaps == trace.scrimmage_plays
         assert trace.series_started == trace.first_down_snaps
         assert 0 <= trace.series_converted <= trace.first_downs
         assert 0 <= trace.third_down_conversions <= trace.third_down_snaps
         assert 0 <= trace.third_and_long_snaps <= trace.third_down_snaps
         assert 0 <= trace.third_and_long_conversions <= trace.third_and_long_snaps
-        assert 0 <= trace.early_down_5plus_gains <= (
-            trace.first_down_snaps + trace.second_down_snaps
+        assert 0 <= trace.early_down_5plus_gains <= early_down_snaps
+        assert trace.early_down_run_snaps + trace.early_down_pass_snaps == early_down_snaps
+        assert (
+            trace.early_down_run_5plus_gains + trace.early_down_pass_5plus_gains
+            == trace.early_down_5plus_gains
         )
+        assert 0 <= trace.early_down_run_negative_gains <= trace.early_down_run_snaps
+        assert 0 <= trace.early_down_run_10plus_gains <= trace.early_down_run_5plus_gains
+        assert 0 <= trace.early_down_run_5plus_gains <= trace.early_down_run_3plus_gains
+        assert 0 <= trace.early_down_pass_negative_gains <= trace.early_down_pass_snaps
+        assert 0 <= trace.early_down_pass_10plus_gains <= trace.early_down_pass_5plus_gains
+        assert 0 <= trace.early_down_pass_5plus_gains <= trace.early_down_pass_3plus_gains
         assert trace.third_down_distance_total >= 0.0
 
 
