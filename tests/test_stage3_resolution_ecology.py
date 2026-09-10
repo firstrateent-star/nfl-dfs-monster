@@ -210,24 +210,26 @@ def test_neutral_run_ecology_reproduces_branch_priors_mean_and_tails() -> None:
 
 
 def test_other_geometry_stays_empirical_instead_of_inventing_a_lane() -> None:
+    # 2025 regular-season unknown/unrecognized run-geometry anatomy. Kneels and spikes
+    # are excluded upstream, so this fixture intentionally mirrors the observed class.
     profile = RunGeometryOutcome(
         category="other",
-        attempts=4000,
-        yards_mean=-0.85,
+        attempts=4071,
+        yards_mean=-0.850095,
         yards_sd=1.4,
-        negative_rate=0.782,
-        zero_rate=0.05,
-        loss_2_plus_rate=0.035,
-        loss_5_plus_rate=0.009,
-        explosive_10_rate=0.002,
-        explosive_15_rate=0.002,
+        negative_rate=0.781784,
+        zero_rate=0.203036,
+        loss_2_plus_rate=0.081594,
+        loss_5_plus_rate=0.009488,
+        explosive_10_rate=0.001898,
+        explosive_15_rate=0.001898,
         explosive_20_rate=0.0,
         touchdown_rate=0.0,
         fumble_lost_rate=0.003,
-        yards_p10=-1.25,
+        yards_p10=-1.0,
         yards_p50=-1.0,
-        yards_p90=1.0,
-        yards_p99=1.5,
+        yards_p90=0.0,
+        yards_p99=1.0,
     )
     rng = np.random.default_rng(20260913)
     yards = np.asarray(
@@ -245,6 +247,7 @@ def test_other_geometry_stays_empirical_instead_of_inventing_a_lane() -> None:
         ],
         dtype=float,
     )
-    assert abs(float(yards.mean()) - profile.yards_mean) < 0.12
+    assert abs(float(yards.mean()) - profile.yards_mean) < 0.08
     assert abs(float((yards < 0).mean()) - profile.negative_rate) < 0.012
+    assert abs(float((yards == 0).mean()) - profile.zero_rate) < 0.012
     assert float((yards >= 10).mean()) == 0.0
