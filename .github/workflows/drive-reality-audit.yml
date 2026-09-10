@@ -6,12 +6,15 @@ on:
     paths:
       - src/monster/sim/drive_trace.py
       - src/monster/sim/game_loop_v13.py
+      - src/monster/sim/play_kernel.py
       - scripts/audit_week1_drive_reality.py
       - scripts/audit_historical_drive_reality.py
       - scripts/compare_drive_reality.py
       - .github/workflows/drive-reality-audit.yml
   workflow_dispatch:
 
+# Keep seed fixed across the goal-line yardage conservation intervention so the
+# before/after comparison is paired. The repair adds no random draws.
 jobs:
   drive-reality:
     runs-on: ubuntu-24.04
