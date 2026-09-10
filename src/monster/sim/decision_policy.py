@@ -16,6 +16,13 @@ class FourthDownDecision(StrEnum):
 
 
 @dataclass(frozen=True)
+class FourthDownProbabilities:
+    go: float
+    field_goal: float
+    punt: float
+
+
+@dataclass(frozen=True)
 class SituationPolicy:
     pass_probability: float
     hurry_probability: float
@@ -43,35 +50,111 @@ def _game_script_pass_shift(state: FootballState) -> float:
     return direction * 0.10 * magnitude * game_progress
 
 
-def fourth_down_decision(state: FootballState) -> FourthDownDecision:
-    """Bounded football decision scaffold based only on game state."""
+def _fourth_down_zone(state: FootballState) -> str:
+    if state.yardline_100 < 40.0:
+        return "own_1_39"
+    if state.yardline_100 < 55.0:
+        return "own_40_to_midfield"
+    if state.yardline_100 < 70.0:
+        return "plus_45_to_31"
+    if state.yardline_100 < 80.0:
+        return "plus_30_to_21"
+    return "red_zone"
+
+
+def _fourth_down_distance(state: FootballState) -> str:
+    if state.distance <= 1.0:
+        return "1"
+    if state.distance <= 3.0:
+        return "2_3"
+    if state.distance <= 6.0:
+        return "4_6"
+    return "7_plus"
+
+
+# 2025 regular-season decision anatomy from definition-matched nflverse fourth-down states.
+# These are football-decision priors only: no score, spread, total, salary or ownership data.
+_FOURTH_DOWN_PRIORS: dict[tuple[str, str], FourthDownProbabilities] = {
+    ("own_1_39", "1"): FourthDownProbabilities(0.386, 0.000, 0.614),
+    ("own_1_39", "2_3"): FourthDownProbabilities(0.084, 0.000, 0.916),
+    ("own_1_39", "4_6"): FourthDownProbabilities(0.064, 0.000, 0.936),
+    ("own_1_39", "7_plus"): FourthDownProbabilities(0.045, 0.000, 0.955),
+    ("own_40_to_midfield", "1"): FourthDownProbabilities(0.850, 0.009, 0.141),
+    ("own_40_to_midfield", "2_3"): FourthDownProbabilities(0.356, 0.000, 0.644),
+    ("own_40_to_midfield", "4_6"): FourthDownProbabilities(0.190, 0.005, 0.805),
+    ("own_40_to_midfield", "7_plus"): FourthDownProbabilities(0.093, 0.003, 0.904),
+    ("plus_45_to_31", "1"): FourthDownProbabilities(0.944, 0.056, 0.000),
+    ("plus_45_to_31", "2_3"): FourthDownProbabilities(0.708, 0.270, 0.022),
+    ("plus_45_to_31", "4_6"): FourthDownProbabilities(0.384, 0.403, 0.213),
+    ("plus_45_to_31", "7_plus"): FourthDownProbabilities(0.122, 0.519, 0.359),
+    ("plus_30_to_21", "1"): FourthDownProbabilities(0.842, 0.158, 0.000),
+    ("plus_30_to_21", "2_3"): FourthDownProbabilities(0.536, 0.449, 0.015),
+    ("plus_30_to_21", "4_6"): FourthDownProbabilities(0.168, 0.832, 0.000),
+    ("plus_30_to_21", "7_plus"): FourthDownProbabilities(0.057, 0.943, 0.000),
+    ("red_zone", "1"): FourthDownProbabilities(0.943, 0.057, 0.000),
+    ("red_zone", "2_3"): FourthDownProbabilities(0.523, 0.477, 0.000),
+    ("red_zone", "4_6"): FourthDownProbabilities(0.175, 0.825, 0.000),
+    ("red_zone", "7_plus"): FourthDownProbabilities(0.097, 0.903, 0.000),
+}
+
+
+def fourth_down_probabilities(state: FootballState) -> FourthDownProbabilities:
+    """Return market-blind fourth-down decision probabilities from football state.
+
+    Ordinary states use coarse 2025 league decision anatomy. Late trailing and overtime
+    response possessions remain governed by explicit game-theory constraints rather than the
+    pooled historical prior.
+    """
     if state.down != 4:
-        raise ValueError("fourth_down_decision requires fourth down")
+        raise ValueError("fourth_down_probabilities requires fourth down")
 
     yards_to_goal = 100.0 - state.yardline_100
     margin = state.score_margin_for_offense
     q_clock = seconds_remaining_in_quarter(state.seconds_remaining)
 
-    # In regular-season overtime a trailing offense is necessarily on the response
-    # possession. Ending that possession with a punt loses the game, so it must either
-    # kick a field goal that can tie/win (down 1-3) or keep the possession alive.
     if state.quarter == 5 and margin < 0:
         if margin >= -3 and state.yardline_100 >= 58.0 and yards_to_goal <= 42.0:
-            return FourthDownDecision.FIELD_GOAL
-        return FourthDownDecision.GO
+            return FourthDownProbabilities(0.0, 1.0, 0.0)
+        return FourthDownProbabilities(1.0, 0.0, 0.0)
 
     desperate = state.quarter >= 4 and q_clock <= 360 and margin < 0
-    if desperate and state.distance <= 8.0:
-        return FourthDownDecision.GO
-    if state.yardline_100 >= 60.0 and state.distance <= 2.0:
-        return FourthDownDecision.GO
-    if state.yardline_100 >= 58.0 and yards_to_goal <= 42.0:
-        return FourthDownDecision.FIELD_GOAL
-    if state.yardline_100 < 55.0:
-        return FourthDownDecision.PUNT
-    if state.distance <= 1.0:
-        return FourthDownDecision.GO
-    return FourthDownDecision.PUNT
+    if desperate:
+        if state.distance <= 8.0:
+            return FourthDownProbabilities(1.0, 0.0, 0.0)
+        # Very long desperation downs should still overwhelmingly preserve possession.
+        return FourthDownProbabilities(0.92, 0.04, 0.04)
+
+    return _FOURTH_DOWN_PRIORS[(_fourth_down_zone(state), _fourth_down_distance(state))]
+
+
+def sample_fourth_down_decision(
+    state: FootballState,
+    rng: np.random.Generator,
+) -> FourthDownDecision:
+    probabilities = fourth_down_probabilities(state)
+    choices = (
+        FourthDownDecision.GO,
+        FourthDownDecision.FIELD_GOAL,
+        FourthDownDecision.PUNT,
+    )
+    weights = np.asarray(
+        [probabilities.go, probabilities.field_goal, probabilities.punt], dtype=float
+    )
+    weights = np.clip(weights, 0.0, None)
+    weights /= weights.sum()
+    return choices[int(rng.choice(len(choices), p=weights))]
+
+
+def fourth_down_decision(state: FootballState) -> FourthDownDecision:
+    """Return the modal decision for deterministic diagnostics and compatibility."""
+    probabilities = fourth_down_probabilities(state)
+    choices = (
+        FourthDownDecision.GO,
+        FourthDownDecision.FIELD_GOAL,
+        FourthDownDecision.PUNT,
+    )
+    values = (probabilities.go, probabilities.field_goal, probabilities.punt)
+    return choices[int(np.argmax(values))]
 
 
 def situation_policy(
