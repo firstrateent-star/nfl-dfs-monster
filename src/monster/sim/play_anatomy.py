@@ -11,6 +11,16 @@ PRESSURED_SACK_RATE = 0.217914
 PRESSURED_SCRAMBLE_RATE = 0.069760
 CLEAN_SCRAMBLE_RATE = 0.048621
 
+# Among actual throws in the same 2025 play-level pressure sample:
+# overall completion=64.2661%, pressured=45.9472%, clean=70.0838%;
+# overall interception=2.1772%, pressured=2.8999%, clean=1.9476%.
+# Ratios to the overall throw baseline let pressure condition a matchup-owned probability
+# without changing that matchup's unconditional calibration target.
+PRESSURED_COMPLETION_MULTIPLIER = 0.45947230805799855 / 0.6426607081471296
+CLEAN_COMPLETION_MULTIPLIER = 0.7008379255680531 / 0.6426607081471296
+PRESSURED_INTERCEPTION_MULTIPLIER = 0.028999286902781078 / 0.021771513693136242
+CLEAN_INTERCEPTION_MULTIPLIER = 0.019476107797992 / 0.021771513693136242
+
 
 class QBResponse(StrEnum):
     THROW = "throw"
@@ -80,6 +90,34 @@ def resolve_qb_response(
     if draw < sack + scramble:
         return QBResponse.SCRAMBLE
     return QBResponse.THROW
+
+
+def condition_throw_probabilities(
+    *,
+    completion_probability: float,
+    interception_probability: float,
+    pressured: bool,
+) -> tuple[float, float]:
+    """Condition matchup-owned throw quality on the already-resolved pressure state.
+
+    The multipliers are ratios to the 2025 overall throw baseline. With the observed
+    pressure mix they preserve the unconditional baseline while creating the large,
+    measured clean-vs-pressure split. This keeps pressure causal rather than applying
+    a second global completion calibration downstream.
+    """
+    if pressured:
+        completion_multiplier = PRESSURED_COMPLETION_MULTIPLIER
+        interception_multiplier = PRESSURED_INTERCEPTION_MULTIPLIER
+    else:
+        completion_multiplier = CLEAN_COMPLETION_MULTIPLIER
+        interception_multiplier = CLEAN_INTERCEPTION_MULTIPLIER
+    completion = float(
+        np.clip(completion_probability * completion_multiplier, 0.12, 0.92)
+    )
+    interception = float(
+        np.clip(interception_probability * interception_multiplier, 0.001, 0.12)
+    )
+    return completion, interception
 
 
 def resolve_catchpoint(
