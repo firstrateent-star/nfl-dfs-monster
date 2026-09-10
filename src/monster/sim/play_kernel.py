@@ -224,6 +224,22 @@ def _event_elapsed_seconds(
     return cadence_elapsed
 
 
+def _sample_snap_cadence(
+    *,
+    hurry: float,
+    rng: np.random.Generator,
+) -> int:
+    """Sample snap-to-snap cadence before the resolved event decides clock loss.
+
+    Outcome-conditioned clock stops made the earlier 34-second cadence too fast at the
+    possession level. This distribution restores league-scale in-bounds time while widening
+    the natural fast/slow tail. Team-specific pace remains a separate future perturbation so
+    this calibration can be evaluated independently.
+    """
+    center = 39.0 - 22.0 * float(np.clip(hurry, 0.0, 1.0))
+    return int(np.clip(rng.normal(center, 11.5), 7.0, 55.0))
+
+
 def _lane_for_geometry(
     category: str,
     rusher: PlayerIdentity,
@@ -252,9 +268,7 @@ def simulate_scrimmage_play(
 ) -> PlayEvent:
     play_type = choose_play_type(state, offense, rng)
     hurry = _policy_for_state(state, offense).hurry_probability
-    cadence_elapsed = int(
-        np.clip(rng.normal(34.0 - 18.0 * hurry, 8.5), 12.0, 48.0)
-    )
+    cadence_elapsed = _sample_snap_cadence(hurry=hurry, rng=rng)
 
     if play_type == PlayType.PUNT:
         return PlayEvent(play_type=play_type, elapsed_seconds=8)
