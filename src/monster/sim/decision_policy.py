@@ -51,8 +51,16 @@ def fourth_down_decision(state: FootballState) -> FourthDownDecision:
     yards_to_goal = 100.0 - state.yardline_100
     margin = state.score_margin_for_offense
     q_clock = seconds_remaining_in_quarter(state.seconds_remaining)
-    desperate = state.quarter >= 4 and q_clock <= 360 and margin < 0
 
+    # In regular-season overtime a trailing offense is necessarily on the response
+    # possession. Ending that possession with a punt loses the game, so it must either
+    # kick a field goal that can tie/win (down 1-3) or keep the possession alive.
+    if state.quarter == 5 and margin < 0:
+        if margin >= -3 and state.yardline_100 >= 58.0 and yards_to_goal <= 42.0:
+            return FourthDownDecision.FIELD_GOAL
+        return FourthDownDecision.GO
+
+    desperate = state.quarter >= 4 and q_clock <= 360 and margin < 0
     if desperate and state.distance <= 8.0:
         return FourthDownDecision.GO
     if state.yardline_100 >= 60.0 and state.distance <= 2.0:
