@@ -59,7 +59,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 1000 --seed 2026091021
+          --worlds 1000 --seed 2026091022
           --out artifacts/week1-drive-reality
       - name: Compare causal drive anatomy
         run: >-
