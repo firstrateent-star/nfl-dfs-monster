@@ -18,7 +18,7 @@ from monster.feature_compile.skill_pools import compile_current_skill_pools
 from monster.feature_compile.units import compile_team_unit_effects
 from monster.feature_compile.v13_identity_bridge import compile_v13_player_identity
 from monster.sim.event_ledger import assert_event_conservation, summarize_game
-from monster.sim.game_loop_v13 import PlayerBoxScore, simulate_regulation_game
+from monster.sim.game_loop_v13 import PlayerBoxScore, simulate_game
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
 from monster.sim.rushing_roles import sample_event_rush_share_plan
@@ -304,7 +304,7 @@ def main() -> None:
                     rush_plan_acc[(game, team_id, player.player_id)].append(
                         float(plan.get(player.player_id, 0.0))
                     )
-            result = simulate_regulation_game(
+            result = simulate_game(
                 _with_event_rush_plan(teams[away], away_plan),
                 _with_event_rush_plan(teams[home], home_plan),
                 away_defense=defenses[away],
@@ -336,6 +336,7 @@ def main() -> None:
         for key, values in metrics.items():
             arr = np.asarray(values, dtype=float)
             row[f"{key}_mean"] = float(arr.mean())
+            row[f"{key}_sd"] = float(arr.std(ddof=1)) if len(arr) > 1 else 0.0
             if key in {"away_points", "home_points", "snaps", "scrimmage_plays", "drives"}:
                 row[f"{key}_p10"] = float(np.quantile(arr, 0.10))
                 row[f"{key}_p50"] = float(np.quantile(arr, 0.50))
@@ -353,6 +354,7 @@ def main() -> None:
         row["away_win_probability"] = outcomes["away_wins"] / args.worlds
         row["home_win_probability"] = outcomes["home_wins"] / args.worlds
         row["tie_probability"] = outcomes["ties"] / args.worlds
+        row["overtime_probability"] = row["went_to_overtime_mean"]
         row["projected_winner"] = (
             away if row["away_win_probability"] > row["home_win_probability"] else home
         )
@@ -465,6 +467,7 @@ def main() -> None:
         "away_win_probability",
         "home_win_probability",
         "tie_probability",
+        "overtime_probability",
         "total_mean",
         "margin_mean",
         "away_points_p10",
@@ -498,6 +501,8 @@ def main() -> None:
         "field_goals_made_mean",
         "touchdowns_mean",
         "drives_mean",
+        "went_to_overtime_mean",
+        "overtime_touchdowns_without_try_mean",
         "total_mean",
     ]
     game_df.select(anatomy_cols).write_csv(args.out / "football_anatomy.csv")
@@ -516,7 +521,7 @@ def main() -> None:
     ).write_csv(args.out / "team_play_call_inputs.csv")
 
     manifest = {
-        "model": "Monster v1.3 Full-Reality event-by-event shadow",
+        "model": "Monster v1.3 Full-Reality complete-game event-by-event shadow",
         "week": 1,
         "season": 2026,
         "worlds_per_game": args.worlds,
@@ -532,6 +537,10 @@ def main() -> None:
         "unit_bridge_active": True,
         "stable_event_rushing_roles_active": True,
         "rushing_role_plan_audit_active": True,
+        "complete_game_simulation_active": True,
+        "regular_season_overtime_active": True,
+        "overtime_rule_version": "2026_rule_16_regular_season_10min_both_possessions",
+        "game_distribution_standard_deviations_active": True,
         "zero_inclusive_player_worlds": True,
         "fanduel_scoring_downstream_only": True,
         "projection_summary": "projected_scores_and_outcomes.csv",
