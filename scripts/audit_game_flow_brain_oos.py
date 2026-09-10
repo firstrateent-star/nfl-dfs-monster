@@ -43,7 +43,7 @@ def _legacy_bucket(distance: float) -> str:
 
 
 def _state_from_row(row: dict[str, object]) -> FootballState:
-    diff = int(round(float(row["score_differential"])))
+    diff = round(float(row["score_differential"]))
     return FootballState(
         possession="away",
         defense="home",
@@ -68,10 +68,10 @@ def _brier(actual: np.ndarray, probability: np.ndarray) -> float:
 
 def _primary_state(tags: frozenset[FlowTag]) -> str:
     ordered = (
-        (FlowTag.THIRD_EXTREME, "third_and_18_plus"),
-        (FlowTag.THIRD_LONG, "third_and_7_plus"),
-        (FlowTag.THIRD_MEDIUM, "third_and_medium"),
-        (FlowTag.THIRD_SHORT, "third_and_short"),
+        (FlowTag.THIRD_AND_EXTREME, "third_and_18_plus"),
+        (FlowTag.THIRD_AND_LONG, "third_and_7_plus"),
+        (FlowTag.THIRD_AND_MEDIUM, "third_and_medium"),
+        (FlowTag.THIRD_AND_SHORT, "third_and_short"),
         (FlowTag.SECOND_AND_SHORT, "second_and_2_or_less"),
         (FlowTag.END_FIRST_HALF, "end_first_half"),
         (FlowTag.LATE_TRAILING, "late_trailing"),
