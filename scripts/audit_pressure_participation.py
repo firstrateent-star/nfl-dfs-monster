@@ -21,6 +21,11 @@ def _response_summary(frame: pl.DataFrame, label: str) -> dict[str, float | int 
     scrambles = int(frame.get_column("qb_scramble").fill_null(0).sum())
     throws = n - sacks - scrambles
     hits = int(frame.get_column("qb_hit").fill_null(0).sum())
+    throw_frame = frame.filter(
+        (pl.col("sack").fill_null(0) == 0) & (pl.col("qb_scramble").fill_null(0) == 0)
+    )
+    completions = int(throw_frame.get_column("complete_pass").fill_null(0).sum())
+    interceptions = int(throw_frame.get_column("interception").fill_null(0).sum())
     return {
         "state": label,
         "dropbacks": n,
@@ -28,10 +33,14 @@ def _response_summary(frame: pl.DataFrame, label: str) -> dict[str, float | int 
         "scrambles": scrambles,
         "throws": throws,
         "qb_hits": hits,
+        "throw_completions": completions,
+        "throw_interceptions": interceptions,
         "sack_rate": _ratio(sacks, n),
         "scramble_rate": _ratio(scrambles, n),
         "throw_rate": _ratio(throws, n),
         "qb_hit_rate": _ratio(hits, n),
+        "completion_given_throw": _ratio(completions, throws),
+        "interception_given_throw": _ratio(interceptions, throws),
     }
 
 
@@ -62,6 +71,8 @@ def main() -> None:
         "qb_scramble",
         "sack",
         "qb_hit",
+        "complete_pass",
+        "interception",
         "passer_id",
         "posteam",
         "defteam",
@@ -156,10 +167,10 @@ def main() -> None:
         "overall_response": overall,
         "pressured_response": pressured_summary,
         "unpressured_response": clean_summary,
-        "qb_identity_field": "nflfastR passer_id, which includes sacks and scrambles",
+        "qb_identity_field": "nflfastR passer_id; aggregate pressure-state throw outcomes do not depend on QB attribution",
         "principle": (
-            "Pressure frequency and QB response are measured as separate causal stages; "
-            "Monster should not tune sacks by pretending sack rate is pressure rate."
+            "Pressure frequency, QB response and throw quality are measured as separate causal stages; "
+            "Monster should not tune final scoring when a conditional football mechanism can be measured."
         ),
     }
 
