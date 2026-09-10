@@ -47,7 +47,7 @@ def compile_metric_observations(
         if feature_name not in interaction_registry.specs:
             ignored.append((feature_name, "no_interaction_jurisdiction"))
             continue
-        if isinstance(value, bool) or isinstance(value, Real):
+        if isinstance(value, (bool, Real)):
             numeric = float(value)
         else:
             ignored.append((feature_name, "non_numeric_value"))
