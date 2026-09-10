@@ -1,0 +1,76 @@
+name: Monster v1.3 pass depth reality audit
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - src/monster/sim/play_kernel.py
+      - src/monster/sim/play_anatomy.py
+      - src/monster/sim/matchup_kernel.py
+      - scripts/audit_pass_depth_reality.py
+      - .github/workflows/pass-depth-reality-audit.yml
+  workflow_dispatch:
+
+jobs:
+  pass-depth-reality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code and causal guards
+        run: |
+          uv run ruff check src tests scripts/audit_pass_depth_reality.py
+          uv run pytest -q
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+      - name: Audit pass depth reality
+        run: >-
+          uv run python scripts/audit_pass_depth_reality.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --history 2025 --worlds 1000 --seed 2026091022
+          --out artifacts/pass-depth-reality
+      - name: Verify observational audit
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest=json.loads(Path('artifacts/pass-depth-reality/manifest.json').read_text())
+          assert manifest['market_blind'] is True
+          assert manifest['behavior_changed_by_audit'] is False
+          assert manifest['worlds_per_game'] == 1000
+          assert manifest['games'] == 12
+          assert manifest['goal_line_yardage_conservation_active'] is True
+          print(json.dumps(manifest['diagnosis'], indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-pass-depth-reality-audit
+          path: artifacts/pass-depth-reality/
+          retention-days: 14
