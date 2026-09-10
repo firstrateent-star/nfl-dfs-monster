@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.game_flow_policy import compile_game_flow_policy
 from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
 from monster.feature_compile.player import compile_player_usage
 from monster.feature_compile.situation import compile_situational_pass_context
@@ -34,6 +35,7 @@ def main() -> None:
 
     policy = compile_team_policy(pbp)
     situational_pass_context = compile_situational_pass_context(pbp)
+    game_flow_league, game_flow_team = compile_game_flow_policy(pbp)
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
@@ -47,6 +49,10 @@ def main() -> None:
     situational_pass_context.write_parquet(
         args.out / "situational_pass_context.parquet", compression="zstd"
     )
+    game_flow_league.write_csv(args.out / "game_flow_league.csv")
+    game_flow_league.write_parquet(args.out / "game_flow_league.parquet", compression="zstd")
+    game_flow_team.write_csv(args.out / "game_flow_team.csv")
+    game_flow_team.write_parquet(args.out / "game_flow_team.parquet", compression="zstd")
     ol_outcomes.write_csv(args.out / "offensive_line_outcomes.csv")
     ol_outcomes.write_parquet(args.out / "offensive_line_outcomes.parquet", compression="zstd")
     player_usage.write_csv(args.out / "player_usage.csv")
@@ -66,11 +72,18 @@ def main() -> None:
         "canonical_team_count": len(NFL_TEAMS),
         "compiled_team_count": policy.height,
         "situational_pass_context_rows": situational_pass_context.height,
+        "game_flow_league_rows": game_flow_league.height,
+        "game_flow_team_rows": game_flow_team.height,
+        "game_flow_team_evidence_raw_unshrunk": True,
+        "game_flow_runtime_shrinkage_required": True,
         "player_usage_rows": player_usage.height,
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
-        "principle": "Historical outcomes are priors and audit targets; simulation policy remains contextual and season-scope aligned.",
+        "principle": (
+            "Historical outcomes are priors and audit targets; simulation policy remains "
+            "contextual and season-scope aligned."
+        ),
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
