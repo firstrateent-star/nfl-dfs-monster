@@ -79,6 +79,15 @@ def _defensive_unit(players) -> DefensiveUnit:
         if player.defense_snap_share < 0.03:
             continue
         position = player.position.upper()
+        snap_weight = float(
+            np.clip(
+                player.defense_snap_share
+                * player.active_probability
+                * player.effectiveness_if_active,
+                0.001,
+                1.10,
+            )
+        )
         item = DefensiveIdentity(
             player_id=player.player_id,
             name=player.player_id,
@@ -88,6 +97,7 @@ def _defensive_unit(players) -> DefensiveUnit:
             run_defense=_rating(player.madden_tackle),
             tackling=_rating(player.madden_tackle),
             ball_hawk=_rating(player.madden_coverage),
+            snap_weight=snap_weight,
         )
         if position in {"DE", "DT", "NT", "DL", "EDGE", "LB", "ILB", "OLB", "MLB"}:
             front.append(item)
