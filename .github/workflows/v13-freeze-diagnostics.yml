@@ -14,6 +14,7 @@ on:
       - src/monster/sim/resolution_ecology.py
       - src/monster/sim/play_kernel.py
       - src/monster/sim/drive_trace.py
+      - tests/test_historical_drive_audit.py
       - .github/workflows/v13-freeze-diagnostics.yml
   workflow_dispatch:
 
