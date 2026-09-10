@@ -89,12 +89,41 @@ def resolve_catchpoint(
     ball_hawk: float,
     air_yards: float,
     rng: np.random.Generator,
+    completion_probability: float | None = None,
+    interception_probability: float | None = None,
 ) -> CatchpointResult:
+    """Resolve a targeted throw from one coherent matchup probability path.
+
+    When the matchup kernel supplies completion/interception probabilities, those
+    probabilities already contain QB, target and defensive-unit interaction. The
+    catchpoint layer adds only throw-depth pressure and the drop/breakup split instead
+    of applying the same player/coverage traits a second time. Callers without a
+    matchup retain the legacy neutral fallback.
+    """
     depth_penalty = max(air_yards - 10.0, 0.0) * 0.008
-    interception_p = float(np.clip(0.018 * ball_hawk * coverage_strength, 0.004, 0.08))
-    catch_p = float(
-        np.clip(0.70 * catch_skill / max(coverage_strength, 0.60) - depth_penalty, 0.28, 0.86)
-    )
+    if interception_probability is None:
+        interception_p = float(
+            np.clip(0.018 * ball_hawk * coverage_strength, 0.004, 0.08)
+        )
+    else:
+        interception_p = float(np.clip(interception_probability, 0.001, 0.10))
+
+    if completion_probability is None:
+        catch_p = float(
+            np.clip(
+                0.70 * catch_skill / max(coverage_strength, 0.60) - depth_penalty,
+                0.28,
+                0.86,
+            )
+        )
+    else:
+        catch_p = float(
+            np.clip(completion_probability - depth_penalty, 0.20, 0.88)
+        )
+
+    # Interception and completion are mutually exclusive outcomes from the same throw.
+    # Preserve at least a small incompletion reservoir even under extreme inputs.
+    catch_p = min(catch_p, max(0.0, 0.98 - interception_p))
     draw = rng.random()
     if draw < interception_p:
         return CatchpointResult.INTERCEPTION
