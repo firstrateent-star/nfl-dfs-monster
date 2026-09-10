@@ -107,8 +107,8 @@ def main() -> None:
             yardline_100=yardline_100,
             down=4,
             distance=max(distance, 0.1),
-            away_score=int(round(posteam_score)),
-            home_score=int(round(defteam_score)),
+            away_score=round(posteam_score),
+            home_score=round(defteam_score),
             away_team_id="offense",
             home_team_id="defense",
         )
