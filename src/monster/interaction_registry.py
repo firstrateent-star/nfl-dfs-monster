@@ -40,18 +40,30 @@ class InteractionRegistry:
         feature_registry: FeatureRegistry | None = None,
     ) -> InteractionRegistry:
         path = Path(path)
-        raw_text = path.read_text()
-        raw = yaml.safe_load(raw_text) or {}
+        registry_paths = [path]
+        fragment_dir = path.parent / "interaction_registry.d"
+        if fragment_dir.exists():
+            registry_paths.extend(sorted(fragment_dir.glob("*.yaml")))
+
         specs: dict[str, InteractionSpec] = {}
-        for feature_name, cfg in raw.get("interactions", {}).items():
-            specs[feature_name] = InteractionSpec(
-                feature_name=feature_name,
-                entity_scopes=tuple(cfg.get("entity_scopes", [])),
-                interaction_scales=tuple(cfg.get("interaction_scales", [])),
-                phases=tuple(cfg.get("phases", [])),
-                mechanisms=tuple(cfg.get("mechanisms", [])),
-                audit_only=bool(cfg.get("audit_only", False)),
-            )
+        raw_parts: list[str] = []
+        for registry_path in registry_paths:
+            raw_text = registry_path.read_text()
+            raw_parts.append(f"# {registry_path}\n{raw_text}")
+            raw = yaml.safe_load(raw_text) or {}
+            for feature_name, cfg in raw.get("interactions", {}).items():
+                if feature_name in specs:
+                    raise ValueError(
+                        f"Duplicate interaction registry entry: {feature_name}"
+                    )
+                specs[feature_name] = InteractionSpec(
+                    feature_name=feature_name,
+                    entity_scopes=tuple(cfg.get("entity_scopes", [])),
+                    interaction_scales=tuple(cfg.get("interaction_scales", [])),
+                    phases=tuple(cfg.get("phases", [])),
+                    mechanisms=tuple(cfg.get("mechanisms", [])),
+                    audit_only=bool(cfg.get("audit_only", False)),
+                )
 
         if feature_registry is not None:
             unknown = sorted(set(specs).difference(feature_registry.specs))
@@ -61,7 +73,7 @@ class InteractionRegistry:
                     f"{unknown}"
                 )
 
-        return cls(specs, raw_text)
+        return cls(specs, "\n".join(raw_parts))
 
     def hash(self) -> str:
         return hashlib.sha256(self.raw_text.encode()).hexdigest()
