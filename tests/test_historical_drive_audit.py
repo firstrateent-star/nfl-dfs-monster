@@ -28,6 +28,8 @@ def test_kickoff_cannot_define_drive_start_or_red_zone_snap() -> None:
         {
             "play_type": "kickoff",
             "yardline_100": 35.0,
+            "game_seconds_remaining": 3600.0,
+            "qtr": 1,
             "qb_dropback": 0,
             "rush_attempt": 0,
             "yards_gained": 0.0,
@@ -35,6 +37,8 @@ def test_kickoff_cannot_define_drive_start_or_red_zone_snap() -> None:
         {
             "play_type": "pass",
             "yardline_100": 75.0,
+            "game_seconds_remaining": 3585.0,
+            "qtr": 1,
             "qb_dropback": 1,
             "rush_attempt": 0,
             "yards_gained": 8.0,
@@ -47,7 +51,10 @@ def test_kickoff_cannot_define_drive_start_or_red_zone_snap() -> None:
 
     assert drive is not None
     assert drive["start_yardline_100"] == 25.0
+    assert drive["start_seconds_remaining"] == 3585.0
+    assert drive["end_seconds_remaining"] == 3585.0
     assert drive["red_zone_snap_seen"] is False
+    assert drive["overtime"] is False
 
 
 def test_long_touchdown_reaches_red_zone_without_red_zone_snap() -> None:
@@ -55,6 +62,8 @@ def test_long_touchdown_reaches_red_zone_without_red_zone_snap() -> None:
         {
             "play_type": "pass",
             "yardline_100": 50.0,
+            "game_seconds_remaining": 1200.0,
+            "qtr": 3,
             "qb_dropback": 1,
             "rush_attempt": 0,
             "yards_gained": 50.0,
@@ -70,6 +79,29 @@ def test_long_touchdown_reaches_red_zone_without_red_zone_snap() -> None:
     assert drive["red_zone_entered"] is True
     assert drive["red_zone_snap_seen"] is False
     assert drive["terminal"] == "touchdown"
+    assert drive["start_seconds_remaining"] == 1200.0
+    assert drive["end_seconds_remaining"] == 1200.0
+
+
+def test_overtime_drive_is_marked_from_first_scrimmage_state() -> None:
+    rows = [
+        {
+            "play_type": "run",
+            "yardline_100": 75.0,
+            "game_seconds_remaining": 540.0,
+            "qtr": 5,
+            "qb_dropback": 0,
+            "rush_attempt": 1,
+            "yards_gained": 4.0,
+            "posteam_score": 20,
+            "posteam_score_post": 20,
+        }
+    ]
+
+    drive = AUDIT._drive_row("game", "OT", "A", rows)
+
+    assert drive is not None
+    assert drive["overtime"] is True
 
 
 def test_non_scrimmage_only_group_is_not_definition_safe_drive() -> None:
@@ -77,6 +109,8 @@ def test_non_scrimmage_only_group_is_not_definition_safe_drive() -> None:
         {
             "play_type": "field_goal",
             "yardline_100": 18.0,
+            "game_seconds_remaining": 600.0,
+            "qtr": 4,
             "qb_dropback": 0,
             "rush_attempt": 0,
             "field_goal_attempt": 1,
