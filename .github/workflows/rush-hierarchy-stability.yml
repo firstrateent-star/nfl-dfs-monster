@@ -3,7 +3,7 @@ name: Rush hierarchy stability audit
 on:
   push:
     branches:
-      - feature/slate-simulator-v1
+      - feature/football-state-v13-clock
     paths:
       - scripts/audit_rush_hierarchy_stability.py
       - .github/workflows/rush-hierarchy-stability.yml
