@@ -1,0 +1,38 @@
+# Additional reality evidence exposed for the interaction runtime.
+features:
+  defensive_success_rate_allowed:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape, confidence]
+    authority: 0.85
+    market_derived: false
+  defensive_epa_allowed_per_play:
+    family: defense
+    cadence: weekly
+    jurisdiction: [mean, shape]
+    authority: 0.90
+    market_derived: false
+  depth_rank:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, confidence]
+    authority: 0.90
+    market_derived: false
+  conditional_offense_snap_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, confidence]
+    authority: 0.90
+    market_derived: false
+  defense_snap_share:
+    family: role
+    cadence: weekly
+    jurisdiction: [allocation, confidence]
+    authority: 0.90
+    market_derived: false
+  participation_uncertainty:
+    family: role
+    cadence: event_driven
+    jurisdiction: [shape, confidence]
+    authority: 0.80
+    market_derived: false
