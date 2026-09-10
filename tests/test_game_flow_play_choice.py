@@ -1,6 +1,6 @@
 from monster.sim.football_state import FootballState
 from monster.sim.game_flow_lookup import build_team_game_flow_policy
-from monster.sim.play_kernel import PlayType, PlayerIdentity, TeamIdentity, choose_play_type
+from monster.sim.play_kernel import PlayerIdentity, PlayType, TeamIdentity, choose_play_type
 
 
 class _FixedRng:
