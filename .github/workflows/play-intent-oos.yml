@@ -1,0 +1,33 @@
+name: Monster pass + run intent OOS gate
+
+on:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_play_intent_oos.py
+      - src/monster/feature_compile/play_intent.py
+      - src/monster/sim/categorical_policy.py
+      - src/monster/sim/intent_ecology.py
+      - .github/workflows/play-intent-oos.yml
+  workflow_dispatch:
+
+jobs:
+  intent-oos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code guards
+        run: |
+          uv run ruff check src tests scripts/audit_play_intent_oos.py
+          uv run pytest -q
+      - name: Evaluate 2023->2024 and 2024->2025 intent generalization
+        run: uv run python scripts/audit_play_intent_oos.py --out artifacts/play-intent-oos
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-play-intent-oos
+          path: artifacts/play-intent-oos/
+          retention-days: 14
