@@ -179,7 +179,7 @@ def feasible_pass_probabilities(
     """Return depth intent probabilities after physical field geometry masks impossibilities."""
 
     probs = ecology.pass_depth.probabilities_for(flow, actor_id=quarterback_id)
-    max_target_depth = flow.yards_to_goal + 9.0  # target point cannot leave the 10-yard end zone
+    max_target_depth = flow.yards_to_goal + 9.0
     lower_bounds = {
         "behind_los": -10.0,
         "short_0_5": 0.0,
@@ -189,7 +189,10 @@ def feasible_pass_probabilities(
         "bomb_40_plus": 40.0,
     }
     mask = np.asarray(
-        [1.0 if lower_bounds[category] <= max_target_depth else 0.0 for category in ecology.pass_depth.categories],
+        [
+            1.0 if lower_bounds[category] <= max_target_depth else 0.0
+            for category in ecology.pass_depth.categories
+        ],
         dtype=float,
     )
     probs = probs * mask
@@ -229,8 +232,7 @@ def sample_air_yards(
     }
     low, high = bounds[category]
     high = min(high, yards_to_goal + 9.0)
-    if high < low:
-        high = low
+    high = max(high, low)
     draw = float(rng.normal(outcome.air_yards_mean, outcome.air_yards_sd))
     return float(np.clip(draw, low, high))
 
@@ -242,10 +244,16 @@ def _compatibility_weights(
     attempts: Mapping[tuple[str, str], int],
     shrinkage_samples: float,
 ) -> np.ndarray:
-    base = np.asarray([max(float(getattr(player, "usage_weight")), 0.001) for player in players], dtype=float)
+    base = np.asarray(
+        [max(float(player.usage_weight), 0.001) for player in players],
+        dtype=float,
+    )
     base /= base.sum()
     observed = np.asarray(
-        [max(int(attempts.get((str(getattr(player, "player_id")), category), 0)), 0) for player in players],
+        [
+            max(int(attempts.get((str(player.player_id), category), 0)), 0)
+            for player in players
+        ],
         dtype=float,
     )
     total = float(observed.sum())
