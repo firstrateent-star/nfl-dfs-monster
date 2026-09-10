@@ -12,6 +12,7 @@ on:
       - src/monster/sim/resolution_ecology.py
       - src/monster/sim/play_kernel.py
       - src/monster/sim/play_anatomy.py
+      - tests/test_stage3_resolution_ecology.py
       - .github/workflows/v13-stage3-paired.yml
   workflow_dispatch:
 
