@@ -1,0 +1,46 @@
+name: Monster game-flow intent reality audit
+
+on:
+  push:
+    branches:
+      - feature/football-state-v13-clock
+    paths:
+      - "scripts/audit_game_flow_intent_reality.py"
+      - "src/monster/ingest/nflverse.py"
+      - "src/monster/teams.py"
+      - ".github/workflows/game-flow-intent-reality-audit.yml"
+  workflow_dispatch:
+
+jobs:
+  game-flow-intent-reality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Code guards
+        run: |
+          uv run ruff check src tests scripts/audit_game_flow_intent_reality.py
+          uv run pytest -q
+      - name: Audit game-flow and play-intent reality
+        run: |
+          uv run python scripts/audit_game_flow_intent_reality.py \
+            --history 2025 \
+            --out artifacts/game-flow-intent-reality
+      - name: Verify observational audit
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('artifacts/game-flow-intent-reality/manifest.json').read_text())
+          assert manifest['market_blind'] is True
+          assert manifest['behavior_changed_by_audit'] is False
+          assert manifest['scrimmage_samples'] > 10000
+          assert manifest['context_cells'] > 0
+          print(json.dumps(manifest, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-game-flow-intent-reality-audit
+          path: artifacts/game-flow-intent-reality/
+          retention-days: 14
