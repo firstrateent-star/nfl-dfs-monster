@@ -9,7 +9,11 @@ on:
       - scripts/audit_week1_stage3_drive_survival.py
       - scripts/audit_historical_drive_reality.py
       - scripts/compare_drive_survival.py
+      - scripts/compare_scoring_state_ecology.py
+      - scripts/audit_clock_possession_ecology.py
       - src/monster/feature_compile/play_intent.py
+      - src/monster/feature_compile/v13_identity_bridge.py
+      - src/monster/sim/availability_world.py
       - src/monster/sim/categorical_policy.py
       - src/monster/sim/intent_ecology.py
       - src/monster/sim/resolution_ecology.py
@@ -18,6 +22,8 @@ on:
       - src/monster/sim/drive_trace.py
       - tests/test_stage3_resolution_ecology.py
       - tests/test_drive_survival_trace.py
+      - tests/test_availability_world.py
+      - tests/test_v13_availability_bridge.py
       - .github/workflows/v13-stage3-paired.yml
   workflow_dispatch:
 
@@ -31,7 +37,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py scripts/audit_week1_stage3_drive_survival.py scripts/audit_historical_drive_reality.py scripts/compare_drive_survival.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py scripts/audit_week1_stage3_drive_survival.py scripts/audit_historical_drive_reality.py scripts/compare_drive_survival.py scripts/compare_scoring_state_ecology.py scripts/audit_clock_possession_ecology.py
           uv run pytest -q
       - name: Reconfirm pass and run intent OOS authority
         run: >-
@@ -129,6 +135,20 @@ jobs:
           --simulated artifacts/stage3-paired/drive-stage3/stage3_drive_traces.parquet
           --historical artifacts/stage3-paired/drive-historical/historical_drive_traces.parquet
           --out artifacts/stage3-paired/drive-survival
+      - name: Compare scoring-state ecology
+        run: >-
+          uv run python scripts/compare_scoring_state_ecology.py
+          --simulated artifacts/stage3-paired/drive-stage3/stage3_drive_traces.parquet
+          --historical artifacts/stage3-paired/drive-historical/historical_drive_traces.parquet
+          --out artifacts/stage3-paired/scoring-state
+      - name: Audit clock and possession ecology
+        run: >-
+          uv run python scripts/audit_clock_possession_ecology.py
+          --simulated artifacts/stage3-paired/drive-stage3/stage3_drive_traces.parquet
+          --sim-manifest artifacts/stage3-paired/drive-stage3/manifest.json
+          --season 2025
+          --cache-dir .cache/monster
+          --out artifacts/stage3-paired/clock-possession
       - name: Verify Stage 3 was actually exercised
         run: |
           uv run python - <<'PY'
@@ -141,6 +161,8 @@ jobs:
           stage3 = json.loads((root/'stage3'/'manifest.json').read_text())
           comparison = json.loads((root/'comparison'/'manifest.json').read_text())
           survival = json.loads((root/'drive-survival'/'drive_survival_ledger.json').read_text())
+          scoring = json.loads((root/'scoring-state'/'scoring_state_ecology.json').read_text())
+          clock = json.loads((root/'clock-possession'/'clock_possession_ecology.json').read_text())
           pass_trace = pl.read_csv(root/'stage3'/'stage3_pass_depth_anatomy.csv')
           run_trace = pl.read_csv(root/'stage3'/'stage3_run_geometry_anatomy.csv')
 
@@ -158,7 +180,11 @@ jobs:
           assert survival['promotion_status'] == 'SHADOW_DIAGNOSTIC_ONLY'
           assert survival['simulated_drives'] > 10000
           assert survival['historical_drives'] > 1000
-          print(json.dumps({'stage3': comparison, 'drive_survival': survival}, indent=2))
+          assert scoring['market_blind'] is True
+          assert scoring['behavior_changed_by_audit'] is False
+          assert clock['market_blind'] is True
+          assert clock['behavior_changed_by_audit'] is False
+          print(json.dumps({'stage3': comparison, 'drive_survival': survival, 'scoring_state': scoring, 'clock': clock}, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
