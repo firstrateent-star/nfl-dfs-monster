@@ -9,6 +9,7 @@ from monster.sim.play_anatomy import (
     CatchpointResult,
     ContactResult,
     QBResponse,
+    condition_throw_probabilities,
     resolve_catchpoint,
     resolve_qb_response,
     resolve_run_contact,
@@ -114,6 +115,36 @@ def test_pressure_can_create_sacks_scrambles_and_throws() -> None:
     assert QBResponse.SACK in outcomes
     assert QBResponse.SCRAMBLE in outcomes
     assert QBResponse.THROW in outcomes
+
+
+def test_pressure_conditioning_changes_throw_quality_without_moving_baseline() -> None:
+    base_completion = 0.64
+    base_interception = 0.022
+    pressured_completion, pressured_interception = condition_throw_probabilities(
+        completion_probability=base_completion,
+        interception_probability=base_interception,
+        pressured=True,
+    )
+    clean_completion, clean_interception = condition_throw_probabilities(
+        completion_probability=base_completion,
+        interception_probability=base_interception,
+        pressured=False,
+    )
+    assert pressured_completion < base_completion < clean_completion
+    assert pressured_interception > base_interception > clean_interception
+
+    pressured_throw_share = 4207 / 17454
+    clean_throw_share = 13247 / 17454
+    weighted_completion = (
+        pressured_throw_share * pressured_completion
+        + clean_throw_share * clean_completion
+    )
+    weighted_interception = (
+        pressured_throw_share * pressured_interception
+        + clean_throw_share * clean_interception
+    )
+    assert abs(weighted_completion - base_completion) < 1e-6
+    assert abs(weighted_interception - base_interception) < 1e-6
 
 
 def test_catchpoint_has_catch_drop_breakup_and_interception_paths() -> None:
