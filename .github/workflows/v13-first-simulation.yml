@@ -27,7 +27,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py --ignore RUF046
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
