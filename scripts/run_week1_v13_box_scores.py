@@ -22,8 +22,10 @@ from monster.feature_compile.health_pools import apply_health_to_skill_pools
 from monster.feature_compile.league_units import compile_league_unit_player_map
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
 from monster.feature_compile.skill_pools import compile_current_skill_pools
+from monster.sim.defensive_attribution import attribute_defensive_box_score
 from monster.sim.event_ledger import assert_event_conservation
 from monster.sim.game_loop_v13 import DefensiveBoxScore, PlayerBoxScore, simulate_game
+from monster.sim.play_kernel import PlayEvent, PlayType
 from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
 
@@ -41,51 +43,53 @@ def _quantiles(values: list[float]) -> dict[str, float]:
 
 
 def _name_map(personnel: pl.DataFrame, pools) -> dict[str, str]:
-    names = {
-        player.player_id: player.display_name
-        for pool in pools.values()
-        for player in pool.players
-    }
+    names = {p.player_id: p.display_name for pool in pools.values() for p in pool.players}
     id_col = next((c for c in ("gsis_id", "player_id", "pfr_id") if c in personnel.columns), None)
     name_col = next(
-        (
-            c
-            for c in ("display_name", "full_name", "player_name", "football_name", "name")
-            if c in personnel.columns
-        ),
+        (c for c in ("display_name", "full_name", "player_name", "football_name", "name") if c in personnel.columns),
         None,
     )
-    if id_col is None or name_col is None:
-        return names
-    for row in personnel.select([id_col, name_col]).drop_nulls().to_dicts():
-        names.setdefault(str(row[id_col]), str(row[name_col]))
+    if id_col is not None and name_col is not None:
+        for row in personnel.select([id_col, name_col]).drop_nulls().to_dicts():
+            names.setdefault(str(row[id_col]), str(row[name_col]))
     return names
 
 
 def _position_map(personnel: pl.DataFrame, pools) -> dict[str, str]:
-    positions = {
-        player.player_id: player.position
-        for pool in pools.values()
-        for player in pool.players
-    }
+    positions = {p.player_id: p.position for pool in pools.values() for p in pool.players}
     id_col = next((c for c in ("gsis_id", "player_id", "pfr_id") if c in personnel.columns), None)
     position_col = next((c for c in ("position", "depth_position") if c in personnel.columns), None)
-    if id_col is None or position_col is None:
-        return positions
-    for row in personnel.select([id_col, position_col]).drop_nulls().to_dicts():
-        positions.setdefault(str(row[id_col]), str(row[position_col]))
+    if id_col is not None and position_col is not None:
+        for row in personnel.select([id_col, position_col]).drop_nulls().to_dicts():
+            positions.setdefault(str(row[id_col]), str(row[position_col]))
     return positions
 
 
 def _team_map(pools, units) -> dict[str, str]:
-    mapping: dict[str, str] = {}
+    out: dict[str, str] = {}
     for team, pool in pools.items():
         for player in pool.players:
-            mapping[player.player_id] = team
+            out[player.player_id] = team
     for team, players in units.items():
         for player in players:
-            mapping[player.player_id] = team
-    return mapping
+            out[player.player_id] = team
+    return out
+
+
+def _event_offense_team(event: PlayEvent, player_teams: dict[str, str]) -> str | None:
+    for player_id in (event.passer_id, event.rusher_id, event.target_id, event.fumbler_id):
+        if player_id is not None and player_id in player_teams:
+            return player_teams[player_id]
+    return None
+
+
+def _defensive_plays(plays: tuple[PlayEvent, ...], opponent: str, player_teams: dict[str, str]) -> tuple[PlayEvent, ...]:
+    return tuple(
+        event
+        for event in plays
+        if event.play_type in {PlayType.RUN, PlayType.PASS}
+        and _event_offense_team(event, player_teams) == opponent
+    )
 
 
 def _aggregate_player_rows(acc, names, positions, teams, *, side: str) -> list[dict]:
@@ -111,23 +115,16 @@ def _aggregate_player_rows(acc, names, positions, teams, *, side: str) -> list[d
 
 
 def _representative_world(game_worlds: list[dict]) -> int:
-    if not game_worlds:
-        return 0
     away_points = np.asarray([x["away_points"] for x in game_worlds], dtype=float)
     home_points = np.asarray([x["home_points"] for x in game_worlds], dtype=float)
     total_yards = np.asarray([x["total_yards"] for x in game_worlds], dtype=float)
-    centers = np.asarray(
-        [np.median(away_points), np.median(home_points), np.median(total_yards)], dtype=float
-    )
-    scales = np.asarray(
-        [max(away_points.std(), 1.0), max(home_points.std(), 1.0), max(total_yards.std(), 1.0)],
-        dtype=float,
-    )
-    distance = []
+    centers = np.asarray([np.median(away_points), np.median(home_points), np.median(total_yards)])
+    scales = np.asarray([max(away_points.std(), 1.0), max(home_points.std(), 1.0), max(total_yards.std(), 1.0)])
+    distances = []
     for x in game_worlds:
         vector = np.asarray([x["away_points"], x["home_points"], x["total_yards"]], dtype=float)
-        distance.append(float(np.square((vector - centers) / scales).sum()))
-    return int(game_worlds[int(np.argmin(distance))]["world"])
+        distances.append(float(np.square((vector - centers) / scales).sum()))
+    return int(game_worlds[int(np.argmin(distances))]["world"])
 
 
 def main() -> None:
@@ -146,16 +143,12 @@ def main() -> None:
     usage = _read(args.player_usage)
     situation_context = _read(args.situation_context)
     league_neutral_pass_rate, situational_pass_rates = _situational_context(situation_context)
-
-    pools = apply_health_to_skill_pools(
-        compile_current_skill_pools(personnel, usage, policy=policy), personnel
-    )
+    pools = apply_health_to_skill_pools(compile_current_skill_pools(personnel, usage, policy=policy), personnel)
     reality = compile_player_reality_inputs(personnel, game_date=GAME_DATE)
     units = compile_league_unit_player_map(personnel)
     states = {}
     for away, home in MATCHUPS:
         states.update(compile_team_state_map(policy, {away: home, home: away}))
-
     teams = {
         team: _team_identity(
             team,
@@ -183,26 +176,15 @@ def main() -> None:
 
     for game_idx, (away, home) in enumerate(MATCHUPS):
         game = f"{away}@{home}"
-        offense_ids = {
-            team: tuple(player.player_id for player in pools[team].players)
-            for team in (away, home)
-        }
+        offense_ids = {team: tuple(p.player_id for p in pools[team].players) for team in (away, home)}
         defense_ids = {
-            team: tuple(
-                player.player_id
-                for player in units[team]
-                if player.defense_snap_share >= 0.03
-            )
+            team: tuple(p.player_id for p in units[team] if p.defense_snap_share >= 0.03)
             for team in (away, home)
         }
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
-            away_plan = sample_event_rush_share_plan(
-                pools[away], rng=np.random.default_rng(seed + 101_003)
-            )
-            home_plan = sample_event_rush_share_plan(
-                pools[home], rng=np.random.default_rng(seed + 202_007)
-            )
+            away_plan = sample_event_rush_share_plan(pools[away], rng=np.random.default_rng(seed + 101_003))
+            home_plan = sample_event_rush_share_plan(pools[home], rng=np.random.default_rng(seed + 202_007))
             result = simulate_game(
                 _with_event_rush_plan(teams[away], away_plan),
                 _with_event_rush_plan(teams[home], home_plan),
@@ -213,20 +195,18 @@ def main() -> None:
             assert_event_conservation(result)
 
             team_box = {}
-            for team in (away, home):
-                boxes = {
-                    player_id: result.player_stats.get(player_id, PlayerBoxScore())
-                    for player_id in offense_ids[team]
-                }
+            for team, opponent, attribution_offset in (
+                (away, home, 31_337),
+                (home, away, 47_771),
+            ):
+                boxes = {pid: result.player_stats.get(pid, PlayerBoxScore()) for pid in offense_ids[team]}
                 pass_yards = sum(x.passing_yards for x in boxes.values())
                 rush_yards = sum(x.rushing_yards for x in boxes.values())
                 team_box[team] = {
                     "pass_yards": float(pass_yards),
                     "rush_yards": float(rush_yards),
                     "total_yards": float(pass_yards + rush_yards),
-                    "turnovers": float(
-                        sum(x.interceptions + x.fumbles_lost for x in boxes.values())
-                    ),
+                    "turnovers": float(sum(x.interceptions + x.fumbles_lost for x in boxes.values())),
                 }
                 for player_id, box in boxes.items():
                     data = asdict(box)
@@ -234,9 +214,13 @@ def main() -> None:
                         offensive_acc[(game, player_id)][stat].append(float(value))
                     representative_offense[(game, world, player_id)] = data
 
-                defense_stats = result.defensive_stats or {}
+                attributed = attribute_defensive_box_score(
+                    _defensive_plays(result.plays, opponent, player_teams),
+                    defenses[team],
+                    seed=seed + attribution_offset,
+                )
                 for player_id in defense_ids[team]:
-                    box = defense_stats.get(player_id, DefensiveBoxScore())
+                    box = attributed.get(player_id, DefensiveBoxScore())
                     data = asdict(box)
                     for stat, value in data.items():
                         defensive_acc[(game, player_id)][stat].append(float(value))
@@ -244,17 +228,9 @@ def main() -> None:
 
             away_points = float(result.final_state.away_score)
             home_points = float(result.final_state.home_score)
-            for team, points, opponent_points in (
-                (away, away_points, home_points),
-                (home, home_points, away_points),
-            ):
-                for stat, value in {
-                    "points": points,
-                    "points_allowed": opponent_points,
-                    **team_box[team],
-                }.items():
+            for team, points, opponent_points in ((away, away_points, home_points), (home, home_points, away_points)):
+                for stat, value in {"points": points, "points_allowed": opponent_points, **team_box[team]}.items():
                     game_acc[(game, team)][stat].append(float(value))
-
             game_world_rows[game].append(
                 {
                     "world": world,
@@ -264,13 +240,8 @@ def main() -> None:
                 }
             )
 
-    offense_rows = _aggregate_player_rows(
-        offensive_acc, names, positions, player_teams, side="offense"
-    )
-    defense_rows = _aggregate_player_rows(
-        defensive_acc, names, positions, player_teams, side="defense"
-    )
-
+    offense_rows = _aggregate_player_rows(offensive_acc, names, positions, player_teams, side="offense")
+    defense_rows = _aggregate_player_rows(defensive_acc, names, positions, player_teams, side="defense")
     team_rows: list[dict] = []
     for (game, team), metrics in game_acc.items():
         row = {"game": game, "team": team}
@@ -299,7 +270,6 @@ def main() -> None:
         )
         for team in (away, home):
             for player_id in [p.player_id for p in pools[team].players]:
-                data = representative_offense[(game, representative_world, player_id)]
                 representative_rows.append(
                     {
                         "game": game,
@@ -309,13 +279,10 @@ def main() -> None:
                         "player_id": player_id,
                         "player": names.get(player_id, player_id),
                         "position": positions.get(player_id, ""),
-                        **data,
+                        **representative_offense[(game, representative_world, player_id)],
                     }
                 )
-            for player_id in [
-                p.player_id for p in units[team] if p.defense_snap_share >= 0.03
-            ]:
-                data = representative_defense[(game, representative_world, player_id)]
+            for player_id in [p.player_id for p in units[team] if p.defense_snap_share >= 0.03]:
                 representative_rows.append(
                     {
                         "game": game,
@@ -325,20 +292,15 @@ def main() -> None:
                         "player_id": player_id,
                         "player": names.get(player_id, player_id),
                         "position": positions.get(player_id, ""),
-                        **data,
+                        **representative_defense[(game, representative_world, player_id)],
                     }
                 )
 
     args.out.mkdir(parents=True, exist_ok=True)
     offense_df = pl.DataFrame(offense_rows).sort(["game", "team", "position", "player"])
-    defense_df = pl.DataFrame(defense_rows).sort(
-        ["game", "team", "tackles_mean"], descending=[False, False, True]
-    )
+    defense_df = pl.DataFrame(defense_rows).sort(["game", "team", "tackles_mean"], descending=[False, False, True])
     team_df = pl.DataFrame(team_rows).sort(["game", "team"])
-    representative_df = pl.DataFrame(representative_rows).sort(
-        ["game", "record_type", "team", "player"]
-    )
-
+    representative_df = pl.DataFrame(representative_rows).sort(["game", "record_type", "team", "player"])
     offense_df.write_csv(args.out / "offensive_player_box_score_distributions.csv")
     defense_df.write_csv(args.out / "defensive_player_box_score_distributions.csv")
     team_df.write_csv(args.out / "team_box_score_distributions.csv")
@@ -347,11 +309,10 @@ def main() -> None:
     game_summaries = []
     for game in sorted(game_world_rows):
         away, home = game.split("@")
-        representative_world = _representative_world(game_world_rows[game])
         game_summaries.append(
             {
                 "game": game,
-                "representative_world": representative_world,
+                "representative_world": _representative_world(game_world_rows[game]),
                 "away": away,
                 "home": home,
                 "teams": [row for row in team_rows if row["game"] == game],
@@ -360,7 +321,6 @@ def main() -> None:
             }
         )
     (args.out / "simulated_game_box_scores.json").write_text(json.dumps(game_summaries, indent=2))
-
     manifest = {
         "model": "Monster v1.3 simulated game box-score observability layer",
         "season": 2026,
@@ -373,7 +333,7 @@ def main() -> None:
         "sportsbook_inputs_used": False,
         "offense_event_derived": True,
         "defense_event_derived": True,
-        "defensive_stat_scope": "primary credited defender in current event anatomy; tackles are primary tackles, not assisted-tackle projections",
+        "role_aware_defensive_attribution": True,
         "zero_inclusive_worlds": True,
         "distribution_view": True,
         "representative_world_view": True,
@@ -382,11 +342,10 @@ def main() -> None:
             "offense": "offensive_player_box_score_distributions.csv",
             "defense": "defensive_player_box_score_distributions.csv",
             "representative_world": "representative_world_box_scores.csv",
-            "nested_json": "simulated_game_box_scores.json",
+            "json": "simulated_game_box_scores.json",
         },
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(team_df.select(["game", "team", "points_mean", "total_yards_mean", "turnovers_mean"]))
     print(json.dumps(manifest, indent=2))
 
 
