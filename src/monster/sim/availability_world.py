@@ -39,45 +39,30 @@ def _redistribute(players: list[PlayerState], field: str, *, eligible_positions:
     return _normalize(raw)
 
 
-def sample_team_availability_world(
+def availability_world_from_active_ids(
     pool: TeamPlayerPool,
     *,
-    rng: np.random.Generator,
+    active_player_ids: set[str] | frozenset[str] | tuple[str, ...],
 ) -> AvailabilityWorld:
-    """Sample active personnel once per game world and conserve role-share mass.
+    """Derive the skill opportunity world from an already-sampled full-roster active set.
 
-    Rules:
-    - availability is sampled once for the game, not independently by play;
-    - at least one QB must be active, using the highest qb_pass_share/current availability as
-      a deterministic fallback if all Bernoulli samples miss;
-    - inactive players are removed from every offensive opportunity tree;
-    - target/rush/red-zone/TD shares are renormalized only among active eligible players;
-    - effectiveness_if_active is preserved and is not multiplied into availability.
+    This is the coherence bridge between all-player unit availability and skill opportunity.
+    It performs no new Bernoulli draw: the same active IDs that rebuild OL/defense also decide
+    who can receive targets/carries. At least one active QB must already exist in the supplied
+    roster state; otherwise the caller has produced an invalid full-roster world.
     """
+
     if not pool.players:
-        raise ValueError("cannot sample availability for an empty team pool")
+        raise ValueError("cannot derive availability for an empty team pool")
 
-    players = list(pool.players)
-    active_mask = np.asarray(
-        [rng.random() < float(np.clip(player.active_probability, 0.0, 1.0)) for player in players],
-        dtype=bool,
-    )
+    active_set = set(active_player_ids)
+    active_players = [player for player in pool.players if player.player_id in active_set]
+    if not active_players:
+        raise ValueError(f"{pool.team_id} full-roster world has no active skill players")
 
-    qb_indices = [idx for idx, player in enumerate(players) if player.position.upper() == "QB"]
-    if not qb_indices:
-        raise ValueError(f"{pool.team_id} has no quarterback candidates")
-    if not any(active_mask[idx] for idx in qb_indices):
-        fallback = max(
-            qb_indices,
-            key=lambda idx: (
-                float(players[idx].qb_pass_share),
-                float(players[idx].active_probability),
-            ),
-        )
-        active_mask[fallback] = True
-
-    active_players = [player for idx, player in enumerate(players) if active_mask[idx]]
     active_qbs = [player for player in active_players if player.position.upper() == "QB"]
+    if not active_qbs:
+        raise ValueError(f"{pool.team_id} full-roster world has no active quarterback")
     starter = max(
         active_qbs,
         key=lambda player: (float(player.qb_pass_share), float(player.active_probability)),
@@ -124,13 +109,51 @@ def sample_team_availability_world(
 
     active_ids = tuple(player.player_id for player in sampled)
     inactive_ids = tuple(
-        player.player_id for idx, player in enumerate(players) if not active_mask[idx]
+        player.player_id for player in pool.players if player.player_id not in active_set
     )
-    sampled_pool = replace(pool, players=tuple(sampled))
     return AvailabilityWorld(
         team_id=pool.team_id,
         active_player_ids=active_ids,
         inactive_player_ids=inactive_ids,
         starting_qb_id=starter.player_id,
-        pool=sampled_pool,
+        pool=replace(pool, players=tuple(sampled)),
     )
+
+
+def sample_team_availability_world(
+    pool: TeamPlayerPool,
+    *,
+    rng: np.random.Generator,
+) -> AvailabilityWorld:
+    """Sample active skill personnel once per game world and conserve role-share mass.
+
+    This legacy skill-only entry point remains available for isolated experiments. Integrated
+    v1.3 worlds should prefer the full-roster unit sampler and then call
+    ``availability_world_from_active_ids`` so OL, defense and skill usage share one reality.
+    """
+    if not pool.players:
+        raise ValueError("cannot sample availability for an empty team pool")
+
+    players = list(pool.players)
+    active_mask = np.asarray(
+        [rng.random() < float(np.clip(player.active_probability, 0.0, 1.0)) for player in players],
+        dtype=bool,
+    )
+
+    qb_indices = [idx for idx, player in enumerate(players) if player.position.upper() == "QB"]
+    if not qb_indices:
+        raise ValueError(f"{pool.team_id} has no quarterback candidates")
+    if not any(active_mask[idx] for idx in qb_indices):
+        fallback = max(
+            qb_indices,
+            key=lambda idx: (
+                float(players[idx].qb_pass_share),
+                float(players[idx].active_probability),
+            ),
+        )
+        active_mask[fallback] = True
+
+    active_ids = {
+        player.player_id for idx, player in enumerate(players) if active_mask[idx]
+    }
+    return availability_world_from_active_ids(pool, active_player_ids=active_ids)
