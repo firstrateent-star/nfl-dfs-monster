@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from monster.sim.play_kernel import PlayerIdentity
+from monster.sim.snap_ecology import resolve_pass_snap, resolve_run_snap
 
 # 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
 # Team/player matchup traits perturb this baseline rather than replacing the causal prior.
@@ -44,6 +45,14 @@ class PassMatchup:
     local_coverage_strength: float = 1.0
     local_separation_edge: float = 0.0
     local_rush_strength: float = 1.0
+    time_to_pressure: float = 2.55
+    pocket_integrity: float = 1.0
+    protection_help: float = 0.0
+    safety_help: float = 0.0
+    bracket_factor: float = 0.0
+    zone_overlap: float = 0.0
+    qb_read_quality: float = 1.0
+    primary_rusher_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,8 @@ class RunMatchup:
     local_run_defense: float = 1.0
     second_level_tackling: float = 1.0
     runner_edge: float = 0.0
+    lane_blocking: float = 1.0
+    front_fit: float = 1.0
 
 
 def _unit_strength(defenders: tuple[DefensiveIdentity, ...], attribute: str) -> float:
@@ -68,7 +79,6 @@ def _unit_strength(defenders: tuple[DefensiveIdentity, ...], attribute: str) -> 
 def _representative_defender(
     defenders: tuple[DefensiveIdentity, ...], attribute: str
 ) -> DefensiveIdentity | None:
-    """Select the most likely local matchup participant from role x snap x skill."""
     if not defenders:
         return None
     return max(
@@ -78,11 +88,6 @@ def _representative_defender(
     )
 
 
-def _duel_edge(offense: float, defense: float, *, scale: float = 0.24) -> float:
-    """Bounded -1..1 local player-v-player advantage."""
-    return float(np.tanh((float(offense) - float(defense)) / max(scale, 1e-6)))
-
-
 def resolve_pass_matchup(
     target: PlayerIdentity,
     defense: DefensiveUnit,
@@ -90,44 +95,71 @@ def resolve_pass_matchup(
     pass_protection: float,
     quarterback_efficiency: float,
 ) -> PassMatchup:
-    """Resolve receiver-v-cover and protection-v-rush within the full defense.
+    """Resolve the target inside a complete protection/coverage snap ecology.
 
-    The target's own skill is compared directly with the most exposed/likely coverage
-    defender. That 1v1 edge is blended with the exposure-weighted coverage unit, while an
-    individual front defender supplies the local rush threat inside the front's aggregate
-    pressure context. This makes player identity causal without pretending one duel is the
-    entire 11-v-11 play.
+    Five current offensive linemen are registered from the frozen personnel snapshot and
+    paired against the most relevant rushers. RB/TE protection can reinforce the most dangerous
+    rush lane. Coverage assigns a primary defender while preserving safety help, bracket risk,
+    and zone overlap. QB read quality then depends on separation plus the time the pocket buys.
     """
-    cover = _representative_defender(defense.coverage, "coverage")
-    rusher = _representative_defender(defense.front, "pass_rush")
+    snap = resolve_pass_snap(
+        target=target,
+        defense=defense,
+        pass_protection=pass_protection,
+        quarterback_efficiency=quarterback_efficiency,
+    )
     coverage_unit = _unit_strength(defense.coverage, "coverage")
     ball_hawk_unit = _unit_strength(defense.coverage, "ball_hawk")
     rush_unit = _unit_strength(defense.front, "pass_rush")
 
+    cover = next(
+        (d for d in defense.coverage if d.player_id == snap.primary_defender_id),
+        _representative_defender(defense.coverage, "coverage"),
+    )
     local_coverage = 1.0 if cover is None else float(cover.coverage)
     local_ball_hawk = 1.0 if cover is None else float(cover.ball_hawk)
-    local_rush = 1.0 if rusher is None else float(rusher.pass_rush)
-    separation_edge = _duel_edge(target.efficiency, local_coverage)
-
-    # Local edge has substantial authority, but surrounding help/structure remains causal.
-    effective_coverage = float(
-        np.clip(0.58 * coverage_unit + 0.42 * local_coverage - 0.10 * separation_edge, 0.55, 1.45)
+    local_rusher = next(
+        (d for d in defense.front if d.player_id == snap.primary_rusher_id),
+        _representative_defender(defense.front, "pass_rush"),
     )
-    effective_ball_hawk = float(np.clip(0.65 * ball_hawk_unit + 0.35 * local_ball_hawk, 0.55, 1.45))
-    effective_rush = float(np.clip(0.62 * rush_unit + 0.38 * local_rush, 0.55, 1.50))
+    local_rush = 1.0 if local_rusher is None else float(local_rusher.pass_rush)
+
+    effective_coverage = float(
+        np.clip(
+            0.42 * coverage_unit
+            + 0.34 * snap.coverage_strength
+            + 0.24 * local_coverage,
+            0.55,
+            1.55,
+        )
+    )
+    effective_ball_hawk = float(
+        np.clip(
+            0.60 * ball_hawk_unit + 0.40 * local_ball_hawk + 0.12 * snap.zone_overlap,
+            0.55,
+            1.50,
+        )
+    )
+    effective_rush = float(np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55))
 
     pressure = float(
-        np.clip(defense.pressure_rate * effective_rush / max(pass_protection, 0.55), 0.10, 0.55)
+        np.clip(
+            0.70 * snap.pressure_probability
+            + 0.30 * defense.pressure_rate * effective_rush / max(snap.pocket_integrity, 0.60),
+            0.07,
+            0.62,
+        )
     )
     completion = float(
         np.clip(
             0.64
-            * quarterback_efficiency
+            * snap.qb_read_quality
             * target.efficiency
             / max(effective_coverage, 0.60)
-            * (1.0 + 0.06 * separation_edge),
-            0.30,
-            0.88,
+            * (1.0 + 0.08 * snap.separation_edge)
+            * (1.0 - 0.08 * pressure),
+            0.27,
+            0.90,
         )
     )
     interception = float(
@@ -135,19 +167,21 @@ def resolve_pass_matchup(
             0.022
             * effective_ball_hawk
             * effective_coverage
-            / max(quarterback_efficiency, 0.55)
-            * (1.0 - 0.10 * separation_edge),
+            / max(snap.qb_read_quality, 0.55)
+            * (1.0 + 0.20 * pressure)
+            * (1.0 - 0.10 * snap.separation_edge),
             0.004,
-            0.08,
+            0.085,
         )
     )
     yards_multiplier = float(
         np.clip(
             target.explosive
-            / max(effective_coverage**0.35, 0.72)
-            * (1.0 + 0.10 * separation_edge),
-            0.60,
-            1.65,
+            / max(effective_coverage**0.34, 0.72)
+            * (1.0 + 0.11 * snap.separation_edge)
+            * (1.0 - 0.10 * snap.safety_help - 0.14 * snap.bracket_factor),
+            0.55,
+            1.72,
         )
     )
     return PassMatchup(
@@ -155,12 +189,20 @@ def resolve_pass_matchup(
         interception_probability=interception,
         completion_probability=completion,
         yards_multiplier=yards_multiplier,
-        primary_defender_id=None if cover is None else cover.player_id,
+        primary_defender_id=snap.primary_defender_id,
         coverage_strength=effective_coverage,
         ball_hawk_strength=effective_ball_hawk,
         local_coverage_strength=local_coverage,
-        local_separation_edge=separation_edge,
+        local_separation_edge=snap.separation_edge,
         local_rush_strength=local_rush,
+        time_to_pressure=snap.time_to_pressure,
+        pocket_integrity=snap.pocket_integrity,
+        protection_help=snap.protection_help,
+        safety_help=snap.safety_help,
+        bracket_factor=snap.bracket_factor,
+        zone_overlap=snap.zone_overlap,
+        qb_read_quality=snap.qb_read_quality,
+        primary_rusher_id=snap.primary_rusher_id,
     )
 
 
@@ -170,47 +212,24 @@ def resolve_run_matchup(
     *,
     run_blocking: float,
 ) -> RunMatchup:
-    """Resolve rusher-v-box contact inside front and pursuit context."""
-    box = _representative_defender(defense.front, "run_defense")
-    pursuit_pool = defense.coverage if defense.coverage else defense.front
-    pursuit = _representative_defender(pursuit_pool, "tackling")
-    front_unit = _unit_strength(defense.front, "run_defense")
-    tackling_unit = _unit_strength(pursuit_pool, "tackling")
-
-    local_run_defense = 1.0 if box is None else float(box.run_defense)
-    local_tackling = 1.0 if pursuit is None else float(pursuit.tackling)
-    runner_edge = _duel_edge(rusher.efficiency, local_run_defense)
-
-    effective_front = float(
-        np.clip(0.60 * front_unit + 0.40 * local_run_defense - 0.08 * runner_edge, 0.55, 1.50)
+    """Resolve runner, five-man blocking lane, front fit and second-level tackling."""
+    snap = resolve_run_snap(
+        rusher=rusher,
+        defense=defense,
+        run_blocking=run_blocking,
     )
-    second_level = float(np.clip(0.55 * tackling_unit + 0.45 * local_tackling, 0.55, 1.50))
-    stuff = float(
-        np.clip(
-            defense.run_stuff_rate
-            * effective_front
-            / max(run_blocking, 0.55)
-            * (1.0 - 0.08 * runner_edge),
-            0.05,
-            0.46,
-        )
+    primary = next(
+        (d for d in defense.front if d.player_id == snap.primary_defender_id),
+        _representative_defender(defense.front, "run_defense"),
     )
-    yards_multiplier = float(
-        np.clip(
-            rusher.efficiency
-            * run_blocking
-            / max(effective_front, 0.60)
-            * (1.0 + 0.08 * runner_edge)
-            / max(second_level**0.12, 0.92),
-            0.50,
-            1.68,
-        )
-    )
+    local_run_defense = 1.0 if primary is None else float(primary.run_defense)
     return RunMatchup(
-        stuff_probability=stuff,
-        yards_multiplier=yards_multiplier,
-        primary_defender_id=None if box is None else box.player_id,
+        stuff_probability=snap.stuff_probability,
+        yards_multiplier=snap.yards_multiplier,
+        primary_defender_id=snap.primary_defender_id,
         local_run_defense=local_run_defense,
-        second_level_tackling=second_level,
-        runner_edge=runner_edge,
+        second_level_tackling=snap.second_level_fit,
+        runner_edge=snap.runner_edge,
+        lane_blocking=snap.lane_blocking,
+        front_fit=snap.front_fit,
     )
