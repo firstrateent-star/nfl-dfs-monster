@@ -45,6 +45,32 @@ def _ensure_unit_presence(
     mask[fallback] = True
 
 
+def _ensure_position_presence(
+    mask: np.ndarray,
+    players: tuple[UnitPlayerInputs, ...],
+    *,
+    positions: set[str],
+    share_field: str,
+) -> None:
+    """Guarantee a required football position without sampling a second roster reality."""
+
+    candidates = [
+        idx
+        for idx, player in enumerate(players)
+        if player.position.upper() in positions and float(getattr(player, share_field)) > 0.0
+    ]
+    if not candidates or any(mask[idx] for idx in candidates):
+        return
+    fallback = max(
+        candidates,
+        key=lambda idx: (
+            float(players[idx].active_probability),
+            float(getattr(players[idx], share_field)),
+        ),
+    )
+    mask[fallback] = True
+
+
 def sample_unit_availability_world(
     players: tuple[UnitPlayerInputs, ...],
     *,
@@ -56,6 +82,10 @@ def sample_unit_availability_world(
     if active. Availability is sampled once for the game world, inactive players are removed,
     active_probability becomes 1.0, and offense/defense/special-teams exposure is reconserved
     among the surviving players. Effectiveness-if-active remains attached to the active player.
+
+    The same sampled active-player set is intended to drive skill opportunity, OL, defense and
+    special teams. A quarterback is therefore guaranteed inside this full-roster draw rather
+    than by a separate skill-only sampler, preventing contradictory personnel worlds.
     """
 
     if not players:
@@ -64,6 +94,12 @@ def sample_unit_availability_world(
     active = np.asarray(
         [rng.random() < float(np.clip(player.active_probability, 0.0, 1.0)) for player in players],
         dtype=bool,
+    )
+    _ensure_position_presence(
+        active,
+        players,
+        positions={"QB"},
+        share_field="offense_snap_share",
     )
     for field in (
         "offense_snap_share",
