@@ -160,15 +160,14 @@ def compile_v13_player_identity(
             primary = 0.0
             shape = channels.speed
 
-        # Rich identity now receives enough authority to materially separate players and
-        # matchups while the league outcome ecology remains the unconditional prior.
-        # This is still bounded event authority, never a direct scoring adjustment.
+        # Slightly stronger than the preceding high-authority shadow. The change steepens the
+        # player-quality response while retaining bounded football-event jurisdiction.
         efficiency = float(
-            np.clip(health * (1.0 + 0.14 * primary + 0.040 * continuity), 0.32, 1.24)
+            np.clip(health * (1.0 + 0.16 * primary + 0.045 * continuity), 0.30, 1.28)
         )
-        explosive = float(np.clip(1.0 + 0.17 * shape, 0.82, 1.24))
+        explosive = float(np.clip(1.0 + 0.19 * shape, 0.80, 1.27))
         turnover_security = float(
-            np.clip(1.0 + 0.09 * channels.ball_security, 0.86, 1.14)
+            np.clip(1.0 + 0.10 * channels.ball_security, 0.84, 1.16)
         )
         trace = V13IdentityTrace(
             speed=channels.speed,
