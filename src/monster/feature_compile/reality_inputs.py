@@ -5,6 +5,7 @@ from datetime import date, datetime
 import numpy as np
 import polars as pl
 
+from monster.feature_compile.madden_attributes import MaddenAttributeVector
 from monster.feature_compile.mechanisms import PlayerMechanismInputs
 
 _SKILL = {"QB", "RB", "WR", "TE"}
@@ -37,7 +38,6 @@ def _age(value: object, game_date: date) -> float | None:
 
 
 def _career_volume_proxy(row: dict, position: str) -> float | None:
-    """Conservative experience proxy used only for biology uncertainty, never expected scoring."""
     direct = _finite(row.get("career_workload"))
     if direct is not None:
         return direct
@@ -48,7 +48,7 @@ def _career_volume_proxy(row: dict, position: str) -> float | None:
 
 
 def compile_player_reality_inputs(personnel: pl.DataFrame, *, game_date: date) -> dict[str, PlayerMechanismInputs]:
-    """Compile current non-market human + Madden evidence into player mechanism inputs."""
+    """Compile current non-market human evidence plus the complete Madden vector."""
     result: dict[str, PlayerMechanismInputs] = {}
     for row in personnel.to_dicts():
         position = str(row.get("position") or "").upper()
@@ -57,6 +57,7 @@ def compile_player_reality_inputs(personnel: pl.DataFrame, *, game_date: date) -
         player_id = str(row.get("gsis_id") or row.get("pfr_id") or "")
         if not player_id:
             continue
+        madden = MaddenAttributeVector.from_row(row)
         result[player_id] = PlayerMechanismInputs(
             height_in=_finite(row.get("height")),
             weight_lbs=_finite(row.get("weight")),
@@ -66,12 +67,11 @@ def compile_player_reality_inputs(personnel: pl.DataFrame, *, game_date: date) -
             madden_acceleration=_finite(row.get("madden_acceleration")),
             madden_route_running=_finite(row.get("madden_route_running")),
             madden_catching=_finite(row.get("madden_catching")),
+            madden_attributes=madden,
             age_years=_age(row.get("birth_date"), game_date),
             career_workload=_career_volume_proxy(row, position),
             unit_continuity=_finite(row.get("unit_continuity")),
-            active_probability=_finite(
-                row.get("health_availability_probability", row.get("game_day_active_probability"))
-            ),
+            active_probability=_finite(row.get("health_availability_probability", row.get("game_day_active_probability"))),
             effectiveness_if_active=_finite(row.get("health_effectiveness_if_active")),
         )
     return result
