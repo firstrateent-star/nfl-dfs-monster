@@ -10,6 +10,7 @@ on:
       - src/monster/sim/availability_world.py
       - src/monster/sim/unit_availability_world.py
       - src/monster/feature_compile/league_units.py
+      - src/monster/feature_compile/participation_inference.py
       - src/monster/feature_compile/v13_identity_bridge.py
       - src/monster/feature_compile/v13_identity_authority.py
       - src/monster/feature_compile/v13_environment_authority.py
@@ -17,6 +18,7 @@ on:
       - config/environment/week1_2026_2026-09-09.csv
       - tests/test_availability_world.py
       - tests/test_unit_availability_world.py
+      - tests/test_participation_inference.py
       - tests/test_v13_availability_bridge.py
       - tests/test_v13_environment_authority.py
       - .github/workflows/v13-availability-fourthdown-shadow.yml
