@@ -73,11 +73,10 @@ jobs:
       - name: Generate complete participant box scores
         run: >-
           uv run python scripts/run_week1_v13_complete_box_scores.py
-          --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
-          --player-usage artifacts/league-policy/player_usage.parquet
-          --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 1000 --seed 2026110912
+          --box-scores artifacts/week1-v13-box-scores
+          --first-sim artifacts/week1-v13-first-sim
+          --worlds 1000 --seed 2026110911
           --out artifacts/week1-v13-complete-box-scores
       - name: Build singular consensus projected box score
         run: >-
@@ -116,6 +115,7 @@ jobs:
           assert b['sportsbook_inputs_used'] is False
           assert b['offense_event_derived'] is True
           assert b['defense_event_derived'] is True
+          assert b['role_aware_defensive_attribution'] is True
           assert b['games'] == 12
           assert b['worlds_per_game'] == 1000
           c=json.loads(Path('artifacts/week1-v13-complete-box-scores/manifest.json').read_text())
@@ -125,6 +125,8 @@ jobs:
           assert c['role_aware_defensive_attribution'] is True
           assert c['all_projected_unit_players_emitted'] is True
           assert c['representative_world_only_includes_simulated_participants'] is True
+          assert c['materialized_from_existing_box_score_worlds'] is True
+          assert c['resimulation_required'] is False
           assert c['games'] == 12
           assert c['worlds_per_game'] == 1000
           assert c['defensive_sanity']['max_mean_tackles'] < 20.0
