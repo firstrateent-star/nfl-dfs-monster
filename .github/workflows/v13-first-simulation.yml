@@ -4,6 +4,7 @@ on:
   push:
     branches: [feature/football-state-v13-clock]
     paths:
+      - scripts/run_week1_v13_integrated.py
       - scripts/run_week1_v13_first_sim.py
       - scripts/run_week1_v13_box_scores.py
       - scripts/run_week1_v13_complete_box_scores.py
@@ -27,7 +28,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py --ignore RUF046
+          uv run ruff check src tests scripts/run_week1_v13_integrated.py scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py --ignore RUF046
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
@@ -52,31 +53,23 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Run first v1.3 event-by-event Week 1 simulation
+      - name: Run integrated v1.3 Week 1 simulation and box scores
         run: >-
-          uv run python scripts/run_week1_v13_first_sim.py
+          uv run python scripts/run_week1_v13_integrated.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 1000 --seed 2026190921
-          --out artifacts/week1-v13-first-sim
-      - name: Generate simulated offensive and defensive game box scores
-        run: >-
-          uv run python scripts/run_week1_v13_box_scores.py
-          --policy artifacts/continuity-policy/team_policy.parquet
-          --personnel artifacts/week1-health/health_personnel.parquet
-          --player-usage artifacts/league-policy/player_usage.parquet
-          --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 1000 --seed 2026110911
-          --out artifacts/week1-v13-box-scores
+          --worlds 1000 --seed 2026190921 --progress-every 100
+          --first-out artifacts/week1-v13-first-sim
+          --box-out artifacts/week1-v13-box-scores
       - name: Generate complete participant box scores
         run: >-
           uv run python scripts/run_week1_v13_complete_box_scores.py
           --personnel artifacts/week1-health/health_personnel.parquet
           --box-scores artifacts/week1-v13-box-scores
           --first-sim artifacts/week1-v13-first-sim
-          --worlds 1000 --seed 2026110911
+          --worlds 1000 --seed 2026190921
           --out artifacts/week1-v13-complete-box-scores
       - name: Build singular consensus projected box score
         run: >-
@@ -106,6 +99,9 @@ jobs:
           assert m['regular_season_overtime_active'] is True
           assert m['overtime_rule_version'] == '2026_rule_16_regular_season_10min_both_possessions'
           assert m['game_distribution_standard_deviations_active'] is True
+          assert m['box_scores_materialized_from_same_worlds'] is True
+          assert m['duplicate_box_score_resimulation'] is False
+          assert m['progress_telemetry_active'] is True
           assert m['games'] == 12
           assert m['worlds_per_game'] == 1000
           assert m['seed'] == 2026190921
@@ -116,8 +112,11 @@ jobs:
           assert b['offense_event_derived'] is True
           assert b['defense_event_derived'] is True
           assert b['role_aware_defensive_attribution'] is True
+          assert b['materialized_from_primary_simulation_worlds'] is True
+          assert b['resimulation_required'] is False
           assert b['games'] == 12
           assert b['worlds_per_game'] == 1000
+          assert b['seed'] == 2026190921
           c=json.loads(Path('artifacts/week1-v13-complete-box-scores/manifest.json').read_text())
           assert c['market_blind_football'] is True
           assert c['dfs_inputs_used'] is False
