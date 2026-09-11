@@ -8,9 +8,17 @@ on:
       - scripts/compare_availability_world_shadow.py
       - scripts/audit_fourth_down_decision_ecology.py
       - src/monster/sim/availability_world.py
+      - src/monster/sim/unit_availability_world.py
+      - src/monster/feature_compile/league_units.py
       - src/monster/feature_compile/v13_identity_bridge.py
+      - src/monster/feature_compile/v13_identity_authority.py
+      - src/monster/feature_compile/v13_environment_authority.py
+      - src/monster/feature_compile/environment.py
+      - config/environment/week1_2026_2026-09-09.csv
       - tests/test_availability_world.py
+      - tests/test_unit_availability_world.py
       - tests/test_v13_availability_bridge.py
+      - tests/test_v13_environment_authority.py
       - .github/workflows/v13-availability-fourthdown-shadow.yml
   workflow_dispatch:
 
@@ -69,7 +77,7 @@ jobs:
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 250 --seed 2026091050
           --out artifacts/availability-shadow/control
-      - name: Run world-specific availability treatment
+      - name: Run full-roster availability and environment treatment
         run: >-
           uv run python scripts/audit_week1_stage3_availability_world.py
           --game-flow-league artifacts/league-policy/game_flow_league.parquet
@@ -87,9 +95,10 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --environment config/environment/week1_2026_2026-09-09.csv
           --worlds 250 --seed 2026091050
           --out artifacts/availability-shadow/treatment
-      - name: Compare availability treatment with control
+      - name: Compare full-roster treatment with control
         run: >-
           uv run python scripts/compare_availability_world_shadow.py
           --control artifacts/availability-shadow/control/game_distributions.csv
@@ -101,7 +110,7 @@ jobs:
           uv run python scripts/audit_fourth_down_decision_ecology.py
           --season 2025 --cache-dir .cache/monster
           --out artifacts/availability-shadow/fourth-down
-      - name: Verify isolation
+      - name: Verify isolation and coherence
         run: |
           uv run python - <<'PY'
           import json
@@ -111,13 +120,22 @@ jobs:
           comparison = json.loads((root/'comparison'/'manifest.json').read_text())
           fourth = json.loads((root/'fourth-down'/'manifest.json').read_text())
           assert treatment['market_blind'] is True
-          assert treatment['promotion_status'] == 'SHADOW_AVAILABILITY_EXPERIMENT_ONLY'
-          assert treatment['defensive_and_ol_world_substitution'] is False
+          assert treatment['promotion_status'] == 'SHADOW_FULL_ROSTER_ENVIRONMENT_NOT_PROMOTED'
+          assert treatment['single_full_roster_availability_draw_per_team_world'] is True
+          assert treatment['skill_opportunity_derived_from_same_active_roster'] is True
+          assert treatment['ol_world_substitution'] is True
+          assert treatment['defensive_world_substitution'] is True
+          assert treatment['expected_team_injury_aggregate_removed_after_world_sampling'] is True
+          assert treatment['shared_game_weather_active'] is True
+          assert treatment['direct_point_adjustment'] is False
           assert comparison['market_blind'] is True
-          assert comparison['promotion_status'] == 'SHADOW_AVAILABILITY_EXPERIMENT_ONLY'
+          assert comparison['single_full_roster_world'] is True
+          assert comparison['ol_world_substitution'] is True
+          assert comparison['defensive_world_substitution'] is True
+          assert comparison['weather_active'] is True
           assert fourth['market_blind'] is True
           assert fourth['behavior_changed_by_audit'] is False
-          print(json.dumps({'availability': comparison, 'fourth_down': fourth}, indent=2))
+          print(json.dumps({'availability_environment': comparison, 'fourth_down': fourth}, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
