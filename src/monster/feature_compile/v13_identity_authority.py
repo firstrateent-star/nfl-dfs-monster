@@ -47,11 +47,16 @@ def _live_rush_context(state: TeamState) -> float:
 
     value = (
         1.0
-        + 0.45 * float(state.offensive_epa_per_play)
-        + 0.30 * (float(state.offensive_success_rate) - 0.44)
-        + 0.20 * (float(state.offensive_explosive_rate) - 0.10)
+        + 0.65 * float(state.offensive_epa_per_play)
+        + 0.45 * (float(state.offensive_success_rate) - 0.44)
+        + 0.30 * (float(state.offensive_explosive_rate) - 0.10)
     )
-    return float(np.clip(value, 0.86, 1.14))
+    return float(np.clip(value, 0.82, 1.18))
+
+
+def _amplify_unit(value: float, *, authority: float = 1.55) -> float:
+    """Increase real unit differentiation around neutral without inventing a new baseline."""
+    return float(np.clip(1.0 + authority * (float(value) - 1.0), 0.86, 1.14))
 
 
 def apply_v13_team_identity_authority(
@@ -115,19 +120,18 @@ def apply_v13_team_identity_authority(
         for receiver in identity.receivers
     )
 
-    # QB-specific execution now has a causal route to pressure response and throw quality.
-    # The historical/team pass prior remains in ``identity.pass_efficiency``; player identity
-    # bends that prior rather than replacing it.
+    # Game Flow decides what the offense attempts. QB identity has stronger authority over
+    # whether the attempted pass actually works, while the historical/team prior still anchors
+    # the league-scale environment.
     pass_efficiency = float(
-        np.clip(identity.pass_efficiency * qb.efficiency, 0.62, 1.42)
+        np.clip(identity.pass_efficiency * qb.efficiency, 0.55, 1.52)
     )
 
-    # Recover the team-specific run signal that v1.3 accidentally neutralized by reading an
-    # unpopulated state.offense_strength field. Individual runner identity still resolves
-    # downstream inside the run matchup/contact ecology.
+    # Historical team rushing quality and individual runner identity now receive enough
+    # authority to separate good/bad run environments without directly changing points.
     live_rush = _live_rush_context(state)
     rush_efficiency = float(
-        np.clip(identity.rush_efficiency * live_rush, 0.70, 1.35)
+        np.clip(identity.rush_efficiency * live_rush, 0.62, 1.45)
     )
 
     enhanced = replace(
@@ -137,6 +141,8 @@ def apply_v13_team_identity_authority(
         receivers=receivers,
         pass_efficiency=pass_efficiency,
         rush_efficiency=rush_efficiency,
+        pass_protection=_amplify_unit(identity.pass_protection),
+        run_blocking=_amplify_unit(identity.run_blocking),
     )
     trace = V13TeamIdentityAuthorityTrace(
         team_id=identity.team_id,
