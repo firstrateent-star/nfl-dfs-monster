@@ -21,7 +21,6 @@ from run_week1_v13_box_scores import (
     _with_event_rush_plan,
 )
 from run_week1_v13_first_sim import GAME_DATE, MATCHUPS, _defensive_unit
-
 from monster.feature_compile.health_pools import apply_health_to_skill_pools
 from monster.feature_compile.league_units import compile_league_unit_player_map
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
@@ -87,12 +86,14 @@ def _participant_row(
         "defense_snaps": defense_snaps,
         "special_teams_snaps_estimated": special_teams_snaps_estimated,
     }
-    row.update(asdict(offense_box))
+    offense_data = asdict(offense_box)
+    row["passing_interceptions"] = offense_data.pop("interceptions")
+    row.update(offense_data)
     if defense_box is not None:
-        for key, value in asdict(defense_box).items():
-            if key == "defensive_snaps":
-                continue
-            row[key] = value
+        defense_data = asdict(defense_box)
+        defense_data.pop("defensive_snaps", None)
+        row["defensive_interceptions"] = defense_data.pop("interceptions")
+        row.update(defense_data)
     else:
         row.update(
             {
@@ -104,10 +105,6 @@ def _participant_row(
                 "forced_fumbles": 0,
             }
         )
-    if "interceptions" in row:
-        row["passing_interceptions"] = row.pop("interceptions")
-    if defense_box is not None:
-        row["defensive_interceptions"] = defense_box.interceptions
     total_snaps = offense_snaps + defense_snaps + special_teams_snaps_estimated
     row["simulated_participant"] = total_snaps > 0 or any(
         float(row.get(stat, 0)) > 0
@@ -245,7 +242,10 @@ def main() -> None:
                     "away_points": float(result.final_state.away_score),
                     "home_points": float(result.final_state.home_score),
                     "total_yards": float(
-                        sum(box.passing_yards + box.rushing_yards for box in result.player_stats.values())
+                        sum(
+                            box.passing_yards + box.rushing_yards
+                            for box in result.player_stats.values()
+                        )
                     ),
                 }
             )
