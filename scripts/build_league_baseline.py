@@ -24,6 +24,10 @@ from monster.ingest.madden_defense_special import (
     attach_madden_defense_special_traits,
     madden_defense_special_coverage,
 )
+from monster.ingest.madden_official import (
+    attach_all_madden_attributes,
+    load_official_madden27_player_ratings,
+)
 from monster.ingest.madden_players import (
     attach_madden_ol_ratings,
     load_madden27_player_ratings,
@@ -60,11 +64,23 @@ def main() -> None:
         snapshot, inputs["combine"], inputs["pfr_defense_weekly"], inputs["player_stats_history"]
     )
 
-    # Madden is bounded scouting-style proxy evidence, never market information.
+    # Madden is bounded scouting-style proxy evidence, never market information.  Prefer a
+    # fresh direct pull from EA's official Madden 27 ratings database every time the baseline
+    # is built.  The existing public mirror remains only as a resilience fallback.
+    madden_source = "ea_official"
     try:
-        madden_ratings = load_madden27_player_ratings()
-    except (OSError, RuntimeError, ValueError, requests.RequestException):
-        madden_ratings = pl.DataFrame()
+        madden_ratings = load_official_madden27_player_ratings()
+    except (OSError, RuntimeError, ValueError, KeyError, requests.RequestException):
+        madden_source = "public_mirror_fallback"
+        try:
+            madden_ratings = load_madden27_player_ratings()
+        except (OSError, RuntimeError, ValueError, requests.RequestException):
+            madden_source = "unavailable"
+            madden_ratings = pl.DataFrame()
+
+    # Preserve the complete EA attribute vector on every matched player first.  Specialized
+    # adapters then retain their existing bounded composites for OL/skill/defense mechanisms.
+    snapshot = attach_all_madden_attributes(snapshot, madden_ratings)
     snapshot = attach_madden_ol_ratings(snapshot, madden_ratings)
     snapshot = attach_madden_skill_traits(snapshot, madden_ratings)
     snapshot = attach_madden_defense_special_traits(snapshot, madden_ratings)
@@ -94,6 +110,7 @@ def main() -> None:
     _write_if_present(madden_ratings, args.out / "raw_madden27_player_ratings.parquet")
 
     ol_rows = snapshot.filter(pl.col("position_group") == "OL")
+    madden_attribute_columns = [c for c in snapshot.columns if c.startswith("madden_")]
     manifest = {
         "artifact": "Monster 2026 League Personnel Baseline",
         "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -118,6 +135,12 @@ def main() -> None:
         "trait_coverage": traits,
         "madden_defense_special_coverage": madden_defense_special,
         "madden_player_ratings_loaded": bool(madden_ratings.height),
+        "madden_source": madden_source,
+        "madden_source_player_rows": madden_ratings.height,
+        "madden_snapshot_attribute_columns": len(madden_attribute_columns),
+        "players_with_full_madden_match": int(
+            snapshot.select(pl.col("madden_player_id").is_not_null().sum()).item()
+        ) if "madden_player_id" in snapshot.columns else 0,
         "madden_authority": "bounded scouting-style proxy; no direct fantasy authority",
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
     }
