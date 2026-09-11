@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-
 from run_week1_v13_box_scores import (
     _name_map,
     _position_map,
