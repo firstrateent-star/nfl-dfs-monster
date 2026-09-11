@@ -8,11 +8,11 @@ on:
       - scripts/run_week1_v13_box_scores.py
       - scripts/run_week1_v13_complete_box_scores.py
       - scripts/build_week1_v13_consensus_box_score.py
+      - scripts/build_league_baseline.py
       - scripts/build_league_policy.py
+      - src/monster/ingest/**
       - src/monster/sim/**
-      - src/monster/feature_compile/situation.py
-      - src/monster/feature_compile/team.py
-      - src/monster/feature_compile/v13_identity_bridge.py
+      - src/monster/feature_compile/**
       - tests/test_defensive_attribution.py
       - .github/workflows/v13-first-simulation.yml
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_policy.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
@@ -91,6 +91,12 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+          baseline=json.loads(Path('artifacts/league-baseline/manifest.json').read_text())
+          assert baseline['madden_player_ratings_loaded'] is True
+          assert baseline['madden_source'] != 'unavailable'
+          assert baseline['madden_source_player_rows'] >= 2000
+          assert baseline['madden_snapshot_attribute_columns'] >= 40
+          assert baseline['players_with_full_madden_match'] > 1000
           m=json.loads(Path('artifacts/week1-v13-first-sim/manifest.json').read_text())
           assert m['market_blind_football'] is True
           assert m['scoreboard_event_derived'] is True
@@ -132,6 +138,7 @@ jobs:
           assert consensus['worlds_per_game'] == 1000
           assert consensus['player_rows'] > 0
           assert consensus['team_rows'] == 24
+          print(json.dumps(baseline, indent=2))
           print(json.dumps(consensus, indent=2))
           PY
       - uses: actions/upload-artifact@v4
@@ -139,6 +146,8 @@ jobs:
         with:
           name: monster-v1-3-week1-first-event-simulation
           path: |
+            artifacts/league-baseline/manifest.json
+            artifacts/league-baseline/raw_madden27_player_ratings.parquet
             artifacts/week1-v13-first-sim/
             artifacts/week1-v13-box-scores/
             artifacts/week1-v13-complete-box-scores/
