@@ -79,6 +79,33 @@ jobs:
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 250 --seed 2026091050
           --out artifacts/availability-shadow/control
+      - name: Run full-roster availability-only treatment
+        run: >-
+          uv run python scripts/audit_week1_stage3_availability_world.py
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026091050
+          --out artifacts/availability-shadow/treatment-roster-only
+      - name: Compare full-roster availability-only treatment with control
+        run: >-
+          uv run python scripts/compare_availability_world_shadow.py
+          --control artifacts/availability-shadow/control/game_distributions.csv
+          --treatment artifacts/availability-shadow/treatment-roster-only/availability_world_game_anatomy.csv
+          --treatment-manifest artifacts/availability-shadow/treatment-roster-only/manifest.json
+          --out artifacts/availability-shadow/comparison-roster-only
       - name: Run full-roster availability and environment treatment
         run: >-
           uv run python scripts/audit_week1_stage3_availability_world.py
@@ -118,9 +145,16 @@ jobs:
           import json
           from pathlib import Path
           root = Path('artifacts/availability-shadow')
+          roster = json.loads((root/'treatment-roster-only'/'manifest.json').read_text())
+          roster_comparison = json.loads((root/'comparison-roster-only'/'manifest.json').read_text())
           treatment = json.loads((root/'treatment'/'manifest.json').read_text())
           comparison = json.loads((root/'comparison'/'manifest.json').read_text())
           fourth = json.loads((root/'fourth-down'/'manifest.json').read_text())
+          assert roster['market_blind'] is True
+          assert roster['promotion_status'] == 'SHADOW_FULL_ROSTER_NOT_PROMOTED'
+          assert roster['single_full_roster_availability_draw_per_team_world'] is True
+          assert roster['shared_game_weather_active'] is False
+          assert roster_comparison['weather_active'] is False
           assert treatment['market_blind'] is True
           assert treatment['promotion_status'] == 'SHADOW_FULL_ROSTER_ENVIRONMENT_NOT_PROMOTED'
           assert treatment['single_full_roster_availability_draw_per_team_world'] is True
@@ -137,7 +171,11 @@ jobs:
           assert comparison['weather_active'] is True
           assert fourth['market_blind'] is True
           assert fourth['behavior_changed_by_audit'] is False
-          print(json.dumps({'availability_environment': comparison, 'fourth_down': fourth}, indent=2))
+          print(json.dumps({
+            'availability_only': roster_comparison,
+            'availability_environment': comparison,
+            'fourth_down': fourth,
+          }, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
