@@ -4,8 +4,11 @@ import polars as pl
 
 from monster.feature_compile.depth import depth_role_multiplier
 
+# Roster status and weekly health are separate evidence domains. ``ACT`` means the player is
+# on the active roster; it must not invent an independent weekly scratch probability. Weekly
+# inactive/questionable uncertainty belongs exclusively to health_availability_probability.
 _STATUS_ACTIVE_PROB = {
-    "ACT": 0.985,
+    "ACT": 1.0,
     "DEV": 0.04,
     "RES": 0.01,
     "EXE": 0.0,
