@@ -40,12 +40,34 @@ def test_active_player_with_recent_snaps_gets_expected_snap_weight():
         }
     )
     row = infer_game_day_participation(frame, season=2026).row(0, named=True)
-    # Healthy active roster status is nearly neutral; explicit health state owns injury risk.
-    assert np.isclose(row["roster_active_probability"], 0.985)
-    assert np.isclose(row["game_day_active_probability"], 0.985)
-    assert np.isclose(row["projected_offense_snap_share"], 0.788)
+    # Active-roster status itself is deterministic. Weekly health evidence owns game-day risk.
+    assert np.isclose(row["roster_active_probability"], 1.0)
+    assert np.isclose(row["game_day_active_probability"], 1.0)
+    assert np.isclose(row["projected_offense_snap_share"], 0.80)
     assert row["participation_evidence"] == "recent_snaps"
     assert row["participation_tier"] == "core"
+
+
+def test_health_availability_remains_the_only_weekly_scratch_probability_for_active_roster():
+    frame = pl.DataFrame(
+        {
+            "status": ["ACT"],
+            "position_group": ["QB"],
+            "rookie_year": [2022],
+            "snap_games_observed": [6],
+            "offense_snap_share": [0.95],
+            "defense_snap_share": [0.0],
+            "special_teams_snap_share": [0.0],
+            "snap_share_uncertainty": [0.02],
+            "changed_team_since_snap_history": [False],
+            "health_availability_probability": [0.72],
+            "health_effectiveness_if_active": [0.88],
+            "health_uncertainty": [0.20],
+        }
+    )
+    row = infer_game_day_participation(frame, season=2026).row(0, named=True)
+    assert np.isclose(row["roster_active_probability"], 1.0)
+    assert np.isclose(row["game_day_active_probability"], 0.72)
 
 
 def test_transfer_and_rookie_uncertainty_are_wider_than_stable_veteran():
