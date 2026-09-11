@@ -58,7 +58,7 @@ def main() -> None:
     parser.add_argument("--personnel", type=Path, required=True)
     parser.add_argument("--player-usage", type=Path, required=True)
     parser.add_argument("--situation-context", type=Path, required=True)
-    parser.add_argument("--environment", type=Path, required=True)
+    parser.add_argument("--environment", type=Path, default=None)
     parser.add_argument("--worlds", type=int, default=250)
     parser.add_argument("--seed", type=int, default=2026091050)
     parser.add_argument("--out", type=Path, required=True)
@@ -68,7 +68,7 @@ def main() -> None:
     personnel = _read(args.personnel)
     usage = _read(args.player_usage)
     situation_context = _read(args.situation_context)
-    environment = _read(args.environment)
+    environment = _read(args.environment) if args.environment is not None else None
     league_neutral_pass_rate, situational_pass_rates = _situational_context(situation_context)
 
     base_pools = apply_health_to_skill_pools(
@@ -127,20 +127,27 @@ def main() -> None:
 
     for game_idx, (away, home) in enumerate(MATCHUPS):
         game = f"{away}@{home}"
-        (
-            away_state,
-            home_state,
-            away_pool,
-            home_pool,
-            environment_trace,
-        ) = apply_v13_game_environment(
-            away_state=states[away],
-            home_state=states[home],
-            away_pool=base_pools[away],
-            home_pool=base_pools[home],
-            environment=environment,
-            home_team=home,
-        )
+        away_state = states[away]
+        home_state = states[home]
+        away_pool = base_pools[away]
+        home_pool = base_pools[home]
+        if environment is not None:
+            (
+                away_state,
+                home_state,
+                away_pool,
+                home_pool,
+                environment_trace,
+            ) = apply_v13_game_environment(
+                away_state=away_state,
+                home_state=home_state,
+                away_pool=away_pool,
+                home_pool=home_pool,
+                environment=environment,
+                home_team=home,
+            )
+            environment_rows.append({"game": game, **asdict(environment_trace)})
+
         # Individual availability/effectiveness and rebuilt units now own injury reality in
         # these sampled worlds. Remove the old expected team aggregate to prevent double count.
         world_states = {
@@ -148,12 +155,10 @@ def main() -> None:
             home: replace(home_state, injury_effect=0.0),
         }
         game_pools = {away: away_pool, home: home_pool}
-        environment_rows.append({"game": game, **asdict(environment_trace)})
 
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
             sampled_skill = {}
-            sampled_units = {}
             teams = {}
             defenses = {}
 
@@ -162,7 +167,6 @@ def main() -> None:
                     conditional_units[team],
                     rng=np.random.default_rng(seed + offset),
                 )
-                sampled_units[team] = unit_world
                 skill_world = availability_world_from_active_ids(
                     game_pools[team],
                     active_player_ids=unit_world.active_player_ids,
@@ -258,7 +262,8 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(game_rows).write_csv(args.out / "availability_world_game_anatomy.csv")
     pl.DataFrame(qb_rows).write_csv(args.out / "availability_world_qb_starts.csv")
-    pl.DataFrame(environment_rows).write_csv(args.out / "availability_world_environment.csv")
+    if environment_rows:
+        pl.DataFrame(environment_rows).write_csv(args.out / "availability_world_environment.csv")
     active_rows = [
         {
             "team": team,
@@ -270,8 +275,13 @@ def main() -> None:
     ]
     pl.DataFrame(active_rows).write_csv(args.out / "availability_world_roster_anatomy.csv")
 
+    weather_active = environment is not None
     manifest = {
-        "artifact": "Monster v1.3 Stage 3 Full-Roster Availability + Environment Shadow",
+        "artifact": (
+            "Monster v1.3 Stage 3 Full-Roster Availability + Environment Shadow"
+            if weather_active
+            else "Monster v1.3 Stage 3 Full-Roster Availability Shadow"
+        ),
         "market_blind": True,
         "worlds_per_game": args.worlds,
         "seed": args.seed,
@@ -284,11 +294,15 @@ def main() -> None:
         "effectiveness_if_active_preserved": True,
         "expected_team_injury_aggregate_removed_after_world_sampling": True,
         "rich_identity_authority_active": True,
-        "shared_game_weather_active": True,
-        "environment_source": str(args.environment),
+        "shared_game_weather_active": weather_active,
+        "environment_source": str(args.environment) if weather_active else None,
         "direct_point_adjustment": False,
         "behavior_changed_vs_stage3_control": True,
-        "promotion_status": "SHADOW_FULL_ROSTER_ENVIRONMENT_NOT_PROMOTED",
+        "promotion_status": (
+            "SHADOW_FULL_ROSTER_ENVIRONMENT_NOT_PROMOTED"
+            if weather_active
+            else "SHADOW_FULL_ROSTER_NOT_PROMOTED"
+        ),
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
