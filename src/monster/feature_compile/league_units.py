@@ -5,6 +5,7 @@ from dataclasses import asdict
 import polars as pl
 
 from monster.feature_compile.units import UnitPlayerInputs, compile_team_unit_effects
+from monster.sim.snap_ecology import register_team_units
 
 
 def _value(row: dict, key: str, default=None):
@@ -88,10 +89,15 @@ def unit_player_from_personnel_row(
     )
 
 
+def _register_player_map(player_map: dict[str, tuple[UnitPlayerInputs, ...]]) -> None:
+    for team_id, players in player_map.items():
+        register_team_units(team_id, players)
+
+
 def compile_league_unit_player_map(
     snapshot: pl.DataFrame,
 ) -> dict[str, tuple[UnitPlayerInputs, ...]]:
-    """Compile expected-state unit inputs from already availability-adjusted snap shares."""
+    """Compile expected-state unit inputs and freeze them for snap-level matchup physics."""
     required = {
         "team_id",
         "projected_offense_snap_share",
@@ -102,13 +108,15 @@ def compile_league_unit_player_map(
     missing = required.difference(snapshot.columns)
     if missing:
         raise ValueError(f"League unit compilation missing columns: {sorted(missing)}")
-    return {
+    player_map = {
         str(team_id): tuple(
             unit_player_from_personnel_row(row)
             for row in snapshot.filter(pl.col("team_id") == team_id).to_dicts()
         )
         for team_id in sorted(snapshot.get_column("team_id").unique().to_list())
     }
+    _register_player_map(player_map)
+    return player_map
 
 
 def compile_league_conditional_unit_player_map(
@@ -128,13 +136,15 @@ def compile_league_conditional_unit_player_map(
         raise ValueError(
             f"Conditional unit compilation missing columns: {sorted(missing)}"
         )
-    return {
+    player_map = {
         str(team_id): tuple(
             unit_player_from_personnel_row(row, conditional_world=True)
             for row in snapshot.filter(pl.col("team_id") == team_id).to_dicts()
         )
         for team_id in sorted(snapshot.get_column("team_id").unique().to_list())
     }
+    _register_player_map(player_map)
+    return player_map
 
 
 def _count_signal(team: pl.DataFrame, column: str) -> int:
