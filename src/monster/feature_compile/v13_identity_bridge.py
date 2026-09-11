@@ -160,14 +160,15 @@ def compile_v13_player_identity(
             primary = 0.0
             shape = channels.speed
 
-        # Candidate identity authority is deliberately bounded. Stage 3 still owns the
-        # league-wide outcome prior; these signals only bend the player-relative mechanism.
+        # Rich identity now receives enough authority to materially separate players and
+        # matchups while the league outcome ecology remains the unconditional prior.
+        # This is still bounded event authority, never a direct scoring adjustment.
         efficiency = float(
-            np.clip(health * (1.0 + 0.085 * primary + 0.025 * continuity), 0.35, 1.16)
+            np.clip(health * (1.0 + 0.14 * primary + 0.040 * continuity), 0.32, 1.24)
         )
-        explosive = float(np.clip(1.0 + 0.11 * shape, 0.88, 1.15))
+        explosive = float(np.clip(1.0 + 0.17 * shape, 0.82, 1.24))
         turnover_security = float(
-            np.clip(1.0 + 0.065 * channels.ball_security, 0.90, 1.10)
+            np.clip(1.0 + 0.09 * channels.ball_security, 0.86, 1.14)
         )
         trace = V13IdentityTrace(
             speed=channels.speed,
