@@ -1,0 +1,41 @@
+interactions:
+  madden_release:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group]
+    phases: [development]
+    mechanisms: [route_separation, coverage_conflict]
+  madden_carrying:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group]
+    phases: [initial_contact, resolution]
+    mechanisms: [ball_security, run_contact, tackle_contact]
+  madden_break_tackle:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group]
+    phases: [initial_contact, resolution]
+    mechanisms: [run_contact, tackle_contact, yac_space]
+  madden_awareness:
+    entity_scopes: [player]
+    interaction_scales: [1v1, 11v11, game_state]
+    phases: [pre_snap, development, resolution]
+    mechanisms: [qb_decision, pressure_response, ball_security]
+  madden_throw_power:
+    entity_scopes: [player]
+    interaction_scales: [1v1, 11v11]
+    phases: [development, resolution]
+    mechanisms: [depth_access, ball_flight]
+  madden_throw_accuracy:
+    entity_scopes: [player]
+    interaction_scales: [1v1, 11v11]
+    phases: [resolution]
+    mechanisms: [throw_resolution, catchpoint]
+  madden_throw_under_pressure:
+    entity_scopes: [player]
+    interaction_scales: [1v1, small_group, 11v11]
+    phases: [development, resolution]
+    mechanisms: [pressure_response, throw_resolution, sack_avoidance]
+  madden_ball_carrier_vision:
+    entity_scopes: [player]
+    interaction_scales: [small_group, 11v11]
+    phases: [development, resolution]
+    mechanisms: [run_lane_access, second_level_access, run_contact]
