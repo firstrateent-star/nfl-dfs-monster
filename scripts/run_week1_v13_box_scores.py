@@ -8,15 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
-
-from monster.feature_compile.health_pools import apply_health_to_skill_pools
-from monster.feature_compile.league_units import compile_league_unit_player_map
-from monster.feature_compile.reality_inputs import compile_player_reality_inputs
-from monster.feature_compile.skill_pools import compile_current_skill_pools
-from monster.sim.event_ledger import assert_event_conservation
-from monster.sim.game_loop_v13 import DefensiveBoxScore, PlayerBoxScore, simulate_game
-from monster.sim.rushing_roles import sample_event_rush_share_plan
-from monster.snapshot.league import compile_team_state_map
 from run_week1_v13_first_sim import (
     GAME_DATE,
     MATCHUPS,
@@ -26,6 +17,15 @@ from run_week1_v13_first_sim import (
     _team_identity,
     _with_event_rush_plan,
 )
+
+from monster.feature_compile.health_pools import apply_health_to_skill_pools
+from monster.feature_compile.league_units import compile_league_unit_player_map
+from monster.feature_compile.reality_inputs import compile_player_reality_inputs
+from monster.feature_compile.skill_pools import compile_current_skill_pools
+from monster.sim.event_ledger import assert_event_conservation
+from monster.sim.game_loop_v13 import DefensiveBoxScore, PlayerBoxScore, simulate_game
+from monster.sim.rushing_roles import sample_event_rush_share_plan
+from monster.snapshot.league import compile_team_state_map
 
 
 def _quantiles(values: list[float]) -> dict[str, float]:
@@ -354,20 +354,12 @@ def main() -> None:
                 "representative_world": representative_world,
                 "away": away,
                 "home": home,
-                "teams": [
-                    row for row in team_rows if row["game"] == game
-                ],
-                "offense": [
-                    row for row in offense_rows if row["game"] == game
-                ],
-                "defense": [
-                    row for row in defense_rows if row["game"] == game
-                ],
+                "teams": [row for row in team_rows if row["game"] == game],
+                "offense": [row for row in offense_rows if row["game"] == game],
+                "defense": [row for row in defense_rows if row["game"] == game],
             }
         )
-    (args.out / "simulated_game_box_scores.json").write_text(
-        json.dumps(game_summaries, indent=2)
-    )
+    (args.out / "simulated_game_box_scores.json").write_text(json.dumps(game_summaries, indent=2))
 
     manifest = {
         "model": "Monster v1.3 simulated game box-score observability layer",
