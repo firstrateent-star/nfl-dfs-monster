@@ -23,7 +23,7 @@ from monster.sim.play_anatomy import (
 if TYPE_CHECKING:
     from monster.sim.game_flow_lookup import TeamGameFlowPolicy
     from monster.sim.intent_ecology import IntentEcology
-    from monster.sim.matchup_kernel import DefensiveUnit
+    from monster.sim.matchup_kernel import DefensiveUnit, PassMatchup
 
 
 class PlayType(StrEnum):
@@ -103,10 +103,36 @@ class PlayEvent:
     yards_after_contact: float = 0.0
     pass_depth_category: str | None = None
     run_geometry_category: str | None = None
+    time_to_pressure: float = 0.0
+    safety_help: float = 0.0
+    bracket_factor: float = 0.0
+    zone_overlap: float = 0.0
+    qb_read_quality: float = 1.0
+    fatigue_factor: float = 1.0
+
+
+# A numpy Generator is created once per simulated game world. Its object identity therefore
+# gives the play kernel a world-local fatigue namespace without leaking fatigue between worlds.
+_FATIGUE_BY_RNG: dict[int, dict[str, float]] = {}
+
+
+def _world_fatigue(state: FootballState, rng: np.random.Generator) -> dict[str, float]:
+    key = id(rng)
+    if state.seconds_remaining >= 3599 and state.down == 1:
+        _FATIGUE_BY_RNG[key] = {}
+    return _FATIGUE_BY_RNG.setdefault(key, {})
+
+
+def _fatigue_factor(ledger: dict[str, float], key: str) -> float:
+    load = ledger.get(key, 0.0)
+    return float(np.clip(1.0 - 0.16 * max(load - 0.18, 0.0), 0.86, 1.0))
+
+
+def _add_load(ledger: dict[str, float], key: str, amount: float) -> None:
+    ledger[key] = float(np.clip(ledger.get(key, 0.0) + amount, 0.0, 1.20))
 
 
 def _credit_scrimmage_yards(state: FootballState, raw_yards: float) -> float:
-    """Return official gain/loss without allowing positive credit beyond the goal line."""
     if raw_yards <= 0.0:
         return float(raw_yards)
     yards_to_goal = max(100.0 - state.yardline_100, 0.0)
@@ -118,10 +144,7 @@ def _weighted_player(
 ) -> PlayerIdentity:
     if not players:
         raise ValueError("player pool cannot be empty")
-    weights = np.asarray(
-        [max(player.usage_weight, 0.001) for player in players],
-        dtype=float,
-    )
+    weights = np.asarray([max(player.usage_weight, 0.001) for player in players], dtype=float)
     weights /= weights.sum()
     return players[int(rng.choice(len(players), p=weights))]
 
@@ -148,10 +171,7 @@ def _lost_fumble_probability(
     )
 
 
-def _contextual_pass_rate(
-    state: FootballState,
-    offense: TeamIdentity,
-) -> float | None:
+def _contextual_pass_rate(state: FootballState, offense: TeamIdentity) -> float | None:
     rates = offense.situational_pass_rates
     if rates is None or len(rates) != 12:
         return None
@@ -171,7 +191,6 @@ def _policy_for_state(state: FootballState, offense: TeamIdentity):
 
 
 def _dropback_probability(state: FootballState, offense: TeamIdentity) -> float:
-    """Choose only top-level run/dropback intent; execution remains downstream."""
     if offense.game_flow_policy is None:
         return _policy_for_state(state, offense).pass_probability
     flow = derive_game_flow_state(state)
@@ -190,11 +209,7 @@ def choose_play_type(
             return PlayType.PUNT
         if policy.fourth_down == FourthDownDecision.FIELD_GOAL:
             return PlayType.FIELD_GOAL
-    return (
-        PlayType.PASS
-        if rng.random() < _dropback_probability(state, offense)
-        else PlayType.RUN
-    )
+    return PlayType.PASS if rng.random() < _dropback_probability(state, offense) else PlayType.RUN
 
 
 def _event_elapsed_seconds(
@@ -205,14 +220,6 @@ def _event_elapsed_seconds(
     touchdown: bool = False,
     turnover: bool = False,
 ) -> int:
-    """Convert snap cadence into game-clock loss using the resolved event.
-
-    The event engine has no separate between-play clock phase yet. For an in-bounds live-ball
-    result, elapsed time therefore represents snap-to-next-snap cadence. An incompletion or
-    terminal score/change of possession stops the game clock at the end of the play, so only a
-    short live-ball duration is charged. This broadens real-football drive-time tails without
-    changing play choice or yardage.
-    """
     stopped = int(np.clip(round(cadence_elapsed * 0.20), 3, 10))
     if touchdown or turnover:
         return stopped
@@ -224,18 +231,7 @@ def _event_elapsed_seconds(
     return cadence_elapsed
 
 
-def _sample_snap_cadence(
-    *,
-    hurry: float,
-    rng: np.random.Generator,
-) -> int:
-    """Sample snap-to-snap cadence before the resolved event decides clock loss.
-
-    Outcome-conditioned clock stops made the earlier 34-second cadence too fast at the
-    possession level. This distribution restores league-scale in-bounds time while widening
-    the natural fast/slow tail. Team-specific pace remains a separate future perturbation so
-    this calibration can be evaluated independently.
-    """
+def _sample_snap_cadence(*, hurry: float, rng: np.random.Generator) -> int:
     center = 39.0 - 22.0 * float(np.clip(hurry, 0.0, 1.0))
     return int(np.clip(rng.normal(center, 11.5), 7.0, 55.0))
 
@@ -249,14 +245,51 @@ def _lane_for_geometry(
         return RunLane.QB
     if category == "interior":
         return RunLane.INSIDE
-    if category in {
-        "left_offtackle",
-        "right_offtackle",
-        "left_edge",
-        "right_edge",
-    }:
+    if category in {"left_offtackle", "right_offtackle", "left_edge", "right_edge"}:
         return RunLane.OUTSIDE
     return RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE
+
+
+def _field_read_target(
+    offense: TeamIdentity,
+    defense: DefensiveUnit,
+    rng: np.random.Generator,
+    *,
+    preferred: PlayerIdentity | None = None,
+    fatigue: dict[str, float],
+) -> tuple[PlayerIdentity, PassMatchup]:
+    """Evaluate the full eligible receiver field before choosing the QB's throw."""
+    from monster.sim.matchup_kernel import resolve_pass_matchup
+
+    candidates: list[tuple[PlayerIdentity, PassMatchup, float]] = []
+    for receiver in offense.receivers:
+        matchup = resolve_pass_matchup(
+            receiver,
+            defense,
+            pass_protection=offense.pass_protection * _fatigue_factor(fatigue, f"line:{offense.team_id}"),
+            quarterback_efficiency=offense.pass_efficiency
+            * _fatigue_factor(fatigue, offense.quarterback.player_id),
+        )
+        receiver_fatigue = _fatigue_factor(fatigue, receiver.player_id)
+        expected_gain = (
+            matchup.completion_probability
+            * matchup.yards_multiplier
+            * receiver.explosive
+            * receiver_fatigue
+        )
+        read_score = max(receiver.usage_weight, 0.001) ** 0.62 * max(expected_gain, 0.02)
+        read_score *= max(matchup.qb_read_quality, 0.55)
+        if preferred is not None and receiver.player_id == preferred.player_id:
+            read_score *= 1.35
+        candidates.append((receiver, matchup, read_score))
+
+    if not candidates:
+        raise ValueError("pass play requires at least one eligible receiver")
+    weights = np.asarray([max(item[2], 1e-5) for item in candidates], dtype=float)
+    weights /= weights.sum()
+    index = int(rng.choice(len(candidates), p=weights))
+    receiver, matchup, _ = candidates[index]
+    return receiver, matchup
 
 
 def simulate_scrimmage_play(
@@ -269,23 +302,23 @@ def simulate_scrimmage_play(
     play_type = choose_play_type(state, offense, rng)
     hurry = _policy_for_state(state, offense).hurry_probability
     cadence_elapsed = _sample_snap_cadence(hurry=hurry, rng=rng)
+    fatigue = _world_fatigue(state, rng)
+    qb_fatigue = _fatigue_factor(fatigue, offense.quarterback.player_id)
+    line_fatigue = _fatigue_factor(fatigue, f"line:{offense.team_id}")
+    _add_load(fatigue, offense.quarterback.player_id, 0.004)
+    _add_load(fatigue, f"line:{offense.team_id}", 0.006)
 
     if play_type == PlayType.PUNT:
-        return PlayEvent(play_type=play_type, elapsed_seconds=8)
+        return PlayEvent(play_type=play_type, elapsed_seconds=8, fatigue_factor=line_fatigue)
     if play_type == PlayType.FIELD_GOAL:
         distance = 117.0 - state.yardline_100
-        make_p = float(
-            np.clip(
-                0.98 - max(distance - 32.0, 0.0) * 0.012,
-                0.18,
-                0.98,
-            )
-        )
+        make_p = float(np.clip(0.98 - max(distance - 32.0, 0.0) * 0.012, 0.18, 0.98))
         make_p = float(np.clip(make_p * offense.field_goal_skill, 0.05, 0.995))
         return PlayEvent(
             play_type=play_type,
             elapsed_seconds=5,
             field_goal_made=rng.random() < make_p,
+            fatigue_factor=line_fatigue,
         )
 
     if play_type == PlayType.RUN:
@@ -298,17 +331,10 @@ def simulate_scrimmage_play(
                 else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
             )
         else:
-            from monster.sim.intent_ecology import (
-                choose_rusher_for_geometry,
-                sample_run_geometry_intent,
-            )
+            from monster.sim.intent_ecology import choose_rusher_for_geometry, sample_run_geometry_intent
 
             flow = derive_game_flow_state(state)
-            geometry = sample_run_geometry_intent(
-                offense.intent_ecology,
-                flow,
-                rng=rng,
-            )
+            geometry = sample_run_geometry_intent(offense.intent_ecology, flow, rng=rng)
             if geometry == "qb_sneak":
                 rusher = offense.quarterback
             else:
@@ -320,19 +346,19 @@ def simulate_scrimmage_play(
                 )
             lane = _lane_for_geometry(geometry, rusher, rng)
 
+        rusher_fatigue = _fatigue_factor(fatigue, rusher.player_id)
+        _add_load(fatigue, rusher.player_id, 0.012 if rusher.position != "QB" else 0.009)
         primary_defender_id = None
         tackling = max(defense_strength, 0.65)
+        effective_run_blocking = offense.run_blocking * line_fatigue
         penetration_p = float(
-            np.clip(
-                0.18 * defense_strength / max(offense.run_blocking, 0.55),
-                0.06,
-                0.42,
-            )
+            np.clip(0.18 * defense_strength / max(effective_run_blocking, 0.55), 0.06, 0.42)
         )
         matchup_yards_multiplier = float(
             np.clip(
                 rusher.efficiency
-                * offense.run_blocking
+                * rusher_fatigue
+                * effective_run_blocking
                 * offense.rush_efficiency
                 / max(defense_strength, 0.60),
                 0.50,
@@ -345,13 +371,13 @@ def simulate_scrimmage_play(
             matchup = resolve_run_matchup(
                 rusher,
                 defense,
-                run_blocking=offense.run_blocking,
+                run_blocking=effective_run_blocking,
             )
             primary_defender_id = matchup.primary_defender_id
             penetration_p = matchup.stuff_probability
             matchup_yards_multiplier = float(
                 np.clip(
-                    matchup.yards_multiplier * offense.rush_efficiency,
+                    matchup.yards_multiplier * offense.rush_efficiency * rusher_fatigue,
                     0.50,
                     1.65,
                 )
@@ -359,11 +385,7 @@ def simulate_scrimmage_play(
             if primary_defender_id is not None:
                 defenders = defense.front + defense.coverage
                 defender = next(
-                    (
-                        item
-                        for item in defenders
-                        if item.player_id == primary_defender_id
-                    ),
+                    (item for item in defenders if item.player_id == primary_defender_id),
                     None,
                 )
                 if defender is not None:
@@ -372,9 +394,9 @@ def simulate_scrimmage_play(
         if offense.intent_ecology is None:
             anatomy = resolve_run_contact(
                 penetration_probability=penetration_p,
-                runner_power=max(rusher.efficiency, 0.6),
+                runner_power=max(rusher.efficiency * rusher_fatigue, 0.6),
                 tackling=tackling,
-                explosiveness=rusher.explosive * offense.rush_efficiency,
+                explosiveness=rusher.explosive * offense.rush_efficiency * rusher_fatigue,
                 rng=rng,
             )
             fumble_base = 0.012
@@ -386,9 +408,9 @@ def simulate_scrimmage_play(
                 profile,
                 matchup_stuff_probability=penetration_p,
                 matchup_yards_multiplier=matchup_yards_multiplier,
-                runner_power=max(rusher.efficiency, 0.6),
+                runner_power=max(rusher.efficiency * rusher_fatigue, 0.6),
                 tackling=tackling,
-                explosiveness=rusher.explosive,
+                explosiveness=rusher.explosive * rusher_fatigue,
                 rng=rng,
             )
             fumble_base = profile.fumble_lost_rate
@@ -396,7 +418,7 @@ def simulate_scrimmage_play(
         raw_yards = anatomy.total_yards
         yards = _credit_scrimmage_yards(state, raw_yards)
         fumble_p = _lost_fumble_probability(
-            security=rusher.turnover_security,
+            security=rusher.turnover_security * rusher_fatigue,
             contact=anatomy.contact,
             base_rate=fumble_base,
         )
@@ -422,17 +444,16 @@ def simulate_scrimmage_play(
             yards_before_contact=anatomy.yards_before_contact,
             yards_after_contact=anatomy.yards_after_contact,
             run_geometry_category=geometry,
+            fatigue_factor=rusher_fatigue,
         )
 
     depth_category = None
     flow = None
+    preferred_target = None
     if offense.intent_ecology is None:
-        target = _weighted_player(offense.receivers, rng)
+        preferred_target = _weighted_player(offense.receivers, rng)
     else:
-        from monster.sim.intent_ecology import (
-            choose_target_for_depth,
-            sample_pass_depth_intent,
-        )
+        from monster.sim.intent_ecology import choose_target_for_depth, sample_pass_depth_intent
 
         flow = derive_game_flow_state(state)
         depth_category = sample_pass_depth_intent(
@@ -441,37 +462,54 @@ def simulate_scrimmage_play(
             quarterback_id=offense.quarterback.player_id,
             rng=rng,
         )
-        target = choose_target_for_depth(
+        preferred_target = choose_target_for_depth(
             offense.receivers,
             offense.intent_ecology,
             depth_category,
             rng,
         )
 
+    matchup = None
+    if defense is not None:
+        target, matchup = _field_read_target(
+            offense,
+            defense,
+            rng,
+            preferred=preferred_target,
+            fatigue=fatigue,
+        )
+    else:
+        target = preferred_target
+    target_fatigue = _fatigue_factor(fatigue, target.player_id)
+    for receiver in offense.receivers:
+        _add_load(fatigue, receiver.player_id, 0.006)
+
     primary_defender_id = None
     coverage_strength = max(defense_strength, 0.65)
     ball_hawk = max(defense_strength, 0.65)
     completion_probability = None
     interception_probability = None
-    if defense is not None:
-        from monster.sim.matchup_kernel import resolve_pass_matchup
-
-        matchup = resolve_pass_matchup(
-            target,
-            defense,
-            pass_protection=offense.pass_protection,
-            quarterback_efficiency=offense.pass_efficiency,
-        )
+    time_to_pressure = 0.0
+    safety_help = 0.0
+    bracket_factor = 0.0
+    zone_overlap = 0.0
+    qb_read_quality = offense.pass_efficiency * qb_fatigue
+    if matchup is not None:
         pressure = matchup.pressure_probability
         primary_defender_id = matchup.primary_defender_id
         coverage_strength = matchup.coverage_strength
         ball_hawk = matchup.ball_hawk_strength
-        completion_probability = matchup.completion_probability
+        completion_probability = matchup.completion_probability * target_fatigue
         interception_probability = matchup.interception_probability
+        time_to_pressure = matchup.time_to_pressure
+        safety_help = matchup.safety_help
+        bracket_factor = matchup.bracket_factor
+        zone_overlap = matchup.zone_overlap
+        qb_read_quality = matchup.qb_read_quality * qb_fatigue
     else:
         pressure = float(
             np.clip(
-                0.297832 * defense_strength / max(offense.pass_protection, 0.55),
+                0.297832 * defense_strength / max(offense.pass_protection * line_fatigue, 0.55),
                 0.12,
                 0.50,
             )
@@ -490,14 +528,14 @@ def simulate_scrimmage_play(
         )
     response = resolve_qb_response(
         pressured=pressured,
-        mobility=offense.quarterback.explosive,
-        pocket_skill=offense.pass_efficiency,
+        mobility=offense.quarterback.explosive * qb_fatigue,
+        pocket_skill=offense.pass_efficiency * qb_fatigue,
         rng=rng,
     )
     if response == QBResponse.SACK:
         yards = -float(np.clip(rng.normal(6.5, 2.5), 1.0, 15.0))
         turnover = rng.random() < _lost_fumble_probability(
-            security=offense.quarterback.turnover_security,
+            security=offense.quarterback.turnover_security * qb_fatigue,
             base_rate=0.010,
         )
         return PlayEvent(
@@ -517,19 +555,25 @@ def simulate_scrimmage_play(
             pressured=pressured,
             qb_response=response,
             pass_depth_category=depth_category,
+            time_to_pressure=time_to_pressure,
+            safety_help=safety_help,
+            bracket_factor=bracket_factor,
+            zone_overlap=zone_overlap,
+            qb_read_quality=qb_read_quality,
+            fatigue_factor=qb_fatigue,
         )
     if response == QBResponse.SCRAMBLE:
         anatomy = resolve_run_contact(
             penetration_probability=0.08,
-            runner_power=max(offense.quarterback.efficiency, 0.6),
+            runner_power=max(offense.quarterback.efficiency * qb_fatigue, 0.6),
             tackling=coverage_strength,
-            explosiveness=offense.quarterback.explosive,
+            explosiveness=offense.quarterback.explosive * qb_fatigue,
             rng=rng,
         )
         raw_yards = anatomy.total_yards
         yards = _credit_scrimmage_yards(state, raw_yards)
         turnover = rng.random() < _lost_fumble_probability(
-            security=offense.quarterback.turnover_security,
+            security=offense.quarterback.turnover_security * qb_fatigue,
             contact=anatomy.contact,
             base_rate=0.012,
         )
@@ -558,18 +602,18 @@ def simulate_scrimmage_play(
             yards_before_contact=anatomy.yards_before_contact,
             yards_after_contact=anatomy.yards_after_contact,
             pass_depth_category=depth_category,
+            time_to_pressure=time_to_pressure,
+            safety_help=safety_help,
+            bracket_factor=bracket_factor,
+            zone_overlap=zone_overlap,
+            qb_read_quality=qb_read_quality,
+            fatigue_factor=qb_fatigue,
         )
 
     if offense.intent_ecology is None:
-        air_yards = float(
-            np.clip(
-                rng.normal(8.5 * target.explosive, 6.5),
-                -3.0,
-                45.0,
-            )
-        )
+        air_yards = float(np.clip(rng.normal(8.5 * target.explosive, 6.5), -3.0, 45.0))
         catchpoint = resolve_catchpoint(
-            catch_skill=max(target.efficiency, 0.55),
+            catch_skill=max(target.efficiency * target_fatigue, 0.55),
             coverage_strength=coverage_strength,
             ball_hawk=ball_hawk,
             air_yards=air_yards,
@@ -596,7 +640,7 @@ def simulate_scrimmage_play(
             pressured=pressured,
         )
         catchpoint = resolve_catchpoint(
-            catch_skill=max(target.efficiency, 0.55),
+            catch_skill=max(target.efficiency * target_fatigue, 0.55),
             coverage_strength=coverage_strength,
             ball_hawk=ball_hawk,
             air_yards=air_yards,
@@ -606,6 +650,14 @@ def simulate_scrimmage_play(
             completion_probability_includes_depth=True,
         )
 
+    common = {
+        "time_to_pressure": time_to_pressure,
+        "safety_help": safety_help,
+        "bracket_factor": bracket_factor,
+        "zone_overlap": zone_overlap,
+        "qb_read_quality": qb_read_quality,
+        "fatigue_factor": min(qb_fatigue, target_fatigue),
+    }
     if catchpoint == CatchpointResult.INTERCEPTION:
         return PlayEvent(
             play_type=play_type,
@@ -625,6 +677,7 @@ def simulate_scrimmage_play(
             catchpoint_result=catchpoint,
             air_yards=air_yards,
             pass_depth_category=depth_category,
+            **common,
         )
     if catchpoint != CatchpointResult.CATCH:
         return PlayEvent(
@@ -643,6 +696,7 @@ def simulate_scrimmage_play(
             catchpoint_result=catchpoint,
             air_yards=air_yards,
             pass_depth_category=depth_category,
+            **common,
         )
 
     if offense.intent_ecology is None:
@@ -650,6 +704,7 @@ def simulate_scrimmage_play(
             np.clip(
                 rng.lognormal(1.25, 0.65)
                 * target.explosive
+                * target_fatigue
                 / max(coverage_strength**0.25, 0.75),
                 0.0,
                 55.0,
@@ -657,17 +712,14 @@ def simulate_scrimmage_play(
         )
         raw_yards = max(air_yards, 0.0) + yac
     else:
-        from monster.sim.resolution_ecology import (
-            completed_pass_yards,
-            sample_yac,
-        )
+        from monster.sim.resolution_ecology import completed_pass_yards, sample_yac
 
         yac = (
             0.0
             if air_yards >= flow.yards_to_goal
             else sample_yac(
                 profile,
-                receiver_explosiveness=target.explosive,
+                receiver_explosiveness=target.explosive * target_fatigue,
                 coverage_strength=coverage_strength,
                 rng=rng,
                 air_yards=air_yards,
@@ -677,7 +729,7 @@ def simulate_scrimmage_play(
 
     yards = _credit_scrimmage_yards(state, raw_yards)
     turnover = rng.random() < _lost_fumble_probability(
-        security=target.turnover_security,
+        security=target.turnover_security * target_fatigue,
         contact=ContactResult.TACKLED,
         base_rate=0.008,
     )
@@ -705,4 +757,5 @@ def simulate_scrimmage_play(
         air_yards=air_yards,
         yards_after_catch=yac,
         pass_depth_category=depth_category,
+        **common,
     )
