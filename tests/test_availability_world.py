@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
-from monster.sim.availability_world import sample_team_availability_world
+from monster.sim.availability_world import (
+    availability_world_from_active_ids,
+    sample_team_availability_world,
+)
 from monster.snapshot.player import PlayerState, TeamPlayerPool
 
 
@@ -75,3 +79,36 @@ def test_effectiveness_is_preserved_conditional_on_active() -> None:
     )
     world = sample_team_availability_world(pool, rng=np.random.default_rng(3))
     assert all(player.effectiveness_if_active == 0.82 for player in world.pool.players)
+
+
+def test_shared_active_ids_drive_skill_usage_without_resampling() -> None:
+    pool = TeamPlayerPool(
+        team_id="T",
+        players=(
+            _player("qb1", "QB", active_probability=0.2, qb_pass_share=1.0),
+            _player("wr1", "WR", active_probability=0.2, target_share=0.7),
+            _player("wr2", "WR", active_probability=0.9, target_share=0.3),
+            _player("rb1", "RB", active_probability=0.4, rush_share=1.0),
+        ),
+    )
+    world = availability_world_from_active_ids(
+        pool,
+        active_player_ids={"qb1", "wr2", "rb1"},
+    )
+    assert set(world.active_player_ids) == {"qb1", "wr2", "rb1"}
+    assert "wr1" in world.inactive_player_ids
+    assert sum(player.target_share for player in world.pool.players) == 1.0
+    assert sum(player.rush_share for player in world.pool.players) == 1.0
+    assert all(player.active_probability == 1.0 for player in world.pool.players)
+
+
+def test_shared_active_ids_reject_world_without_quarterback() -> None:
+    pool = TeamPlayerPool(
+        team_id="T",
+        players=(
+            _player("qb1", "QB", active_probability=1.0, qb_pass_share=1.0),
+            _player("wr1", "WR", active_probability=1.0, target_share=1.0),
+        ),
+    )
+    with pytest.raises(ValueError, match="no active quarterback"):
+        availability_world_from_active_ids(pool, active_player_ids={"wr1"})
