@@ -71,3 +71,29 @@ def test_all_missed_unit_candidates_receive_deterministic_fallback() -> None:
     world = sample_unit_availability_world(players, rng=np.random.default_rng(3))
     assert len(world.active_player_ids) == 1
     assert world.active_player_ids[0] == "edge1"
+
+
+def test_full_roster_world_guarantees_quarterback_before_skill_bridge() -> None:
+    players = (
+        UnitPlayerInputs(
+            player_id="qb1",
+            position="QB",
+            offense_snap_share=0.95,
+            active_probability=0.0,
+        ),
+        UnitPlayerInputs(
+            player_id="qb2",
+            position="QB",
+            offense_snap_share=0.45,
+            active_probability=0.0,
+        ),
+        UnitPlayerInputs(
+            player_id="wr1",
+            position="WR",
+            offense_snap_share=0.80,
+            active_probability=1.0,
+        ),
+    )
+    world = sample_unit_availability_world(players, rng=np.random.default_rng(4))
+    assert "qb1" in world.active_player_ids
+    assert "qb2" in world.inactive_player_ids
