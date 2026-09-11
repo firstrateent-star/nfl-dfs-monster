@@ -5,6 +5,7 @@ on:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/run_week1_v13_first_sim.py
+      - scripts/run_week1_v13_box_scores.py
       - scripts/build_league_policy.py
       - src/monster/sim/**
       - src/monster/feature_compile/situation.py
@@ -23,7 +24,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/build_league_policy.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/build_league_policy.py
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
@@ -57,6 +58,15 @@ jobs:
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 1000 --seed 2026190921
           --out artifacts/week1-v13-first-sim
+      - name: Generate simulated offensive and defensive game box scores
+        run: >-
+          uv run python scripts/run_week1_v13_box_scores.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026110911
+          --out artifacts/week1-v13-box-scores
       - name: Verify shadow manifest
         run: |
           python - <<'PY'
@@ -75,11 +85,21 @@ jobs:
           assert m['games'] == 12
           assert m['worlds_per_game'] == 1000
           assert m['seed'] == 2026190921
+          b=json.loads(Path('artifacts/week1-v13-box-scores/manifest.json').read_text())
+          assert b['market_blind_football'] is True
+          assert b['dfs_inputs_used'] is False
+          assert b['sportsbook_inputs_used'] is False
+          assert b['offense_event_derived'] is True
+          assert b['defense_event_derived'] is True
+          assert b['games'] == 12
           print(json.dumps(m, indent=2))
+          print(json.dumps(b, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: monster-v1-3-week1-first-event-simulation
-          path: artifacts/week1-v13-first-sim/
+          path: |
+            artifacts/week1-v13-first-sim/
+            artifacts/week1-v13-box-scores/
           retention-days: 14
