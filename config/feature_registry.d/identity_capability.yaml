@@ -1,0 +1,49 @@
+features:
+  madden_release:
+    family: madden
+    cadence: release_update
+    jurisdiction: [allocation, shape]
+    authority: 0.25
+    market_derived: false
+  madden_carrying:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.25
+    market_derived: false
+  madden_break_tackle:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
+  madden_awareness:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape, confidence]
+    authority: 0.20
+    market_derived: false
+  madden_throw_power:
+    family: madden
+    cadence: release_update
+    jurisdiction: [shape]
+    authority: 0.25
+    market_derived: false
+  madden_throw_accuracy:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.30
+    market_derived: false
+  madden_throw_under_pressure:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.30
+    market_derived: false
+  madden_ball_carrier_vision:
+    family: madden
+    cadence: release_update
+    jurisdiction: [mean, shape]
+    authority: 0.25
+    market_derived: false
