@@ -14,6 +14,6 @@ SNAP_ECOLOGY_CAPABILITIES = {
     "second_level_tackling": True,
     "score_down_distance_clock_feedback": True,
     "market_blind": True,
-    "full_multi_receiver_read_progression": False,
-    "dynamic_in_game_fatigue_ledger": False,
+    "full_multi_receiver_read_progression": True,
+    "dynamic_in_game_fatigue_ledger": True,
 }
