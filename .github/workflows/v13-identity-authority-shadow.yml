@@ -7,9 +7,18 @@ on:
       - src/monster/feature_compile/identity_channels.py
       - src/monster/feature_compile/v13_identity_bridge.py
       - src/monster/feature_compile/v13_identity_authority.py
+      - src/monster/feature_compile/reality_inputs.py
+      - src/monster/feature_compile/trait_inputs.py
+      - src/monster/feature_compile/league_units.py
+      - src/monster/feature_compile/units.py
+      - src/monster/ingest/madden_skill.py
+      - src/monster/sim/availability_world.py
       - scripts/run_week1_v13_identity_authority_shadow.py
       - scripts/compare_identity_authority_shadow.py
       - tests/test_v13_identity_authority.py
+      - tests/test_madden_skill_traits.py
+      - tests/test_league_units.py
+      - tests/test_availability_world.py
       - .github/workflows/v13-identity-authority-shadow.yml
   workflow_dispatch:
 
