@@ -6,11 +6,13 @@ on:
     paths:
       - scripts/run_week1_v13_first_sim.py
       - scripts/run_week1_v13_box_scores.py
+      - scripts/run_week1_v13_complete_box_scores.py
       - scripts/build_league_policy.py
       - src/monster/sim/**
       - src/monster/feature_compile/situation.py
       - src/monster/feature_compile/team.py
       - src/monster/feature_compile/v13_identity_bridge.py
+      - tests/test_defensive_attribution.py
       - .github/workflows/v13-first-simulation.yml
   workflow_dispatch:
 
@@ -24,7 +26,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/build_league_policy.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_league_policy.py
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
@@ -67,6 +69,15 @@ jobs:
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 250 --seed 2026110911
           --out artifacts/week1-v13-box-scores
+      - name: Generate complete participant box scores
+        run: >-
+          uv run python scripts/run_week1_v13_complete_box_scores.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 250 --seed 2026110912
+          --out artifacts/week1-v13-complete-box-scores
       - name: Verify shadow manifest
         run: |
           python - <<'PY'
@@ -92,8 +103,21 @@ jobs:
           assert b['offense_event_derived'] is True
           assert b['defense_event_derived'] is True
           assert b['games'] == 12
+          c=json.loads(Path('artifacts/week1-v13-complete-box-scores/manifest.json').read_text())
+          assert c['market_blind_football'] is True
+          assert c['dfs_inputs_used'] is False
+          assert c['sportsbook_inputs_used'] is False
+          assert c['role_aware_defensive_attribution'] is True
+          assert c['all_projected_unit_players_emitted'] is True
+          assert c['representative_world_only_includes_simulated_participants'] is True
+          assert c['games'] == 12
+          assert c['worlds_per_game'] == 250
+          assert c['defensive_sanity']['max_mean_tackles'] < 20.0
+          assert c['defensive_sanity']['max_mean_pressures'] < 12.0
+          assert c['defensive_sanity']['max_mean_sacks'] < 4.0
           print(json.dumps(m, indent=2))
           print(json.dumps(b, indent=2))
+          print(json.dumps(c, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -102,4 +126,5 @@ jobs:
           path: |
             artifacts/week1-v13-first-sim/
             artifacts/week1-v13-box-scores/
+            artifacts/week1-v13-complete-box-scores/
           retention-days: 14
