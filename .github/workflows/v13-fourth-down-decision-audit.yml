@@ -1,0 +1,59 @@
+name: Monster v1.3 MON-LEDGER-002C fourth-down decision audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_fourth_down_decision_ecology.py
+      - .github/workflows/v13-fourth-down-decision-audit.yml
+
+jobs:
+  fourth-down-decision-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/audit_fourth_down_decision_ecology.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run pytest -q tests/test_decision_policy.py
+
+      - name: Audit 2025 fourth-down decision ecology
+        run: >-
+          uv run python scripts/audit_fourth_down_decision_ecology.py
+          --season 2025
+          --out artifacts/fourth-down-decision-audit
+
+      - name: Verify decision audit contract
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/fourth-down-decision-audit')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-LEDGER-002C-DECISION'
+          assert m['governance']['stage']=='LAB'
+          assert m['governance']['market_inputs_used'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['states'] > 500
+          context=pl.read_csv(root/'context_summary.csv')
+          detail=pl.read_csv(root/'terminal_context_detail.csv')
+          assert context.height >= 4
+          assert detail.height > 0
+          assert context.filter(pl.col('context').str.starts_with('end_half')).height > 0
+          assert context.filter(pl.col('context').str.starts_with('late_game')).height > 0
+          print(context)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-mon-ledger-002c-fourth-down-decision-audit
+          path: artifacts/fourth-down-decision-audit/
+          retention-days: 14
