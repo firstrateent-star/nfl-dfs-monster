@@ -64,11 +64,32 @@ def attach_madden_skill_traits(personnel: pl.DataFrame, ratings: pl.DataFrame) -
         return personnel
     name_col = "display_name" if "display_name" in personnel.columns else "full_name"
     current = personnel.with_columns(pl.col(name_col).map_elements(_norm, return_dtype=pl.Utf8).alias("_madden_name_key"), _position_expr().alias("_madden_position"))
-    return current.join(traits, on=["_madden_name_key", "_madden_position"], how="left").drop(["_madden_name_key", "_madden_position"])
+    # Official EA attributes may already have attached canonical columns.  Avoid join
+    # suffix collisions: only add specialized derived traits that are not already present.
+    join_columns = ["_madden_name_key", "_madden_position"] + [
+        column for column in traits.columns
+        if column not in {"_madden_name_key", "_madden_position"} and column not in current.columns
+    ]
+    if len(join_columns) == 2:
+        return current.drop(["_madden_name_key", "_madden_position"])
+    return current.join(traits.select(join_columns), on=["_madden_name_key", "_madden_position"], how="left").drop(["_madden_name_key", "_madden_position"])
 
 
 def madden_skill_coverage(personnel: pl.DataFrame) -> pl.DataFrame:
     skill = personnel.filter(_position_expr().is_in(sorted(_SKILL)))
-    if not skill.height or "madden_speed" not in skill.columns:
+    if not skill.height:
         return pl.DataFrame()
-    return skill.group_by("team_id").agg(pl.len().alias("skill_roster_rows"), pl.col("madden_speed").is_not_null().sum().alias("skill_with_madden_speed"), pl.col("madden_acceleration").is_not_null().sum().alias("skill_with_madden_acceleration"), pl.col("madden_route_running").is_not_null().sum().alias("skill_with_madden_route"), pl.col("madden_catching").is_not_null().sum().alias("skill_with_madden_catching"), pl.col("madden_throw_accuracy").is_not_null().sum().alias("qbs_with_madden_accuracy")).sort("team_id")
+
+    def available(column: str, alias: str) -> pl.Expr:
+        if column in skill.columns:
+            return pl.col(column).is_not_null().sum().alias(alias)
+        return pl.lit(0, dtype=pl.UInt32).alias(alias)
+
+    return skill.group_by("team_id").agg(
+        pl.len().alias("skill_roster_rows"),
+        available("madden_speed", "skill_with_madden_speed"),
+        available("madden_acceleration", "skill_with_madden_acceleration"),
+        available("madden_route_running", "skill_with_madden_route"),
+        available("madden_catching", "skill_with_madden_catching"),
+        available("madden_throw_accuracy", "qbs_with_madden_accuracy"),
+    ).sort("team_id")
