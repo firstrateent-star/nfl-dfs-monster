@@ -6,6 +6,13 @@ from math import exp, log
 import numpy as np
 
 from monster.sim.play_kernel import PlayerIdentity
+from monster.sim.rich_identity import (
+    catch_skill,
+    open_field_skill,
+    route_skill,
+    rush_creation_skill,
+    skill_multiplier,
+)
 from monster.sim.snap_ecology import resolve_pass_snap, resolve_run_snap
 
 # 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
@@ -114,17 +121,13 @@ def resolve_pass_matchup(
     pass_protection: float,
     quarterback_efficiency: float,
 ) -> PassMatchup:
-    """Resolve the target inside a complete protection/coverage snap ecology.
+    """Resolve target/protection/coverage while preserving multidimensional player identity.
 
-    Five current offensive linemen are registered from the frozen personnel snapshot and
-    paired against the most relevant rushers. RB/TE protection can reinforce the most dangerous
-    rush lane. Coverage assigns a primary defender while preserving safety help, bracket risk,
-    and zone overlap. QB read quality then depends on separation plus the time the pocket buys.
-
-    Throw completion and interception start from empirical 2025 league throw baselines.
-    Player/read/coverage evidence moves those priors with bounded relative authority. Pressure
-    is *not* charged here because the play kernel subsequently resolves the actual pressure
-    state and applies the observed clean-vs-pressure split exactly once.
+    Historical league throw outcomes remain the unconditional causal prior. Madden/physical/
+    NFL capability evidence is allowed to move only the mechanisms it owns: route skill moves
+    separation, catchpoint skill moves completion, and speed/open-field skill moves the yardage
+    continuation tail. This prevents rich player evidence from being averaged back into one
+    generic fantasy multiplier while avoiding a second league baseline.
     """
     snap = resolve_pass_snap(
         target=target,
@@ -175,20 +178,32 @@ def resolve_pass_matchup(
         )
     )
 
-    separation_factor = float(np.clip(1.0 + 0.06 * snap.separation_edge, 0.88, 1.12))
+    # The underlying snap ecology already contains the compatibility aggregate. Add only the
+    # residual mechanism-specific identity signal here so Madden/NFL capability is not lost.
+    route_signal = float(np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0))
+    speed_signal = float(np.clip(getattr(target, "speed_skill", 0.0), -1.0, 1.0))
+    identity_separation = float(
+        np.clip(snap.separation_edge + 0.32 * route_signal + 0.08 * speed_signal, -1.0, 1.0)
+    )
+    separation_factor = float(np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14))
+    target_catch = catch_skill(target)
+    target_route = route_skill(target)
+    target_open_field = open_field_skill(target)
+
     completion_relative = _bounded_relative_product(
-        (np.clip(snap.qb_read_quality, 0.65, 1.40), 0.42),
-        (np.clip(target.efficiency, 0.65, 1.40), 0.32),
-        (1.0 / max(effective_coverage, 0.60), 0.46),
+        (np.clip(snap.qb_read_quality, 0.65, 1.40), 0.40),
+        (np.clip(target_catch, 0.65, 1.40), 0.30),
+        (np.clip(target_route, 0.65, 1.40), 0.18),
+        (1.0 / max(effective_coverage, 0.60), 0.44),
         (separation_factor, 1.0),
-        low=0.72,
-        high=1.30,
+        low=0.70,
+        high=1.34,
     )
     completion = float(
         np.clip(
             LEAGUE_THROW_COMPLETION_RATE * completion_relative,
-            0.30,
-            0.88,
+            0.28,
+            0.90,
         )
     )
 
@@ -196,7 +211,7 @@ def resolve_pass_matchup(
         (effective_ball_hawk, 0.45),
         (effective_coverage, 0.24),
         (1.0 / max(snap.qb_read_quality, 0.55), 0.34),
-        (float(np.clip(1.0 - 0.08 * snap.separation_edge, 0.84, 1.16)), 1.0),
+        (float(np.clip(1.0 - 0.09 * identity_separation, 0.82, 1.18)), 1.0),
         low=0.55,
         high=1.75,
     )
@@ -210,12 +225,12 @@ def resolve_pass_matchup(
 
     yards_multiplier = float(
         np.clip(
-            target.explosive
+            target_open_field
             / max(effective_coverage**0.34, 0.72)
-            * (1.0 + 0.11 * snap.separation_edge)
+            * (1.0 + 0.13 * identity_separation)
             * (1.0 - 0.10 * snap.safety_help - 0.14 * snap.bracket_factor),
-            0.55,
-            1.72,
+            0.52,
+            1.78,
         )
     )
     return PassMatchup(
@@ -227,7 +242,7 @@ def resolve_pass_matchup(
         coverage_strength=effective_coverage,
         ball_hawk_strength=effective_ball_hawk,
         local_coverage_strength=local_coverage,
-        local_separation_edge=snap.separation_edge,
+        local_separation_edge=identity_separation,
         local_rush_strength=local_rush,
         time_to_pressure=snap.time_to_pressure,
         pocket_integrity=snap.pocket_integrity,
@@ -257,13 +272,35 @@ def resolve_run_matchup(
         _representative_defender(defense.front, "run_defense"),
     )
     local_run_defense = 1.0 if primary is None else float(primary.run_defense)
+
+    creation = rush_creation_skill(rusher)
+    open_field = open_field_skill(rusher)
+    power = skill_multiplier(rusher, "runner_power", 0.14)
+    runner_signal = float(np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0))
+    runner_edge = float(np.clip(snap.runner_edge + 0.28 * runner_signal, -1.0, 1.0))
+    stuff = float(
+        np.clip(
+            snap.stuff_probability / max(power**0.38, 0.88),
+            0.03,
+            0.52,
+        )
+    )
+    yards = float(
+        np.clip(
+            snap.yards_multiplier
+            * (creation / max(float(getattr(rusher, "efficiency", 1.0)), 0.55)) ** 0.45
+            * (open_field / max(float(getattr(rusher, "explosive", 1.0)), 0.55)) ** 0.18,
+            0.44,
+            1.85,
+        )
+    )
     return RunMatchup(
-        stuff_probability=snap.stuff_probability,
-        yards_multiplier=snap.yards_multiplier,
+        stuff_probability=stuff,
+        yards_multiplier=yards,
         primary_defender_id=snap.primary_defender_id,
         local_run_defense=local_run_defense,
         second_level_tackling=snap.second_level_fit,
-        runner_edge=snap.runner_edge,
+        runner_edge=runner_edge,
         lane_blocking=snap.lane_blocking,
         front_fit=snap.front_fit,
     )
