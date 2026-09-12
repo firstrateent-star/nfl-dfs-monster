@@ -1,0 +1,106 @@
+name: Reality Loop v2 shallow pass-band audit
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - src/monster/feature_compile/play_intent.py
+      - src/monster/sim/intent_ecology.py
+      - src/monster/sim/pass_resolution_bands_v2.py
+      - scripts/audit_reality_loop_v2_pass_bands.py
+      - tests/test_reality_loop_v2_pass_resolution_bands.py
+      - .github/workflows/reality-loop-v2-pass-bands.yml
+  workflow_dispatch:
+
+jobs:
+  pass-bands:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Shallow pass-band causal gates
+        run: |
+          uv run pytest -q tests/test_reality_loop_v2_pass_resolution_bands.py
+          uv run ruff check \
+            src/monster/feature_compile/play_intent.py \
+            src/monster/sim/intent_ecology.py \
+            src/monster/sim/pass_resolution_bands_v2.py \
+            scripts/audit_reality_loop_v2_pass_bands.py \
+            tests/test_reality_loop_v2_pass_resolution_bands.py \
+            --ignore RUF046,I001
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind historical priors with completion bands
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run shallow pass-band shadow audit
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_pass_bands.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --history 2025 --worlds 25 --seed 2026091227
+          --out artifacts/reality-loop-v2-pass-bands
+
+      - name: Print shallow pass deltas
+        run: |
+          uv run python - <<'PY'
+          from pathlib import Path
+          import polars as pl
+          out = Path('artifacts/reality-loop-v2-pass-bands')
+          comp = pl.read_csv(out / 'pass_depth_throw_comparison.csv')
+          print(comp.filter(
+              pl.col('category').is_in(['behind_los','short_0_5']) &
+              pl.col('metric').is_in(['completion_rate','gain_5plus_rate','gain_10plus_rate','negative_gain_rate','air_yards_mean'])
+          ))
+          family = pl.read_csv(out / 'play_gain_comparison.csv')
+          print(family.filter(
+              pl.col('family').is_in(['all_dropbacks','complete_pass']) &
+              pl.col('metric').is_in(['negative_gain_rate','gain_5plus_rate','gain_10plus_rate','explosive_15_rate','yac_mean'])
+          ))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reality-loop-v2-pass-bands
+          path: artifacts/reality-loop-v2-pass-bands/
+          retention-days: 14
