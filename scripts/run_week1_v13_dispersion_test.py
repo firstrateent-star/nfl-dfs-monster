@@ -13,6 +13,9 @@ from monster.sim.chaos_ecology import DEFAULT_CHAOS_ECOLOGY, from_policy_row
 from monster.sim.dispersion_bridge import enhanced_defensive_unit, enhanced_team_identity
 
 _WORLD_WEIRDNESS: list[dict] = []
+# Shadow architectures may supply an explicitly gated authority without changing the stable
+# v1.3 default. None preserves the historical dispersion-test behavior exactly.
+_PASS_MATCHUP_AUTHORITY_OVERRIDE: float | None = None
 
 
 def _argument_path(flag: str, default: str) -> Path:
@@ -87,10 +90,13 @@ def _record_experiment() -> None:
 
 
 def main() -> None:
-    # The empirical depth prior remains the center, but the now-richer player-v-player graph
-    # earns more relative authority than the previous coarse bridge. 0.50 is still explicitly
-    # shrunk and cannot replace the historical depth outcome prior.
-    resolution_ecology._COARSE_MATCHUP_AUTHORITY = 0.50
+    # Stable v1.3 uses 0.50. Shadow architectures can supply an explicit, separately tested
+    # authority so a wrapper cannot be silently overwritten here after configuration.
+    resolution_ecology._COARSE_MATCHUP_AUTHORITY = (
+        0.50
+        if _PASS_MATCHUP_AUTHORITY_OVERRIDE is None
+        else float(_PASS_MATCHUP_AUTHORITY_OVERRIDE)
+    )
     integrated._team_identity = enhanced_team_identity
     integrated._defensive_unit = enhanced_defensive_unit
 
