@@ -8,6 +8,7 @@ from monster.feature_compile.identity_channels import compile_player_identity_ch
 from monster.feature_compile.mechanisms import PlayerMechanismInputs
 from monster.feature_compile.units import UnitPlayerInputs
 from monster.sim.play_kernel import PlayerIdentity
+from monster.sim.rich_identity import RichPlayerIdentity
 
 
 @dataclass(frozen=True)
@@ -69,10 +70,12 @@ def compile_v13_player_identity(
     probability MUST NOT reduce that player's ability again. Only effectiveness-if-active may
     alter active-world capability.
 
-    ``capability_inputs`` activates the richer position-aware identity bridge. The default
-    ``None`` path intentionally preserves the pre-repair v1.3 behavior so paired experiments
-    can isolate the identity-authority change. Rich capability evidence is routed through
-    source-agnostic football mechanism channels rather than directly changing points.
+    ``capability_inputs`` activates the richer position-aware identity bridge. The legacy
+    compatibility fields (efficiency/explosive/turnover_security) remain populated, but the
+    mechanism-specific channels are also preserved on ``RichPlayerIdentity`` so route skill,
+    catchpoint skill, QB execution, mobility, rush creation, runner power, open-field ability,
+    speed, and ball security can reach their own football mechanisms without being averaged
+    back into one generic player rating.
     """
     health = _health_multiplier(
         inputs,
@@ -140,51 +143,61 @@ def compile_v13_player_identity(
             continuity=continuity,
             evidence_fields=evidence_fields,
         )
-    else:
-        channels = compile_player_identity_channels(
+        identity: PlayerIdentity = PlayerIdentity(
+            player_id=player_id,
+            name=name,
             position=position,
-            physical=inputs,
-            capability=capability_inputs,
+            usage_weight=max(float(usage_weight), 0.001),
+            efficiency=efficiency,
+            explosive=explosive,
+            turnover_security=turnover_security,
         )
-        p = position.upper()
-        if p == "QB":
-            primary = channels.qb_execution
-            shape = 0.70 * channels.mobility + 0.30 * channels.speed
-        elif p == "RB":
-            primary = 0.65 * channels.rush_creation + 0.35 * channels.runner_power
-            shape = 0.65 * channels.open_field + 0.35 * channels.speed
-        elif p in {"WR", "TE"}:
-            primary = 0.55 * channels.route_separation + 0.45 * channels.catchpoint
-            shape = 0.70 * channels.speed + 0.30 * channels.open_field
-        else:
-            primary = 0.0
-            shape = channels.speed
+        return identity, trace
 
-        # Slightly stronger than the preceding high-authority shadow. The change steepens the
-        # player-quality response while retaining bounded football-event jurisdiction.
-        efficiency = float(
-            np.clip(health * (1.0 + 0.16 * primary + 0.045 * continuity), 0.30, 1.28)
-        )
-        explosive = float(np.clip(1.0 + 0.19 * shape, 0.80, 1.27))
-        turnover_security = float(
-            np.clip(1.0 + 0.10 * channels.ball_security, 0.84, 1.16)
-        )
-        trace = V13IdentityTrace(
-            speed=channels.speed,
-            catch_skill=channels.catchpoint,
-            power=channels.runner_power,
-            health=health,
-            continuity=continuity,
-            evidence_fields=channels.evidence_fields,
-            primary_skill=float(primary),
-            mobility=channels.mobility,
-            route_separation=channels.route_separation,
-            rush_creation=channels.rush_creation,
-            ball_security=channels.ball_security,
-            rich_capability_active=True,
-        )
+    channels = compile_player_identity_channels(
+        position=position,
+        physical=inputs,
+        capability=capability_inputs,
+    )
+    p = position.upper()
+    if p == "QB":
+        primary = channels.qb_execution
+        shape = 0.70 * channels.mobility + 0.30 * channels.speed
+    elif p == "RB":
+        primary = 0.65 * channels.rush_creation + 0.35 * channels.runner_power
+        shape = 0.65 * channels.open_field + 0.35 * channels.speed
+    elif p in {"WR", "TE"}:
+        primary = 0.55 * channels.route_separation + 0.45 * channels.catchpoint
+        shape = 0.70 * channels.speed + 0.30 * channels.open_field
+    else:
+        primary = 0.0
+        shape = channels.speed
 
-    identity = PlayerIdentity(
+    # Compatibility aggregate authority remains bounded while richer channels now survive
+    # independently for the snap mechanisms that own them.
+    efficiency = float(
+        np.clip(health * (1.0 + 0.12 * primary + 0.035 * continuity), 0.32, 1.24)
+    )
+    explosive = float(np.clip(1.0 + 0.14 * shape, 0.84, 1.20))
+    turnover_security = float(
+        np.clip(1.0 + 0.08 * channels.ball_security, 0.88, 1.12)
+    )
+    trace = V13IdentityTrace(
+        speed=channels.speed,
+        catch_skill=channels.catchpoint,
+        power=channels.runner_power,
+        health=health,
+        continuity=continuity,
+        evidence_fields=channels.evidence_fields,
+        primary_skill=float(primary),
+        mobility=channels.mobility,
+        route_separation=channels.route_separation,
+        rush_creation=channels.rush_creation,
+        ball_security=channels.ball_security,
+        rich_capability_active=True,
+    )
+
+    identity = RichPlayerIdentity(
         player_id=player_id,
         name=name,
         position=position,
@@ -192,5 +205,15 @@ def compile_v13_player_identity(
         efficiency=efficiency,
         explosive=explosive,
         turnover_security=turnover_security,
+        speed_skill=channels.speed,
+        mobility_skill=channels.mobility,
+        qb_execution_skill=channels.qb_execution,
+        route_separation_skill=channels.route_separation,
+        catchpoint_skill=channels.catchpoint,
+        rush_creation_skill=channels.rush_creation,
+        runner_power_skill=channels.runner_power,
+        open_field_skill=channels.open_field,
+        ball_security_skill=channels.ball_security,
+        evidence_fields=channels.evidence_fields,
     )
     return identity, trace
