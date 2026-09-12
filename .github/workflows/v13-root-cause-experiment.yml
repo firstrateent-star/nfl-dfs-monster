@@ -6,7 +6,6 @@ on:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/run_week1_v13_root_cause_experiment.py
-      - .github/workflows/v13-root-cause-experiment.yml
 
 jobs:
   root-cause:
@@ -62,7 +61,7 @@ jobs:
 
       - name: Verify experiment contract
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           import polars as pl
