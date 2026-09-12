@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import erf, exp, log, pi, sqrt
+from statistics import NormalDist
 
 import numpy as np
 
@@ -18,6 +19,7 @@ from monster.sim.play_anatomy import (
 # more direct than pass coverage assignment, hence the modestly higher run authority.
 _COARSE_MATCHUP_AUTHORITY = 0.35
 _COARSE_RUN_MATCHUP_AUTHORITY = 0.50
+_STANDARD_NORMAL = NormalDist()
 
 
 @dataclass(frozen=True)
@@ -157,34 +159,60 @@ def _normal_cdf(value: float) -> float:
     return 0.5 * (1.0 + erf(value / sqrt(2.0)))
 
 
-def _clipped_normal_mean(
+def _truncated_normal_mean(
     center: float,
     sd: float,
     *,
     low: float = 0.1,
     high: float = 9.999,
 ) -> float:
+    """Mean of a normal draw conditioned to remain inside the routine-run branch."""
     alpha = (low - center) / sd
     beta = (high - center) / sd
-    inside = center * (_normal_cdf(beta) - _normal_cdf(alpha))
-    inside += sd * (_normal_pdf(alpha) - _normal_pdf(beta))
-    return (
-        low * _normal_cdf(alpha)
-        + inside
-        + high * (1.0 - _normal_cdf(beta))
-    )
+    mass = _normal_cdf(beta) - _normal_cdf(alpha)
+    if mass <= 1e-12:
+        return float(np.clip(center, low, high))
+    return float(center + sd * (_normal_pdf(alpha) - _normal_pdf(beta)) / mass)
 
 
-def _center_for_clipped_mean(target: float, sd: float) -> float:
-    target = float(np.clip(target, 0.11, 9.90))
-    lower, upper = -10.0, 15.0
-    for _ in range(48):
+def _center_for_truncated_mean(
+    target: float,
+    sd: float,
+    *,
+    low: float = 0.1,
+    high: float = 9.999,
+) -> float:
+    target = float(np.clip(target, low + 1e-4, high - 1e-4))
+    lower, upper = -20.0, 30.0
+    for _ in range(56):
         middle = (lower + upper) / 2.0
-        if _clipped_normal_mean(middle, sd) < target:
+        if _truncated_normal_mean(middle, sd, low=low, high=high) < target:
             lower = middle
         else:
             upper = middle
     return float((lower + upper) / 2.0)
+
+
+def _sample_truncated_normal(
+    center: float,
+    sd: float,
+    rng: np.random.Generator,
+    *,
+    low: float = 0.1,
+    high: float = 9.999,
+) -> float:
+    """Sample continuously inside a branch instead of winsorizing mass onto its edges."""
+    alpha = (low - center) / sd
+    beta = (high - center) / sd
+    cdf_low = _normal_cdf(alpha)
+    cdf_high = _normal_cdf(beta)
+    mass = cdf_high - cdf_low
+    if mass <= 1e-12:
+        return float(np.clip(center, low + 1e-6, high - 1e-6))
+    u = float(rng.uniform(cdf_low, cdf_high))
+    u = float(np.clip(u, 1e-12, 1.0 - 1e-12))
+    value = center + sd * _STANDARD_NORMAL.inv_cdf(u)
+    return float(np.clip(value, low + 1e-9, high - 1e-9))
 
 
 def _conditional_loss_mean(profile: RunGeometryOutcome) -> float:
@@ -410,8 +438,8 @@ def resolve_run_ecology(
     live_routine_mean = float(
         np.clip(neutral_routine_mean * efficiency_factor, 0.11, 9.90)
     )
-    routine_center = _center_for_clipped_mean(live_routine_mean, routine_sd)
-    yards = float(np.clip(rng.normal(routine_center, routine_sd), 0.1, 9.999))
+    routine_center = _center_for_truncated_mean(live_routine_mean, routine_sd)
+    yards = _sample_truncated_normal(routine_center, routine_sd, rng)
     before = float(np.clip(rng.normal(min(3.2, yards), 1.0), 0.0, yards))
     after = yards - before
     contact = ContactResult.TACKLED if after <= 2.5 else ContactResult.BROKEN_TACKLE
