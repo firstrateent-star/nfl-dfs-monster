@@ -7,6 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
+from monster.feature_compile.chaos_priors import compile_chaos_ecology
 from monster.feature_compile.game_flow_policy import compile_game_flow_policy
 from monster.feature_compile.offensive_line import compile_historical_ol_outcomes
 from monster.feature_compile.play_intent import (
@@ -57,6 +58,7 @@ def main() -> None:
     )
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
+    chaos_ecology = compile_chaos_ecology(pbp)
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
     policy = canonical.join(policy, on="team_id", how="left").sort("team_id")
     ol_outcomes = canonical.join(ol_outcomes, on="team_id", how="left").sort("team_id")
@@ -77,11 +79,13 @@ def main() -> None:
     _write(run_geometry_outcomes, args.out, "run_geometry_outcomes")
     _write(ol_outcomes, args.out, "offensive_line_outcomes")
     _write(player_usage, args.out, "player_usage")
+    _write(chaos_ecology, args.out, "chaos_ecology")
 
     missing = int(policy.select(pl.col("games_observed").is_null().sum()).item())
     ol_missing = int(
         ol_outcomes.select(pl.col("historical_pass_protection_signal").is_null().sum()).item()
     )
+    chaos_row = chaos_ecology.to_dicts()[0]
     manifest = {
         "artifact": "Monster Historical Team Policy Priors",
         "generated_at_utc": datetime.now(UTC).isoformat(),
@@ -107,13 +111,18 @@ def main() -> None:
         "run_geometry_outcome_rows": run_geometry_outcomes.height,
         "intent_ecology_runtime_authority": "shadow_until_oos_and_paired_gates",
         "player_usage_rows": player_usage.height,
+        "chaos_ecology_rows": chaos_ecology.height,
+        "chaos_interception_return_rows": chaos_row["interception_return_rows"],
+        "chaos_fumble_return_rows": chaos_row["fumble_return_rows"],
+        "chaos_punt_return_rows": chaos_row["punt_return_rows"],
+        "chaos_kickoff_return_rows": chaos_row["kickoff_return_rows"],
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
         "principle": (
             "Historical outcomes are priors and audit targets; simulation policy remains "
-            "contextual and season-scope aligned. Pass and run intent evidence is compiled "
-            "separately from execution success."
+            "contextual and season-scope aligned. Pass/run intent and rare change-of-possession "
+            "geometry are compiled separately from direct scoring authority."
         ),
     }
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
