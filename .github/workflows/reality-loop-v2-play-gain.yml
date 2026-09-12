@@ -4,6 +4,9 @@ on:
   push:
     branches: [work/reality-loop-v2-test]
     paths:
+      - src/monster/sim/play_anatomy.py
+      - src/monster/sim/matchup_kernel.py
+      - src/monster/sim/resolution_ecology.py
       - scripts/audit_reality_loop_v2_play_gain.py
       - .github/workflows/reality-loop-v2-play-gain.yml
   workflow_dispatch:
@@ -77,8 +80,13 @@ jobs:
           comp = pl.read_csv(out / 'play_gain_comparison.csv')
           keys = {
               ('designed_run','negative_gain_rate'),
+              ('designed_run','gain_5plus_rate'),
+              ('designed_run','gain_10plus_rate'),
               ('designed_run','explosive_15_rate'),
+              ('scramble','negative_gain_rate'),
+              ('scramble','gain_3plus_rate'),
               ('scramble','gain_5plus_rate'),
+              ('scramble','gain_10plus_rate'),
               ('scramble','explosive_15_rate'),
               ('complete_pass','negative_gain_rate'),
               ('complete_pass','gain_10plus_rate'),
