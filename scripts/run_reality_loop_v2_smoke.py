@@ -11,6 +11,7 @@ from monster.sim import matchup_kernel, play_kernel, resolution_ecology
 from monster.sim.clock_ecology_v2 import sample_snap_cadence_v2
 from monster.sim.full_world_telemetry_v2 import FullWorldTelemetryV2
 from monster.sim.game_flow_lookup import build_team_game_flow_policy
+from monster.sim.pass_resolution_bands_v2 import sample_yac_v2
 from monster.sim.resolution_bands_v2 import resolve_run_contact_v2, resolve_run_ecology_v2
 from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v2
 
@@ -91,9 +92,12 @@ def configure_reality_loop_v2() -> None:
     matchup_kernel.resolve_pass_snap = resolve_pass_snap_v2
     matchup_kernel.resolve_run_snap = resolve_run_snap_v2
 
-    # Preserve designed-run failure/explosive branches while restoring the empirical 3+/5+
-    # routine bands, and give QB scrambles their own open-field 10-14 yard branch.
+    # Preserve designed-run failure/explosive branches while restoring empirical routine bands,
+    # give QB scrambles their own escape topology, and use the already-shadow-gated shallow-pass
+    # gain-band sampler. Completion probability remains owned by the throw resolver; this changes
+    # only the yards topology after a shallow catch.
     resolution_ecology.resolve_run_ecology = resolve_run_ecology_v2
+    resolution_ecology.sample_yac = sample_yac_v2
     play_kernel.resolve_run_contact = resolve_run_contact_v2
 
     # Drive conversion/survival is already close to NFL reality; low play volume was therefore
