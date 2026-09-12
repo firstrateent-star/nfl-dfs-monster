@@ -15,7 +15,6 @@ from monster.sim.matchup_kernel import (
 )
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
 
-
 # _team_identity is evaluated for every team before the integrated runner builds defenses.
 # Recording state by player lets the legacy one-argument _defensive_unit seam recover the
 # correct market-blind team defensive context without changing the stable integrated runner.
@@ -177,7 +176,11 @@ def enhanced_team_identity(
 def enhanced_defensive_unit(players: tuple[Any, ...]) -> DefensiveUnit:
     """Combine player-v-player evidence with market-blind team defensive identity."""
     state = next(
-        (_STATE_BY_PLAYER.get(player.player_id) for player in players if player.player_id in _STATE_BY_PLAYER),
+        (
+            _STATE_BY_PLAYER.get(player.player_id)
+            for player in players
+            if player.player_id in _STATE_BY_PLAYER
+        ),
         None,
     )
     if state is None:
@@ -195,7 +198,11 @@ def enhanced_defensive_unit(players: tuple[Any, ...]) -> DefensiveUnit:
         np.clip(exp(-1.15 * epa_allowed - 1.55 * (explosive_allowed - 0.10)), 0.78, 1.28)
     )
     rush_context = float(
-        np.clip(exp(2.60 * (sack_rate - 0.07) + 1.10 * (hit_rate - 0.18) - 0.35 * epa_allowed), 0.80, 1.27)
+        np.clip(
+            exp(2.60 * (sack_rate - 0.07) + 1.10 * (hit_rate - 0.18) - 0.35 * epa_allowed),
+            0.80,
+            1.27,
+        )
     )
     run_context = float(np.clip(exp(-0.75 * epa_allowed), 0.84, 1.20))
 
@@ -207,14 +214,25 @@ def enhanced_defensive_unit(players: tuple[Any, ...]) -> DefensiveUnit:
         position = player.position.upper()
         snap_weight = float(
             np.clip(
-                player.defense_snap_share * player.active_probability * player.effectiveness_if_active,
+                player.defense_snap_share
+                * player.active_probability
+                * player.effectiveness_if_active,
                 0.001,
                 1.10,
             )
         )
-        cov = float(np.clip(_rating(player.madden_coverage) * coverage_context**0.55, 0.68, 1.38))
-        rush = float(np.clip(_rating(player.madden_pass_rush) * rush_context**0.60, 0.68, 1.38))
-        tackle = float(np.clip(_rating(player.madden_tackle) * run_context**0.45, 0.70, 1.34))
+        cov = float(
+            np.clip(_rating(player.madden_coverage) * coverage_context**0.55, 0.68, 1.38)
+        )
+        rush = float(
+            np.clip(_rating(player.madden_pass_rush) * rush_context**0.60, 0.68, 1.38)
+        )
+        tackle = float(
+            np.clip(_rating(player.madden_tackle) * run_context**0.45, 0.70, 1.34)
+        )
+        speed = _rating(player.madden_speed, center=85.0, scale=8.0)
+        return_rating = _rating(player.madden_return, center=78.0, scale=12.0)
+        returning = float(np.clip(0.60 * speed + 0.40 * return_rating, 0.72, 1.30))
         item = DefensiveIdentity(
             player_id=player.player_id,
             name=player.player_id,
@@ -224,6 +242,8 @@ def enhanced_defensive_unit(players: tuple[Any, ...]) -> DefensiveUnit:
             run_defense=tackle,
             tackling=tackle,
             ball_hawk=cov,
+            speed=speed,
+            returning=returning,
             snap_weight=snap_weight,
         )
         if position in {"DE", "DT", "NT", "DL", "EDGE", "LB", "ILB", "OLB", "MLB"}:
