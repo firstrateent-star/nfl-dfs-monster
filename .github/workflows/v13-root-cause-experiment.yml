@@ -6,6 +6,7 @@ on:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/run_week1_v13_root_cause_experiment.py
+      - ops/root-cause-trigger.txt
 
 jobs:
   root-cause:
