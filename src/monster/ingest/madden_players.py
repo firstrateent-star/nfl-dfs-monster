@@ -13,53 +13,24 @@ MADDEN27_RATINGS_URL = (
 )
 
 _TEAM_NAME_TO_ID = {
-    "Arizona Cardinals": "ARI",
-    "Atlanta Falcons": "ATL",
-    "Baltimore Ravens": "BAL",
-    "Buffalo Bills": "BUF",
-    "Carolina Panthers": "CAR",
-    "Chicago Bears": "CHI",
-    "Cincinnati Bengals": "CIN",
-    "Cleveland Browns": "CLE",
-    "Dallas Cowboys": "DAL",
-    "Denver Broncos": "DEN",
-    "Detroit Lions": "DET",
-    "Green Bay Packers": "GB",
-    "Houston Texans": "HOU",
-    "Indianapolis Colts": "IND",
-    "Jacksonville Jaguars": "JAC",
-    "Kansas City Chiefs": "KC",
-    "Los Angeles Chargers": "LAC",
-    "Los Angeles Rams": "LAR",
-    "Las Vegas Raiders": "LV",
-    "Miami Dolphins": "MIA",
-    "Minnesota Vikings": "MIN",
-    "New England Patriots": "NE",
-    "New Orleans Saints": "NO",
-    "New York Giants": "NYG",
-    "New York Jets": "NYJ",
-    "Philadelphia Eagles": "PHI",
-    "Pittsburgh Steelers": "PIT",
-    "San Francisco 49ers": "SF",
-    "Seattle Seahawks": "SEA",
-    "Tampa Bay Buccaneers": "TB",
-    "Tennessee Titans": "TEN",
-    "Washington Commanders": "WAS",
+    "Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL",
+    "Buffalo Bills": "BUF", "Carolina Panthers": "CAR", "Chicago Bears": "CHI",
+    "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE", "Dallas Cowboys": "DAL",
+    "Denver Broncos": "DEN", "Detroit Lions": "DET", "Green Bay Packers": "GB",
+    "Houston Texans": "HOU", "Indianapolis Colts": "IND", "Jacksonville Jaguars": "JAC",
+    "Kansas City Chiefs": "KC", "Los Angeles Chargers": "LAC", "Los Angeles Rams": "LAR",
+    "Las Vegas Raiders": "LV", "Miami Dolphins": "MIA", "Minnesota Vikings": "MIN",
+    "New England Patriots": "NE", "New Orleans Saints": "NO", "New York Giants": "NYG",
+    "New York Jets": "NYJ", "Philadelphia Eagles": "PHI", "Pittsburgh Steelers": "PIT",
+    "San Francisco 49ers": "SF", "Seattle Seahawks": "SEA", "Tampa Bay Buccaneers": "TB",
+    "Tennessee Titans": "TEN", "Washington Commanders": "WAS",
 }
-
+_TEAM_IDS = set(_TEAM_NAME_TO_ID.values())
 _OL_POSITIONS = {"LT", "LG", "C", "RG", "RT", "T", "G", "OL"}
 
 
-def load_madden27_player_ratings(
-    url: str = MADDEN27_RATINGS_URL,
-    *,
-    timeout: int = 60,
-) -> pl.DataFrame:
-    """Load a dated public extraction of EA's Madden 27 player ratings.
-
-    The upstream mirror states that it scrapes EA's official ratings site. This adapter
-    treats the data as a low-authority proxy, not observed NFL performance.
-    """
+def load_madden27_player_ratings(url: str = MADDEN27_RATINGS_URL, *, timeout: int = 60) -> pl.DataFrame:
+    """Load the public fallback extraction of EA Madden 27 ratings."""
     response = requests.get(url, timeout=timeout)
     response.raise_for_status()
     return pl.read_csv(BytesIO(response.content), infer_schema_length=3000)
@@ -74,37 +45,66 @@ def _normalize_name_text(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]", "", text)
 
 
+def _normalize_team_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text in _TEAM_IDS:
+        return text
+    return _TEAM_NAME_TO_ID.get(text)
+
+
 def _normalize_names(frame: pl.DataFrame, column: str, alias: str) -> pl.DataFrame:
     return frame.with_columns(
-        pl.col(column)
-        .cast(pl.Utf8)
-        .map_elements(_normalize_name_text, return_dtype=pl.Utf8)
-        .alias(alias)
+        pl.col(column).cast(pl.Utf8).map_elements(_normalize_name_text, return_dtype=pl.Utf8).alias(alias)
     )
 
 
 def _low_authority_rating(composite: pl.Expr, center: float = 78.0, weight: float = 0.35) -> pl.Expr:
-    """Shrink a 0-99 proxy toward neutral before the unit compiler sees it."""
     return (center + weight * (composite - center)).clip(55.0, 95.0)
+
+
+def _legacy_ol_schema(ratings: pl.DataFrame) -> pl.DataFrame:
+    """Expose the old OL adapter contract from the canonical official-EA schema.
+
+    Raw official madden_* fields remain authoritative and untouched; these aliases only
+    keep the older bounded OL proxy compiler compatible with the richer snapshot.
+    """
+    aliases = {
+        "full_name": "madden_player_name",
+        "position": "madden_position",
+        "team_name": "madden_team",
+        "pass_block_rating": "madden_pass_block",
+        "pass_block_power_rating": "madden_pass_block_power",
+        "pass_block_finesse_rating": "madden_pass_block_finesse",
+        "run_block_rating": "madden_run_block",
+        "run_block_power_rating": "madden_run_block_power",
+        "run_block_finesse_rating": "madden_run_block_finesse",
+        "impact_block_rating": "madden_impact_blocking",
+        "awareness_rating": "madden_awareness",
+        "strength_rating": "madden_strength",
+        "injury_rating": "madden_injury",
+        "stamina_rating": "madden_stamina",
+    }
+    missing_legacy = [target for target in aliases if target not in ratings.columns]
+    if not missing_legacy:
+        return ratings
+    missing_source = [source for target, source in aliases.items() if target in missing_legacy and source not in ratings.columns]
+    if missing_source:
+        return ratings
+    return ratings.with_columns(
+        *[pl.col(source).alias(target) for target, source in aliases.items() if target not in ratings.columns]
+    )
 
 
 def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
     """Compile mechanism-specific OL proxies from EA blocking attributes."""
+    ratings = _legacy_ol_schema(ratings)
     required = {
-        "full_name",
-        "position",
-        "team_name",
-        "pass_block_rating",
-        "pass_block_power_rating",
-        "pass_block_finesse_rating",
-        "run_block_rating",
-        "run_block_power_rating",
-        "run_block_finesse_rating",
-        "impact_block_rating",
-        "awareness_rating",
-        "strength_rating",
-        "injury_rating",
-        "stamina_rating",
+        "full_name", "position", "team_name", "pass_block_rating",
+        "pass_block_power_rating", "pass_block_finesse_rating", "run_block_rating",
+        "run_block_power_rating", "run_block_finesse_rating", "impact_block_rating",
+        "awareness_rating", "strength_rating", "injury_rating", "stamina_rating",
     }
     missing = required.difference(ratings.columns)
     if missing:
@@ -112,23 +112,13 @@ def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
 
     ol = ratings.filter(pl.col("position").cast(pl.Utf8).is_in(sorted(_OL_POSITIONS)))
     ol = ol.with_columns(
-        pl.col("team_name")
-        .cast(pl.Utf8)
-        .replace_strict(_TEAM_NAME_TO_ID, default=None)
-        .alias("madden_team_id"),
+        pl.col("team_name").cast(pl.Utf8).map_elements(_normalize_team_id, return_dtype=pl.Utf8).alias("madden_team_id"),
         *[
             pl.col(c).cast(pl.Float64, strict=False)
             for c in [
-                "pass_block_rating",
-                "pass_block_power_rating",
-                "pass_block_finesse_rating",
-                "run_block_rating",
-                "run_block_power_rating",
-                "run_block_finesse_rating",
-                "impact_block_rating",
-                "awareness_rating",
-                "strength_rating",
-                "injury_rating",
+                "pass_block_rating", "pass_block_power_rating", "pass_block_finesse_rating",
+                "run_block_rating", "run_block_power_rating", "run_block_finesse_rating",
+                "impact_block_rating", "awareness_rating", "strength_rating", "injury_rating",
                 "stamina_rating",
             ]
         ],
@@ -136,40 +126,26 @@ def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
     ol = _normalize_names(ol, "full_name", "_name_key")
 
     pass_composite = (
-        0.45 * pl.col("pass_block_rating")
-        + 0.20 * pl.col("pass_block_power_rating")
-        + 0.20 * pl.col("pass_block_finesse_rating")
-        + 0.10 * pl.col("awareness_rating")
+        0.45 * pl.col("pass_block_rating") + 0.20 * pl.col("pass_block_power_rating")
+        + 0.20 * pl.col("pass_block_finesse_rating") + 0.10 * pl.col("awareness_rating")
         + 0.05 * pl.col("strength_rating")
     )
     run_composite = (
-        0.40 * pl.col("run_block_rating")
-        + 0.20 * pl.col("run_block_power_rating")
-        + 0.20 * pl.col("run_block_finesse_rating")
-        + 0.10 * pl.col("impact_block_rating")
-        + 0.05 * pl.col("strength_rating")
-        + 0.05 * pl.col("awareness_rating")
+        0.40 * pl.col("run_block_rating") + 0.20 * pl.col("run_block_power_rating")
+        + 0.20 * pl.col("run_block_finesse_rating") + 0.10 * pl.col("impact_block_rating")
+        + 0.05 * pl.col("strength_rating") + 0.05 * pl.col("awareness_rating")
     )
     return ol.with_columns(
         pass_composite.alias("madden_pass_block_composite_raw"),
         run_composite.alias("madden_run_block_composite_raw"),
         _low_authority_rating(pass_composite).alias("madden_pass_block"),
         _low_authority_rating(run_composite).alias("madden_run_block"),
-        (0.55 * pl.col("injury_rating") + 0.45 * pl.col("stamina_rating")).alias(
-            "madden_ol_durability_proxy"
-        ),
+        (0.55 * pl.col("injury_rating") + 0.45 * pl.col("stamina_rating")).alias("madden_ol_durability_proxy"),
     ).select(
-        "_name_key",
-        "full_name",
-        "position",
-        "madden_team_id",
-        "madden_pass_block_composite_raw",
-        "madden_run_block_composite_raw",
-        "madden_pass_block",
-        "madden_run_block",
-        "madden_ol_durability_proxy",
-        "awareness_rating",
-        "strength_rating",
+        "_name_key", "full_name", "position", "madden_team_id",
+        "madden_pass_block_composite_raw", "madden_run_block_composite_raw",
+        "madden_pass_block", "madden_run_block", "madden_ol_durability_proxy",
+        "awareness_rating", "strength_rating",
     )
 
 
@@ -186,13 +162,9 @@ def attach_madden_ol_ratings(personnel: pl.DataFrame, ratings: pl.DataFrame) -> 
     proxies = compile_madden_ol_proxies(ratings)
     name_column = "display_name" if "display_name" in personnel.columns else "full_name"
     current = _normalize_names(personnel, name_column, "_name_key")
-
     exact = proxies.select(
-        "_name_key",
-        pl.col("madden_team_id").alias("team_id"),
-        "madden_pass_block",
-        "madden_run_block",
-        "madden_ol_durability_proxy",
+        "_name_key", pl.col("madden_team_id").alias("team_id"), "madden_pass_block",
+        "madden_run_block", "madden_ol_durability_proxy",
     ).unique(subset=["_name_key", "team_id"], keep="last")
     out = current.join(exact, on=["_name_key", "team_id"], how="left")
 
@@ -209,36 +181,15 @@ def attach_madden_ol_ratings(personnel: pl.DataFrame, ratings: pl.DataFrame) -> 
     out = out.join(unique_names, on="_name_key", how="left")
     is_ol = pl.col("position_group") == "OL" if "position_group" in out.columns else pl.lit(False)
     out = out.with_columns(
-        pl.when(is_ol)
-        .then(pl.coalesce([pl.col("madden_pass_block"), pl.col("_name_pass_block")]))
-        .otherwise(None)
-        .alias("madden_pass_block"),
-        pl.when(is_ol)
-        .then(pl.coalesce([pl.col("madden_run_block"), pl.col("_name_run_block")]))
-        .otherwise(None)
-        .alias("madden_run_block"),
-        pl.when(is_ol)
-        .then(pl.coalesce([pl.col("madden_ol_durability_proxy"), pl.col("_name_durability")]))
-        .otherwise(None)
-        .alias("madden_ol_durability_proxy"),
-        pl.when(~is_ol)
-        .then(None)
-        .when(pl.col("madden_pass_block").is_not_null())
-        .then(pl.lit("team_name"))
-        .when(pl.col("_name_pass_block").is_not_null())
-        .then(pl.lit("unique_name"))
-        .otherwise(None)
-        .alias("madden_match_type"),
+        pl.when(is_ol).then(pl.coalesce([pl.col("madden_pass_block"), pl.col("_name_pass_block")])).otherwise(None).alias("madden_pass_block"),
+        pl.when(is_ol).then(pl.coalesce([pl.col("madden_run_block"), pl.col("_name_run_block")])).otherwise(None).alias("madden_run_block"),
+        pl.when(is_ol).then(pl.coalesce([pl.col("madden_ol_durability_proxy"), pl.col("_name_durability")])).otherwise(None).alias("madden_ol_durability_proxy"),
+        pl.when(~is_ol).then(None)
+        .when(pl.col("madden_pass_block").is_not_null()).then(pl.lit("team_name"))
+        .when(pl.col("_name_pass_block").is_not_null()).then(pl.lit("unique_name"))
+        .otherwise(None).alias("madden_match_type"),
     )
-    return out.drop(
-        [
-            "_name_key",
-            "_madden_name_count",
-            "_name_pass_block",
-            "_name_run_block",
-            "_name_durability",
-        ]
-    )
+    return out.drop(["_name_key", "_madden_name_count", "_name_pass_block", "_name_run_block", "_name_durability"])
 
 
 def madden_ol_coverage(personnel: pl.DataFrame) -> pl.DataFrame:
