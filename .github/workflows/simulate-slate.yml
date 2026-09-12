@@ -1,24 +1,143 @@
 name: Simulate slate
+
 on:
   workflow_dispatch:
     inputs:
       worlds:
         description: Monte Carlo worlds per game
         required: true
-        default: '100000'
+        default: '1000'
       seed:
-        description: Base seed
+        description: Base deterministic seed
         required: true
         default: '2026091301'
+
 permissions:
   contents: read
+
 jobs:
   simulate:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync
-      - run: uv run monster validate-config
-      - run: echo "Full snapshot->game->player simulation is next implementation milestone."
+      - run: uv sync --extra dev
+
+      - name: Validate Monster configuration
+        run: uv run monster validate-config
+
+      - name: Build current personnel reality
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current health and availability
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Reality Loop v2 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_loop_v2_identity_authority.py
+          tests/test_reality_loop_v2_play_topology.py
+          tests/test_reality_loop_v2_snap_centering.py
+          tests/test_reality_loop_v2_clock_ecology.py
+          tests/test_reality_loop_v2_distribution_bands.py
+          tests/test_reality_loop_v2_pass_resolution_bands.py
+
+      - name: Simulate football worlds
+        run: >-
+          uv run python scripts/run_reality_loop_v2_smoke.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ inputs.worlds }}
+          --seed ${{ inputs.seed }}
+          --progress-every 100
+          --first-out artifacts/monster-simulation
+          --box-out artifacts/monster-box-scores
+
+      - name: Audit simulated world against NFL anatomy
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/monster-simulation
+          --history 2025
+          --out artifacts/monster-simulation
+
+      - name: Write simulator run manifest
+        run: |
+          uv run python - <<'PY'
+          import json
+          from datetime import UTC, datetime
+          from pathlib import Path
+          import polars as pl
+
+          out = Path('artifacts/monster-simulation')
+          games = pl.read_csv(out / 'game_distributions.csv')
+          players = pl.read_csv(out / 'player_distributions.csv')
+          worlds = pl.read_csv(out / 'player_world_fanduel.csv')
+          score = json.loads((out / 'score_anatomy.json').read_text())
+          base = json.loads((out / 'manifest.json').read_text())
+
+          manifest = {
+              'artifact': 'MONSTER Working Simulator Run',
+              'generated_at_utc': datetime.now(UTC).isoformat(),
+              'season': base['season'],
+              'week': base['week'],
+              'games': base['games'],
+              'worlds_per_game': base['worlds_per_game'],
+              'seed': base['seed'],
+              'simulated_games': base['games'] * base['worlds_per_game'],
+              'player_world_rows': worlds.height,
+              'game_total_mean': float(games['total_mean'].mean()),
+              'game_total_between_matchup_sd': float(games['total_mean'].std(ddof=1)),
+              'player_distribution_rows': players.height,
+              'score_anatomy_gap': score['gaps']['scoreboard_points_per_game'],
+              'football_is_source_of_truth': True,
+              'fanduel_scoring_downstream_only': True,
+              'outputs': {
+                  'games': 'game_distributions.csv',
+                  'projected_scores': 'projected_scores_and_outcomes.csv',
+                  'players': 'player_distributions.csv',
+                  'player_worlds': 'player_world_fanduel.csv',
+                  'football_anatomy': 'football_anatomy.csv',
+                  'pass_depth': 'same_world_pass_depth_summary.csv',
+                  'dropback_outcomes': 'same_world_dropback_outcomes.csv',
+                  'run_geometry': 'same_world_run_geometry_summary.csv',
+                  'scrambles': 'same_world_scramble_summary.csv',
+                  'score_anatomy': 'score_anatomy.json',
+              },
+          }
+          (out / 'simulator_run_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload working simulator outputs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-simulator-${{ github.run_id }}
+          path: |
+            artifacts/monster-simulation/
+            artifacts/monster-box-scores/
+          retention-days: 14
