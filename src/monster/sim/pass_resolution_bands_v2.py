@@ -22,8 +22,10 @@ def _tilt_positive_bands(probabilities: np.ndarray, *, interaction: float) -> np
 def _sample_between(low: float, high: float, rng: np.random.Generator) -> float:
     if high <= low + 1e-8:
         return float(low)
-    # Mild center weighting avoids uniform/artificially flat yard bands.
-    fraction = float(rng.beta(2.15, 2.05))
+    # NFL threshold bands are not uniform: most qualifying gains live nearer the threshold
+    # than the next boundary. A lower-skewed beta preserves 5+/10+ membership while preventing
+    # a topology repair from quietly increasing mean YAC.
+    fraction = float(rng.beta(1.70, 3.00))
     return float(low + (high - low) * fraction)
 
 
