@@ -217,6 +217,7 @@ def compile_pass_intent_policy(
             (completion_yards >= 5.0).mean().fill_null(0.0).alias("gain_5plus_completion_rate"),
             (completion_yards >= 10.0).mean().fill_null(0.0).alias("gain_10plus_completion_rate"),
             (completion_yards >= 15.0).mean().fill_null(0.0).alias("gain_15plus_completion_rate"),
+            (completion_yards >= 20.0).mean().fill_null(0.0).alias("gain_20plus_completion_rate"),
             yac.filter(completions == 1.0).mean().fill_null(0.0).alias("yac_mean_completed"),
             yac.filter(completions == 1.0).std().fill_null(0.0).alias("yac_sd_completed"),
             (completion_yards < 0).mean().fill_null(0.0).alias("negative_completion_rate"),
