@@ -72,7 +72,7 @@ def test_own_territory_fourth_down_selects_punt() -> None:
     assert fourth_down_decision(state) == FourthDownDecision.PUNT
 
 
-def test_late_trailing_fourth_down_changes_decision() -> None:
+def test_late_trailing_four_to_eight_points_preserves_possession() -> None:
     state = _state(
         quarter=4,
         seconds_remaining=180,
@@ -83,3 +83,51 @@ def test_late_trailing_fourth_down_changes_decision() -> None:
         home_score=24,
     )
     assert fourth_down_decision(state) == FourthDownDecision.GO
+
+
+def test_final_seconds_trailing_by_field_goal_prefers_tying_kick_when_available() -> None:
+    state = _state(
+        quarter=4,
+        seconds_remaining=20,
+        yardline_100=75.0,
+        down=4,
+        distance=5.0,
+        away_score=20,
+        home_score=23,
+    )
+    assert fourth_down_decision(state) == FourthDownDecision.FIELD_GOAL
+
+
+def test_final_seconds_trailing_by_field_goal_must_go_when_kick_is_not_available() -> None:
+    state = _state(
+        quarter=4,
+        seconds_remaining=20,
+        yardline_100=35.0,
+        down=4,
+        distance=2.0,
+        away_score=20,
+        home_score=23,
+    )
+    assert fourth_down_decision(state) == FourthDownDecision.GO
+
+
+def test_end_of_half_scoring_range_prefers_points_on_fourth_and_medium() -> None:
+    state = _state(
+        quarter=2,
+        seconds_remaining=1818,
+        yardline_100=75.0,
+        down=4,
+        distance=5.0,
+    )
+    assert fourth_down_decision(state) == FourthDownDecision.FIELD_GOAL
+
+
+def test_end_of_half_own_territory_still_allows_punt() -> None:
+    state = _state(
+        quarter=2,
+        seconds_remaining=1818,
+        yardline_100=30.0,
+        down=4,
+        distance=7.0,
+    )
+    assert fourth_down_decision(state) == FourthDownDecision.PUNT
