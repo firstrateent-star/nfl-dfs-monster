@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import exp, log
 
 import numpy as np
 
@@ -8,8 +9,10 @@ from monster.sim.play_kernel import PlayerIdentity
 from monster.sim.snap_ecology import resolve_pass_snap, resolve_run_snap
 
 # 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
-# Team/player matchup traits perturb this baseline rather than replacing the causal prior.
+# Team/player matchup traits perturb these baselines rather than replacing the causal priors.
 LEAGUE_PRESSURE_RATE = 0.297832
+LEAGUE_THROW_COMPLETION_RATE = 0.642661
+LEAGUE_THROW_INTERCEPTION_RATE = 0.021772
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,20 @@ def _representative_defender(
     )
 
 
+def _bounded_relative_product(*terms: tuple[float, float], low: float, high: float) -> float:
+    """Combine relative football edges without allowing many small effects to collapse a prior.
+
+    Each term is ``(relative_value, authority)``. Log-space authority means neutral values
+    remain exactly neutral, while player/QB/coverage differences still move the outcome in
+    the correct direction. This is intentionally different from multiplying several raw
+    factors at full authority, which systematically depressed the league completion ecology.
+    """
+    log_relative = 0.0
+    for value, authority in terms:
+        log_relative += authority * log(max(float(value), 1e-6))
+    return float(np.clip(exp(log_relative), low, high))
+
+
 def resolve_pass_matchup(
     target: PlayerIdentity,
     defense: DefensiveUnit,
@@ -101,6 +118,11 @@ def resolve_pass_matchup(
     paired against the most relevant rushers. RB/TE protection can reinforce the most dangerous
     rush lane. Coverage assigns a primary defender while preserving safety help, bracket risk,
     and zone overlap. QB read quality then depends on separation plus the time the pocket buys.
+
+    Throw completion and interception start from empirical 2025 league throw baselines.
+    Player/read/coverage evidence moves those priors with bounded relative authority. Pressure
+    is *not* charged here because the play kernel subsequently resolves the actual pressure
+    state and applies the observed clean-vs-pressure split exactly once.
     """
     snap = resolve_pass_snap(
         target=target,
@@ -150,30 +172,40 @@ def resolve_pass_matchup(
             0.62,
         )
     )
+
+    separation_factor = float(np.clip(1.0 + 0.06 * snap.separation_edge, 0.88, 1.12))
+    completion_relative = _bounded_relative_product(
+        (np.clip(snap.qb_read_quality, 0.65, 1.40), 0.42),
+        (np.clip(target.efficiency, 0.65, 1.40), 0.32),
+        (1.0 / max(effective_coverage, 0.60), 0.46),
+        (separation_factor, 1.0),
+        low=0.72,
+        high=1.30,
+    )
     completion = float(
         np.clip(
-            0.64
-            * snap.qb_read_quality
-            * target.efficiency
-            / max(effective_coverage, 0.60)
-            * (1.0 + 0.08 * snap.separation_edge)
-            * (1.0 - 0.08 * pressure),
-            0.27,
-            0.90,
+            LEAGUE_THROW_COMPLETION_RATE * completion_relative,
+            0.30,
+            0.88,
         )
+    )
+
+    interception_relative = _bounded_relative_product(
+        (effective_ball_hawk, 0.45),
+        (effective_coverage, 0.24),
+        (1.0 / max(snap.qb_read_quality, 0.55), 0.34),
+        (float(np.clip(1.0 - 0.08 * snap.separation_edge, 0.84, 1.16)), 1.0),
+        low=0.55,
+        high=1.75,
     )
     interception = float(
         np.clip(
-            0.022
-            * effective_ball_hawk
-            * effective_coverage
-            / max(snap.qb_read_quality, 0.55)
-            * (1.0 + 0.20 * pressure)
-            * (1.0 - 0.10 * snap.separation_edge),
+            LEAGUE_THROW_INTERCEPTION_RATE * interception_relative,
             0.004,
-            0.085,
+            0.075,
         )
     )
+
     yards_multiplier = float(
         np.clip(
             target.explosive
