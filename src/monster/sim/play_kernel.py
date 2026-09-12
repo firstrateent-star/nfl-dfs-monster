@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from monster.sim.decision_policy import FourthDownDecision, situation_policy
+from monster.sim.decision_policy import (
+    FourthDownDecision,
+    sample_fourth_down_decision,
+    situation_policy,
+)
 from monster.sim.football_state import FootballState
 from monster.sim.game_flow import derive_game_flow_state
 from monster.sim.game_flow_brain import decide_game_flow
@@ -203,11 +207,11 @@ def choose_play_type(
     offense: TeamIdentity,
     rng: np.random.Generator,
 ) -> PlayType:
-    policy = _policy_for_state(state, offense)
     if state.down == 4:
-        if policy.fourth_down == FourthDownDecision.PUNT:
+        decision = sample_fourth_down_decision(state, rng)
+        if decision == FourthDownDecision.PUNT:
             return PlayType.PUNT
-        if policy.fourth_down == FourthDownDecision.FIELD_GOAL:
+        if decision == FourthDownDecision.FIELD_GOAL:
             return PlayType.FIELD_GOAL
     return PlayType.PASS if rng.random() < _dropback_probability(state, offense) else PlayType.RUN
 
@@ -263,12 +267,12 @@ def _field_read_target(
 
     candidates: list[tuple[PlayerIdentity, PassMatchup, float]] = []
     for receiver in offense.receivers:
+        qb_fatigue = _fatigue_factor(fatigue, offense.quarterback.player_id)
         matchup = resolve_pass_matchup(
             receiver,
             defense,
             pass_protection=offense.pass_protection * _fatigue_factor(fatigue, f"line:{offense.team_id}"),
-            quarterback_efficiency=offense.pass_efficiency
-            * _fatigue_factor(fatigue, offense.quarterback.player_id),
+            quarterback_efficiency=offense.quarterback.efficiency * qb_fatigue,
         )
         receiver_fatigue = _fatigue_factor(fatigue, receiver.player_id)
         expected_gain = (
@@ -493,7 +497,7 @@ def simulate_scrimmage_play(
     safety_help = 0.0
     bracket_factor = 0.0
     zone_overlap = 0.0
-    qb_read_quality = offense.pass_efficiency * qb_fatigue
+    qb_read_quality = offense.quarterback.efficiency * qb_fatigue
     if matchup is not None:
         pressure = matchup.pressure_probability
         primary_defender_id = matchup.primary_defender_id
@@ -529,7 +533,7 @@ def simulate_scrimmage_play(
     response = resolve_qb_response(
         pressured=pressured,
         mobility=offense.quarterback.explosive * qb_fatigue,
-        pocket_skill=offense.pass_efficiency * qb_fatigue,
+        pocket_skill=offense.quarterback.efficiency * qb_fatigue,
         rng=rng,
     )
     if response == QBResponse.SACK:
