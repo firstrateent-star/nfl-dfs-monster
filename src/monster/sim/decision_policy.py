@@ -131,18 +131,19 @@ def sample_fourth_down_decision(
     state: FootballState,
     rng: np.random.Generator,
 ) -> FourthDownDecision:
+    """Sample the empirical fourth-down choice using the smallest RNG contract possible."""
     probabilities = fourth_down_probabilities(state)
-    choices = (
-        FourthDownDecision.GO,
-        FourthDownDecision.FIELD_GOAL,
-        FourthDownDecision.PUNT,
-    )
-    weights = np.asarray(
-        [probabilities.go, probabilities.field_goal, probabilities.punt], dtype=float
-    )
-    weights = np.clip(weights, 0.0, None)
-    weights /= weights.sum()
-    return choices[int(rng.choice(len(choices), p=weights))]
+    total = probabilities.go + probabilities.field_goal + probabilities.punt
+    if total <= 0.0:
+        raise ValueError("fourth-down probabilities must contain positive mass")
+    go = probabilities.go / total
+    field_goal = probabilities.field_goal / total
+    draw = float(rng.random())
+    if draw < go:
+        return FourthDownDecision.GO
+    if draw < go + field_goal:
+        return FourthDownDecision.FIELD_GOAL
+    return FourthDownDecision.PUNT
 
 
 def fourth_down_decision(state: FootballState) -> FourthDownDecision:
