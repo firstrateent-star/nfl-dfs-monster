@@ -35,6 +35,7 @@ class PassDepthOutcome:
     gain_5plus_completion_rate: float = 0.0
     gain_10plus_completion_rate: float = 0.0
     gain_15plus_completion_rate: float = 0.0
+    gain_20plus_completion_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,7 @@ def build_pass_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, PassD
             gain_5plus_completion_rate=_float(row, "gain_5plus_completion_rate"),
             gain_10plus_completion_rate=_float(row, "gain_10plus_completion_rate"),
             gain_15plus_completion_rate=_float(row, "gain_15plus_completion_rate"),
+            gain_20plus_completion_rate=_float(row, "gain_20plus_completion_rate"),
         )
     return out
 
