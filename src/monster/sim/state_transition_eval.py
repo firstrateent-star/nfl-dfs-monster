@@ -134,3 +134,96 @@ def replace_transition_family(
         if state in replacement:
             hybrid[state] = dict(replacement[state])
     return hybrid
+
+
+def joint_component_probabilities(
+    rows: Iterable[Mapping[str, object]],
+    *,
+    component_field: str = "component",
+    next_field: str = "next_state",
+) -> dict[str, dict[str, float]]:
+    """Return P(component, next_state) for one starting-state population."""
+
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    total = 0
+    for row in rows:
+        component = str(row[component_field])
+        next_state = str(row[next_field])
+        counts[component][next_state] += 1
+        total += 1
+    if total <= 0:
+        return {}
+    return {
+        component: {next_state: count / total for next_state, count in counter.items()}
+        for component, counter in counts.items()
+    }
+
+
+def aggregate_joint_transition(
+    joint: Mapping[str, Mapping[str, float]],
+) -> dict[str, float]:
+    output: dict[str, float] = defaultdict(float)
+    for distribution in joint.values():
+        for next_state, probability in distribution.items():
+            output[next_state] += float(probability)
+    return dict(output)
+
+
+def transplant_component_transition(
+    baseline_joint: Mapping[str, Mapping[str, float]],
+    replacement_joint: Mapping[str, Mapping[str, float]],
+    component: str,
+    *,
+    mode: str = "mass_and_shape",
+) -> dict[str, float]:
+    """Transplant one mechanism component into a starting-state transition distribution.
+
+    ``mass_and_shape`` replaces both the component probability and its conditional next-state
+    distribution with historical evidence. ``rate_only`` replaces component probability while
+    retaining Monster's conditional next-state shape. ``shape_only`` retains Monster's component
+    probability but replaces its conditional next-state shape. Non-target Monster outcomes are
+    proportionally rescaled only when component mass changes, so their relative structure remains
+    untouched.
+    """
+
+    if mode not in {"mass_and_shape", "rate_only", "shape_only"}:
+        raise ValueError(f"unsupported component transplant mode: {mode}")
+
+    baseline_target = dict(baseline_joint.get(component, {}))
+    replacement_target = dict(replacement_joint.get(component, {}))
+    baseline_mass = sum(float(value) for value in baseline_target.values())
+    replacement_mass = sum(float(value) for value in replacement_target.values())
+
+    if mode == "shape_only":
+        target_mass = baseline_mass
+    else:
+        target_mass = replacement_mass
+
+    if mode == "rate_only" or not replacement_target:
+        target_shape = normalized(baseline_target)
+    else:
+        target_shape = normalized(replacement_target)
+
+    non_target_joint = {
+        name: dict(distribution)
+        for name, distribution in baseline_joint.items()
+        if name != component
+    }
+    baseline_non_target_mass = 1.0 - baseline_mass
+    desired_non_target_mass = max(1.0 - target_mass, 0.0)
+    if baseline_non_target_mass > 1e-12:
+        non_target_scale = desired_non_target_mass / baseline_non_target_mass
+    else:
+        non_target_scale = 0.0
+
+    output: dict[str, float] = defaultdict(float)
+    for distribution in non_target_joint.values():
+        for next_state, probability in distribution.items():
+            output[next_state] += float(probability) * non_target_scale
+    for next_state, conditional_probability in target_shape.items():
+        output[next_state] += target_mass * float(conditional_probability)
+
+    total = sum(output.values())
+    if total <= 0.0:
+        return {}
+    return {next_state: probability / total for next_state, probability in output.items()}
