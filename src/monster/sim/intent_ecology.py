@@ -30,6 +30,11 @@ class PassDepthOutcome:
     yac_sd_completed: float
     negative_completion_rate: float
     zero_completion_rate: float
+    yards_mean_completed: float = 0.0
+    yards_sd_completed: float = 1.0
+    gain_5plus_completion_rate: float = 0.0
+    gain_10plus_completion_rate: float = 0.0
+    gain_15plus_completion_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,11 @@ def build_pass_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, PassD
             yac_sd_completed=max(_float(row, "yac_sd_completed", 1.0), 0.35),
             negative_completion_rate=_float(row, "negative_completion_rate"),
             zero_completion_rate=_float(row, "zero_completion_rate"),
+            yards_mean_completed=_float(row, "yards_mean_completed"),
+            yards_sd_completed=max(_float(row, "yards_sd_completed", 1.0), 0.35),
+            gain_5plus_completion_rate=_float(row, "gain_5plus_completion_rate"),
+            gain_10plus_completion_rate=_float(row, "gain_10plus_completion_rate"),
+            gain_15plus_completion_rate=_float(row, "gain_15plus_completion_rate"),
         )
     return out
 
@@ -224,10 +234,10 @@ def sample_air_yards(
 ) -> float:
     bounds = {
         "behind_los": (-12.0, -0.01),
-        "short_0_5": (0.0, 5.999),
-        "short_6_9": (6.0, 9.999),
-        "intermediate_10_19": (10.0, 19.999),
-        "deep_20_39": (20.0, 39.999),
+        "short_0_5": (0.0, 5.0),
+        "short_6_9": (6.0, 9.0),
+        "intermediate_10_19": (10.0, 19.0),
+        "deep_20_39": (20.0, 39.0),
         "bomb_40_plus": (40.0, 70.0),
     }
     low, high = bounds[category]
