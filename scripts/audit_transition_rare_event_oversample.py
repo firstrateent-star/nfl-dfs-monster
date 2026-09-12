@@ -11,7 +11,7 @@ import numpy as np
 import polars as pl
 
 from audit_state_transition_mirror import _build_current_teams, _monster_transition_rows
-from audit_transition_cause_counterfactuals import _component, _enrich
+from audit_transition_cause_counterfactuals import _enrich
 from monster.sim.state_transition_eval import (
     joint_component_probabilities,
     normalized,
@@ -130,8 +130,6 @@ def _counterfactuals(
             if not all(evidence_map.get((state, component), False) for state in states):
                 continue
 
-            # First replace the noisy baseline Monster estimate for this rare component with the
-            # oversampled Monster estimate. This becomes the diagnostic baseline for attribution.
             oversample_baseline = {key: dict(value) for key, value in mon_transitions.items()}
             for state in states:
                 oversample_baseline[state] = transplant_component_transition(
@@ -147,8 +145,6 @@ def _counterfactuals(
             for mode in ("mass_and_shape", "rate_only", "shape_only"):
                 hybrid = {key: dict(value) for key, value in oversample_baseline.items()}
                 for state in states:
-                    # Build the state joint with the oversampled Monster component estimate first,
-                    # then transplant NFL reality for the same component.
                     stabilized_transition = transplant_component_transition(
                         base_joint[state],
                         over_joint[state],
@@ -171,7 +167,6 @@ def _counterfactuals(
                             for next_state, probability in stabilized_joint[name].items()
                         }
                     stabilized_joint[component] = dict(over_joint[state].get(component, {}))
-                    # Keep a defensive equality check so audit math cannot silently drift.
                     collapsed = {}
                     for distribution in stabilized_joint.values():
                         for next_state, probability in distribution.items():
