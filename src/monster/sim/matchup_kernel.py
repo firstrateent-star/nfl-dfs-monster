@@ -25,6 +25,8 @@ class DefensiveIdentity:
     run_defense: float = 1.0
     tackling: float = 1.0
     ball_hawk: float = 1.0
+    speed: float = 1.0
+    returning: float = 1.0
     snap_weight: float = 1.0
 
 
