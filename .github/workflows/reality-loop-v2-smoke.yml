@@ -8,11 +8,13 @@ on:
       - src/monster/sim/matchup_kernel.py
       - src/monster/sim/play_anatomy.py
       - src/monster/sim/snap_ecology_v2.py
+      - src/monster/sim/clock_ecology_v2.py
       - src/monster/feature_compile/v13_identity_bridge.py
       - scripts/run_reality_loop_v2_smoke.py
       - tests/test_reality_loop_v2_identity_authority.py
       - tests/test_reality_loop_v2_play_topology.py
       - tests/test_reality_loop_v2_snap_centering.py
+      - tests/test_reality_loop_v2_clock_ecology.py
       - .github/workflows/reality-loop-v2-smoke.yml
   workflow_dispatch:
 
@@ -30,16 +32,19 @@ jobs:
           uv run pytest -q \
             tests/test_reality_loop_v2_identity_authority.py \
             tests/test_reality_loop_v2_play_topology.py \
-            tests/test_reality_loop_v2_snap_centering.py
+            tests/test_reality_loop_v2_snap_centering.py \
+            tests/test_reality_loop_v2_clock_ecology.py
           uv run ruff check \
             src/monster/sim/rich_identity.py \
             src/monster/sim/matchup_kernel.py \
             src/monster/sim/snap_ecology_v2.py \
+            src/monster/sim/clock_ecology_v2.py \
             src/monster/feature_compile/v13_identity_bridge.py \
             scripts/run_reality_loop_v2_smoke.py \
             tests/test_reality_loop_v2_identity_authority.py \
             tests/test_reality_loop_v2_play_topology.py \
             tests/test_reality_loop_v2_snap_centering.py \
+            tests/test_reality_loop_v2_clock_ecology.py \
             --ignore RUF046,I001
 
       - name: Build current 2026 personnel baseline
