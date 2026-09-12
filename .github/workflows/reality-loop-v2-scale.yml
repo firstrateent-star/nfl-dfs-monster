@@ -1,0 +1,122 @@
+name: Reality Loop v2 scale validation
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - .github/workflows/reality-loop-v2-scale.yml
+  workflow_dispatch:
+
+jobs:
+  scale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Reality Loop focused causal gates
+        run: |
+          uv run pytest -q \
+            tests/test_reality_loop_v2_identity_authority.py \
+            tests/test_reality_loop_v2_play_topology.py \
+            tests/test_reality_loop_v2_snap_centering.py \
+            tests/test_reality_loop_v2_clock_ecology.py \
+            tests/test_reality_loop_v2_distribution_bands.py
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run 100-world x 12-game Reality Loop v2 validation
+        run: >-
+          uv run python scripts/run_reality_loop_v2_smoke.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 100 --seed 2026091217 --progress-every 100
+          --first-out artifacts/reality-loop-v2-scale
+          --box-out artifacts/reality-loop-v2-scale-box
+
+      - name: Summarize 1200-game football and DFS world
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          out = Path('artifacts/reality-loop-v2-scale')
+          anatomy = pl.read_csv(out / 'football_anatomy.csv')
+          games = pl.read_csv(out / 'game_distributions.csv')
+          players = pl.read_csv(out / 'player_distributions.csv')
+          manifest = json.loads((out / 'manifest.json').read_text())
+
+          def mean(column):
+              return float(anatomy.select(pl.col(column).mean()).item())
+
+          qb = players.filter(pl.col('position') == 'QB')
+          skill = players.filter(pl.col('position').is_in(['QB','RB','WR','TE']))
+          totals = games['total_mean']
+          margins = games['margin_mean']
+          summary = {
+              'games': int(manifest['games']),
+              'worlds_per_game': int(manifest['worlds_per_game']),
+              'simulated_games': int(manifest['games'] * manifest['worlds_per_game']),
+              'pass_matchup_relative_authority': manifest.get('pass_matchup_relative_authority'),
+              'scrimmage_plays_per_game_mean': mean('scrimmage_plays_mean'),
+              'dropbacks_per_game_mean': mean('dropbacks_mean'),
+              'rush_attempts_per_game_mean': mean('rush_attempts_mean'),
+              'completion_percentage_mean': mean('completion_percentage'),
+              'sack_rate_mean': mean('sack_rate'),
+              'scramble_rate_mean': mean('scramble_rate'),
+              'touchdowns_per_game_mean': mean('touchdowns_mean'),
+              'drives_per_game_mean': mean('drives_mean'),
+              'points_per_game_mean': float(games.select(pl.col('total_mean').mean()).item()),
+              'between_matchup_total_sd': float(totals.std(ddof=1)),
+              'between_matchup_total_range': float(totals.max() - totals.min()),
+              'between_matchup_margin_sd': float(margins.std(ddof=1)),
+              'qb_fanduel_mean_sd': float(qb['fanduel_mean'].std(ddof=1)) if qb.height > 1 else 0.0,
+              'qb_fanduel_mean_range': float(qb['fanduel_mean'].max() - qb['fanduel_mean'].min()) if qb.height else 0.0,
+              'skill_player_fanduel_mean_sd': float(skill['fanduel_mean'].std(ddof=1)) if skill.height > 1 else 0.0,
+              'top_players': players.select([
+                  'player','position','game','fanduel_mean','fanduel_sd','fanduel_p90','fanduel_p99',
+                  'fanduel_20_plus_probability','fanduel_30_plus_probability'
+              ]).head(25).to_dicts(),
+          }
+          (out / 'scale_summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reality-loop-v2-scale
+          path: |
+            artifacts/reality-loop-v2-scale/
+            artifacts/reality-loop-v2-scale-box/
+          retention-days: 14
