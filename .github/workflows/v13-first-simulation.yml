@@ -1,38 +1,41 @@
-name: Monster v1.3 first Week 1 event simulation
+name: Monster v1.3 100-world dispersion test
 
 on:
   push:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/run_week1_v13_integrated.py
+      - scripts/run_week1_v13_dispersion_test.py
       - scripts/run_week1_v13_first_sim.py
       - scripts/run_week1_v13_box_scores.py
       - scripts/run_week1_v13_complete_box_scores.py
       - scripts/build_week1_v13_consensus_box_score.py
       - scripts/build_league_baseline.py
+      - scripts/build_league_baseline_enriched.py
       - scripts/build_league_policy.py
       - src/monster/ingest/**
       - src/monster/sim/**
       - src/monster/feature_compile/**
       - tests/test_defensive_attribution.py
+      - tests/test_dispersion_architecture.py
       - .github/workflows/v13-first-simulation.yml
   workflow_dispatch:
 
 jobs:
   first-simulation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_integrated.py scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_policy.py --ignore RUF046,I001
+          uv run ruff check src tests scripts/run_week1_v13_integrated.py scripts/run_week1_v13_dispersion_test.py scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_box_scores.py scripts/run_week1_v13_complete_box_scores.py scripts/build_week1_v13_consensus_box_score.py scripts/build_league_baseline.py scripts/build_league_baseline_enriched.py scripts/build_league_policy.py --ignore RUF046,I001
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
-          uv run python scripts/build_league_baseline.py
+          uv run python scripts/build_league_baseline_enriched.py
           --season 2026 --history 2025 --recent-games 6
           --out artifacts/league-baseline
       - name: Build market-blind priors
@@ -53,14 +56,14 @@ jobs:
           --latest-policy artifacts/league-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
-      - name: Run integrated v1.3 Week 1 simulation and box scores
+      - name: Run 100-world integrated dispersion test
         run: >-
-          uv run python scripts/run_week1_v13_integrated.py
+          uv run python scripts/run_week1_v13_dispersion_test.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds 1000 --seed 2026190921 --progress-every 100
+          --worlds 100 --seed 2026190921 --progress-every 25
           --first-out artifacts/week1-v13-first-sim
           --box-out artifacts/week1-v13-box-scores
       - name: Generate complete participant box scores
@@ -69,7 +72,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --box-scores artifacts/week1-v13-box-scores
           --first-sim artifacts/week1-v13-first-sim
-          --worlds 1000 --seed 2026190921
+          --worlds 100 --seed 2026190921
           --out artifacts/week1-v13-complete-box-scores
       - name: Build singular consensus projected box score
         run: >-
@@ -89,6 +92,9 @@ jobs:
           assert baseline['madden_source_player_rows'] >= 2000
           assert baseline['madden_snapshot_attribute_columns'] >= 40
           assert baseline['players_with_full_madden_match'] > 1000
+          assert baseline['madden_attribute_boundary_verified'] is True
+          numeric=baseline['madden_numeric_mechanism_coverage']
+          assert min(numeric.values()) > 0
           m=json.loads(Path('artifacts/week1-v13-first-sim/manifest.json').read_text())
           assert m['market_blind_football'] is True
           assert m['scoreboard_event_derived'] is True
@@ -102,8 +108,14 @@ jobs:
           assert m['box_scores_materialized_from_same_worlds'] is True
           assert m['duplicate_box_score_resimulation'] is False
           assert m['progress_telemetry_active'] is True
+          assert m['dispersion_architecture_test'] is True
+          assert m['rich_player_capability_bridge_active'] is True
+          assert m['team_offense_multidimensional_identity_active'] is True
+          assert m['team_defense_context_active'] is True
+          assert m['primary_receiver_rotation_active'] is True
+          assert m['score_dispersion_not_directly_calibrated'] is True
           assert m['games'] == 12
-          assert m['worlds_per_game'] == 1000
+          assert m['worlds_per_game'] == 100
           assert m['seed'] == 2026190921
           b=json.loads(Path('artifacts/week1-v13-box-scores/manifest.json').read_text())
           assert b['market_blind_football'] is True
@@ -115,7 +127,7 @@ jobs:
           assert b['materialized_from_primary_simulation_worlds'] is True
           assert b['resimulation_required'] is False
           assert b['games'] == 12
-          assert b['worlds_per_game'] == 1000
+          assert b['worlds_per_game'] == 100
           assert b['seed'] == 2026190921
           c=json.loads(Path('artifacts/week1-v13-complete-box-scores/manifest.json').read_text())
           assert c['market_blind_football'] is True
@@ -127,7 +139,7 @@ jobs:
           assert c['materialized_from_existing_box_score_worlds'] is True
           assert c['resimulation_required'] is False
           assert c['games'] == 12
-          assert c['worlds_per_game'] == 1000
+          assert c['worlds_per_game'] == 100
           assert c['defensive_sanity']['max_mean_tackles'] < 20.0
           assert c['defensive_sanity']['max_mean_pressures'] < 12.0
           assert c['defensive_sanity']['max_mean_sacks'] < 4.0
@@ -136,7 +148,7 @@ jobs:
           assert consensus['dfs_inputs_used'] is False
           assert consensus['sportsbook_inputs_used'] is False
           assert consensus['games'] == 12
-          assert consensus['worlds_per_game'] == 1000
+          assert consensus['worlds_per_game'] == 100
           assert consensus['player_rows'] > 0
           assert consensus['team_rows'] == 24
           print(json.dumps(baseline, indent=2))
@@ -145,7 +157,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-v1-3-week1-first-event-simulation
+          name: monster-v1-3-week1-100-world-dispersion-test
           path: |
             artifacts/league-baseline/manifest.json
             artifacts/league-baseline/raw_madden27_player_ratings.parquet
