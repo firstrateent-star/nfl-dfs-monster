@@ -10,13 +10,16 @@ on:
       - src/monster/sim/snap_ecology_v2.py
       - src/monster/sim/clock_ecology_v2.py
       - src/monster/sim/resolution_bands_v2.py
+      - src/monster/sim/pass_resolution_bands_v2.py
       - src/monster/feature_compile/v13_identity_bridge.py
       - scripts/run_reality_loop_v2_smoke.py
+      - scripts/audit_reality_loop_v2_score_anatomy.py
       - tests/test_reality_loop_v2_identity_authority.py
       - tests/test_reality_loop_v2_play_topology.py
       - tests/test_reality_loop_v2_snap_centering.py
       - tests/test_reality_loop_v2_clock_ecology.py
       - tests/test_reality_loop_v2_distribution_bands.py
+      - tests/test_reality_loop_v2_pass_resolution_bands.py
       - .github/workflows/reality-loop-v2-smoke.yml
   workflow_dispatch:
 
@@ -36,20 +39,24 @@ jobs:
             tests/test_reality_loop_v2_play_topology.py \
             tests/test_reality_loop_v2_snap_centering.py \
             tests/test_reality_loop_v2_clock_ecology.py \
-            tests/test_reality_loop_v2_distribution_bands.py
+            tests/test_reality_loop_v2_distribution_bands.py \
+            tests/test_reality_loop_v2_pass_resolution_bands.py
           uv run ruff check \
             src/monster/sim/rich_identity.py \
             src/monster/sim/matchup_kernel.py \
             src/monster/sim/snap_ecology_v2.py \
             src/monster/sim/clock_ecology_v2.py \
             src/monster/sim/resolution_bands_v2.py \
+            src/monster/sim/pass_resolution_bands_v2.py \
             src/monster/feature_compile/v13_identity_bridge.py \
             scripts/run_reality_loop_v2_smoke.py \
+            scripts/audit_reality_loop_v2_score_anatomy.py \
             tests/test_reality_loop_v2_identity_authority.py \
             tests/test_reality_loop_v2_play_topology.py \
             tests/test_reality_loop_v2_snap_centering.py \
             tests/test_reality_loop_v2_clock_ecology.py \
             tests/test_reality_loop_v2_distribution_bands.py \
+            tests/test_reality_loop_v2_pass_resolution_bands.py \
             --ignore RUF046,I001
 
       - name: Build current 2026 personnel baseline
@@ -90,6 +97,13 @@ jobs:
           --first-out artifacts/reality-loop-v2-smoke
           --box-out artifacts/reality-loop-v2-box
 
+      - name: Audit same-world score anatomy
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/reality-loop-v2-smoke
+          --history 2025
+          --out artifacts/reality-loop-v2-smoke
+
       - name: Summarize football and DFS separation
         run: |
           uv run python - <<'PY'
@@ -103,6 +117,7 @@ jobs:
           players = pl.read_csv(out / 'player_distributions.csv')
           baseline = json.loads(Path('artifacts/league-baseline/manifest.json').read_text())
           manifest = json.loads((out / 'manifest.json').read_text())
+          score_anatomy = json.loads((out / 'score_anatomy.json').read_text())
 
           def mean(column: str) -> float:
               return float(anatomy.select(pl.col(column).mean()).item())
@@ -135,6 +150,7 @@ jobs:
               'qb_fanduel_mean_sd': float(qb['fanduel_mean'].std(ddof=1)) if qb.height > 1 else 0.0,
               'qb_fanduel_mean_range': float(qb['fanduel_mean'].max() - qb['fanduel_mean'].min()) if qb.height else 0.0,
               'skill_player_fanduel_mean_sd': float(skill['fanduel_mean'].std(ddof=1)) if skill.height > 1 else 0.0,
+              'score_anatomy_gaps': score_anatomy['gaps'],
               'top_players': players.select([
                   'player','position','game','fanduel_mean','fanduel_p90','fanduel_p99',
                   'fanduel_20_plus_probability','fanduel_30_plus_probability'
