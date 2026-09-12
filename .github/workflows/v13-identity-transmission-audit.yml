@@ -1,0 +1,95 @@
+name: Monster v1.3 identity transmission audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_week1_v13_identity_transmission.py
+      - .github/workflows/v13-identity-transmission-audit.yml
+
+jobs:
+  identity-transmission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/audit_week1_v13_identity_transmission.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run pytest -q
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run identity transmission audit
+        run: >-
+          uv run python scripts/audit_week1_v13_identity_transmission.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --out artifacts/identity-transmission
+
+      - name: Verify identity audit
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+          root=Path('artifacts/identity-transmission')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-LEDGER-003-IDENTITY-TRANSMISSION'
+          assert m['governance']['production_promoted'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['teams']==24
+          identity=pl.read_csv(root/'identity_transmission.csv')
+          sens=pl.read_csv(root/'component_sensitivity.csv')
+          summary=pl.read_csv(root/'component_sensitivity_summary.csv')
+          flow=pl.read_csv(root/'game_flow_identity_dispersion.csv')
+          assert identity.height==24
+          assert sens.height>200
+          assert summary.height>=8
+          assert flow.height==6
+          print(summary)
+          print(flow)
+          print(m)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-identity-transmission-audit
+          path: |
+            artifacts/identity-transmission/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+            artifacts/continuity-policy/manifest.json
+          retention-days: 14
