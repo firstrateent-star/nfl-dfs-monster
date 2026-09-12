@@ -43,6 +43,95 @@ def _write_if_present(frame: pl.DataFrame, path: Path) -> None:
         frame.write_parquet(path, compression="zstd")
 
 
+def _legacy_madden_adapter_view(ratings: pl.DataFrame) -> pl.DataFrame:
+    """Expose legacy adapter names without mutating the canonical EA snapshot.
+
+    The official EA pull remains the raw authority.  Older mechanism adapters consume this
+    compatibility view so schema translation happens once at the ingestion boundary rather
+    than independently inside OL/skill/defense code.
+    """
+    if not ratings.height:
+        return ratings
+    aliases = {
+        "full_name": "madden_player_name",
+        "position": "madden_position",
+        "team_name": "madden_team",
+        "speed_rating": "madden_speed",
+        "accel_rating": "madden_acceleration",
+        "acceleration_rating": "madden_acceleration",
+        "agility_rating": "madden_agility",
+        "awareness_rating": "madden_awareness",
+        "strength_rating": "madden_strength",
+        "catch_rating": "madden_catching",
+        "catching_rating": "madden_catching",
+        "carry_rating": "madden_carrying",
+        "carrying_rating": "madden_carrying",
+        "throw_power_rating": "madden_throw_power",
+        "kick_power_rating": "madden_kick_power",
+        "kick_acc_rating": "madden_kick_accuracy",
+        "kick_accuracy_rating": "madden_kick_accuracy",
+        "run_block_rating": "madden_run_block",
+        "pass_block_rating": "madden_pass_block",
+        "tackle_rating": "madden_tackle",
+        "jump_rating": "madden_jumping",
+        "kick_ret_rating": "madden_kick_return",
+        "kick_return_rating": "madden_kick_return",
+        "truck_rating": "madden_trucking",
+        "change_of_direction_rating": "madden_change_of_direction",
+        "stiff_arm_rating": "madden_stiff_arm",
+        "spin_move_rating": "madden_spin_move",
+        "juke_move_rating": "madden_juke_move",
+        "impact_block_rating": "madden_impact_blocking",
+        "run_block_power_rating": "madden_run_block_power",
+        "run_block_finesse_rating": "madden_run_block_finesse",
+        "pass_block_power_rating": "madden_pass_block_power",
+        "pass_block_finesse_rating": "madden_pass_block_finesse",
+        "throw_acc_short_rating": "madden_throw_accuracy_short",
+        "throw_accuracy_short_rating": "madden_throw_accuracy_short",
+        "throw_acc_mid_rating": "madden_throw_accuracy_mid",
+        "throw_accuracy_mid_rating": "madden_throw_accuracy_mid",
+        "throw_acc_deep_rating": "madden_throw_accuracy_deep",
+        "throw_accuracy_deep_rating": "madden_throw_accuracy_deep",
+        "throw_on_run_rating": "madden_throw_on_run",
+        "play_action_rating": "madden_play_action",
+        "throw_under_pressure_rating": "madden_throw_under_pressure",
+        "break_sack_rating": "madden_break_sack",
+        "break_tackle_rating": "madden_break_tackle",
+        "spec_catch_rating": "madden_spectacular_catch",
+        "spectacular_catch_rating": "madden_spectacular_catch",
+        "cit_rating": "madden_catch_in_traffic",
+        "catch_in_traffic_rating": "madden_catch_in_traffic",
+        "route_run_short_rating": "madden_short_route_running",
+        "short_route_running_rating": "madden_short_route_running",
+        "route_run_med_rating": "madden_medium_route_running",
+        "medium_route_running_rating": "madden_medium_route_running",
+        "route_run_deep_rating": "madden_deep_route_running",
+        "deep_route_running_rating": "madden_deep_route_running",
+        "release_rating": "madden_release",
+        "power_moves_rating": "madden_power_moves",
+        "finesse_moves_rating": "madden_finesse_moves",
+        "block_shed_rating": "madden_block_shedding",
+        "block_shedding_rating": "madden_block_shedding",
+        "pursuit_rating": "madden_pursuit",
+        "play_rec_rating": "madden_play_recognition",
+        "play_recognition_rating": "madden_play_recognition",
+        "man_cover_rating": "madden_man_coverage",
+        "man_coverage_rating": "madden_man_coverage",
+        "zone_cover_rating": "madden_zone_coverage",
+        "zone_coverage_rating": "madden_zone_coverage",
+        "press_rating": "madden_press",
+        "hit_power_rating": "madden_hit_power",
+        "stamina_rating": "madden_stamina",
+        "injury_rating": "madden_injury",
+    }
+    expressions = [
+        pl.col(source).alias(target)
+        for target, source in aliases.items()
+        if target not in ratings.columns and source in ratings.columns
+    ]
+    return ratings.with_columns(expressions) if expressions else ratings
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=2026)
@@ -64,9 +153,6 @@ def main() -> None:
         snapshot, inputs["combine"], inputs["pfr_defense_weekly"], inputs["player_stats_history"]
     )
 
-    # Madden is bounded scouting-style proxy evidence, never market information.  Prefer a
-    # fresh direct pull from EA's official Madden 27 ratings database every time the baseline
-    # is built.  The existing public mirror remains only as a resilience fallback.
     madden_source = "ea_official"
     try:
         madden_ratings = load_official_madden27_player_ratings()
@@ -78,12 +164,13 @@ def main() -> None:
             madden_source = "unavailable"
             madden_ratings = pl.DataFrame()
 
-    # Preserve the complete EA attribute vector on every matched player first.  Specialized
-    # adapters then retain their existing bounded composites for OL/skill/defense mechanisms.
+    # Canonical raw EA fields attach first and remain untouched.  All older specialized
+    # adapters consume one normalized compatibility view of that same evidence.
     snapshot = attach_all_madden_attributes(snapshot, madden_ratings)
-    snapshot = attach_madden_ol_ratings(snapshot, madden_ratings)
-    snapshot = attach_madden_skill_traits(snapshot, madden_ratings)
-    snapshot = attach_madden_defense_special_traits(snapshot, madden_ratings)
+    adapter_ratings = _legacy_madden_adapter_view(madden_ratings)
+    snapshot = attach_madden_ol_ratings(snapshot, adapter_ratings)
+    snapshot = attach_madden_skill_traits(snapshot, adapter_ratings)
+    snapshot = attach_madden_defense_special_traits(snapshot, adapter_ratings)
 
     coverage = league_coverage_report(snapshot)
     participation_coverage = participation_coverage_report(snapshot)
