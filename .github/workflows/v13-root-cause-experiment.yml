@@ -1,0 +1,101 @@
+name: Monster v1.3 Vlourish root-cause experiment
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/run_week1_v13_root_cause_experiment.py
+      - .github/workflows/v13-root-cause-experiment.yml
+
+jobs:
+  root-cause:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/run_week1_v13_root_cause_experiment.py --ignore RUF046,I001
+          uv run pytest -q
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run paired B-C-D-E root-cause worlds
+        run: >-
+          uv run python scripts/run_week1_v13_root_cause_experiment.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 100 --seed 2026190921
+          --progress-every 100
+          --out artifacts/root-cause-experiment
+
+      - name: Verify experiment contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/root-cause-experiment')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-LEDGER-001'
+          assert m['governance']['stage']=='LAB'
+          assert m['governance']['production_promoted'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['governance']['market_inputs_used'] is False
+          assert m['worlds_per_game_per_branch']==100
+          assert m['games']==12
+          assert len(m['executed_branches'])==4
+          worlds=pl.read_csv(root/'root_cause_worlds.csv')
+          assert worlds.height == 12 * 100 * 4
+          assert worlds.select(pl.col('branch').n_unique()).item() == 4
+          paired=pl.read_csv(root/'paired_world_deltas.csv')
+          assert paired.height == 12 * 100 * 2
+          summary=pl.read_csv(root/'branch_summary.csv')
+          assert summary.height == 4
+          assert summary.select(pl.col('completion_percentage').is_not_null().all()).item()
+          print(summary)
+          print(pl.read_csv(root/'paired_summary.csv'))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-vlourish-root-cause-100-world
+          path: |
+            artifacts/root-cause-experiment/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+            artifacts/continuity-policy/manifest.json
+          retention-days: 14
