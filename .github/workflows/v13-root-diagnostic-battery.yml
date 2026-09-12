@@ -1,0 +1,112 @@
+name: Monster v1.3 root diagnostic battery
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_week1_v13_root_diagnostic_battery.py
+      - .github/workflows/v13-root-diagnostic-battery.yml
+
+jobs:
+  root-diagnostic-battery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/audit_week1_v13_root_diagnostic_battery.py --ignore RUF046,I001,F401,UP035,UP037,B023
+          uv run pytest -q
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run scoring and player-skill root diagnostic battery
+        run: >-
+          uv run python scripts/audit_week1_v13_root_diagnostic_battery.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --history 2025 --mechanism-worlds 100 --sensitivity-worlds 30
+          --seed 2026190921
+          --out artifacts/root-diagnostic-battery
+
+      - name: Verify diagnostic contract
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/root-diagnostic-battery')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-ROOT-DIAGNOSTIC-BATTERY-001'
+          assert m['governance']['stage']=='LAB'
+          assert m['governance']['production_promoted'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['governance']['market_inputs_used'] is False
+          assert m['mechanism_worlds_per_game']==100
+          assert m['sensitivity_worlds_per_game_per_branch']==30
+          assert m['games']==12
+
+          mech=pl.read_csv(root/'mechanism_summary.csv')
+          branches=pl.read_csv(root/'skill_sensitivity_branch_summary.csv')
+          paired=pl.read_csv(root/'skill_sensitivity_paired_summary.csv')
+          worlds=pl.read_parquet(root/'skill_sensitivity_worlds.parquet')
+          events=pl.read_parquet(root/'mechanism_events.parquet')
+          runs=pl.read_parquet(root/'mechanism_runs.parquet')
+          throws=pl.read_parquet(root/'mechanism_throws.parquet')
+          assert mech.height >= 15
+          assert branches.height == 7
+          assert paired.height == 6
+          assert worlds.height == 7*12*30
+          assert events.height > 50000
+          assert runs.height > 10000
+          assert throws.height > 10000
+          assert set(branches.get_column('branch')) == {
+              'full','qb_flat','players_flat','team_context_flat','defense_flat','all_flat','players_amplified'
+          }
+          print(mech)
+          print(branches)
+          print(paired)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-root-diagnostic-battery
+          path: |
+            artifacts/root-diagnostic-battery/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+            artifacts/continuity-policy/manifest.json
+          retention-days: 14
