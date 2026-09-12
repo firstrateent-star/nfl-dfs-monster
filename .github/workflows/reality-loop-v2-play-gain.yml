@@ -1,0 +1,102 @@
+name: Reality Loop v2 play-gain audit
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - scripts/audit_reality_loop_v2_play_gain.py
+      - .github/workflows/reality-loop-v2-play-gain.yml
+  workflow_dispatch:
+
+jobs:
+  play-gain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Audit play-family gain reality
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_play_gain.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --history 2025 --worlds 25 --seed 2026091203
+          --out artifacts/reality-loop-v2-play-gain
+
+      - name: Print key topology deltas
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          out = Path('artifacts/reality-loop-v2-play-gain')
+          manifest = json.loads((out / 'manifest.json').read_text())
+          comp = pl.read_csv(out / 'play_gain_comparison.csv')
+          keys = {
+              ('designed_run','negative_gain_rate'),
+              ('designed_run','explosive_15_rate'),
+              ('scramble','gain_5plus_rate'),
+              ('scramble','explosive_15_rate'),
+              ('complete_pass','negative_gain_rate'),
+              ('complete_pass','gain_10plus_rate'),
+              ('complete_pass','explosive_15_rate'),
+              ('complete_pass','air_yards_mean'),
+              ('complete_pass','yac_mean'),
+              ('all_dropbacks','negative_gain_rate'),
+              ('all_dropbacks','gain_5plus_rate'),
+          }
+          rows = [row for row in comp.to_dicts() if (row['family'], row['metric']) in keys]
+          payload = {'diagnosis': manifest['diagnosis'], 'key_deltas': rows}
+          (out / 'key_topology_deltas.json').write_text(json.dumps(payload, indent=2) + '\n')
+          print(json.dumps(payload, indent=2))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reality-loop-v2-play-gain
+          path: artifacts/reality-loop-v2-play-gain/
+          retention-days: 14
