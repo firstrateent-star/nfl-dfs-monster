@@ -201,6 +201,7 @@ def compile_pass_intent_policy(
     interceptions = pl.col("interception").fill_null(0).cast(pl.Float64)
     pass_tds = pl.col("pass_touchdown").fill_null(0).cast(pl.Float64)
     yac = pl.col("yards_after_catch").cast(pl.Float64)
+    completion_yards = pl.col("yards_gained").cast(pl.Float64).filter(completions == 1.0)
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -211,16 +212,15 @@ def compile_pass_intent_policy(
             pl.col("air_yards").mean().alias("air_yards_mean"),
             pl.col("air_yards").std().fill_null(0.0).alias("air_yards_sd"),
             pl.col("yards_gained").mean().alias("yards_per_attempt"),
+            completion_yards.mean().fill_null(0.0).alias("yards_mean_completed"),
+            completion_yards.std().fill_null(0.0).alias("yards_sd_completed"),
+            (completion_yards >= 5.0).mean().fill_null(0.0).alias("gain_5plus_completion_rate"),
+            (completion_yards >= 10.0).mean().fill_null(0.0).alias("gain_10plus_completion_rate"),
+            (completion_yards >= 15.0).mean().fill_null(0.0).alias("gain_15plus_completion_rate"),
             yac.filter(completions == 1.0).mean().fill_null(0.0).alias("yac_mean_completed"),
             yac.filter(completions == 1.0).std().fill_null(0.0).alias("yac_sd_completed"),
-            (pl.col("yards_gained").filter(completions == 1.0) < 0)
-            .mean()
-            .fill_null(0.0)
-            .alias("negative_completion_rate"),
-            (pl.col("yards_gained").filter(completions == 1.0) == 0)
-            .mean()
-            .fill_null(0.0)
-            .alias("zero_completion_rate"),
+            (completion_yards < 0).mean().fill_null(0.0).alias("negative_completion_rate"),
+            (completion_yards == 0).mean().fill_null(0.0).alias("zero_completion_rate"),
         )
         .sort("category")
     )
@@ -286,10 +286,10 @@ def compile_run_intent_policy(
             (yards >= 20).mean().alias("explosive_20_rate"),
             pl.col("rush_touchdown").fill_null(0).cast(pl.Float64).mean().alias("touchdown_rate"),
             pl.col("fumble_lost").fill_null(0).cast(pl.Float64).mean().alias("fumble_lost_rate"),
-            yards.quantile(0.10, interpolation="linear").alias("yards_p10"),
-            yards.quantile(0.50, interpolation="linear").alias("yards_p50"),
-            yards.quantile(0.90, interpolation="linear").alias("yards_p90"),
-            yards.quantile(0.99, interpolation="linear").alias("yards_p99"),
+            yards.quantile(0.10).alias("yards_p10"),
+            yards.quantile(0.50).alias("yards_p50"),
+            yards.quantile(0.90).alias("yards_p90"),
+            yards.quantile(0.99).alias("yards_p99"),
         )
         .sort("category")
     )
