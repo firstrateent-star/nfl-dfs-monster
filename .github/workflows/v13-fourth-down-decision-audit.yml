@@ -6,6 +6,8 @@ on:
     branches: [feature/football-state-v13-clock]
     paths:
       - scripts/audit_fourth_down_decision_ecology.py
+      - src/monster/sim/decision_policy.py
+      - tests/test_decision_policy.py
       - .github/workflows/v13-fourth-down-decision-audit.yml
 
 jobs:
@@ -19,7 +21,7 @@ jobs:
 
       - name: Structural gates
         run: |
-          uv run ruff check scripts/audit_fourth_down_decision_ecology.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run ruff check scripts/audit_fourth_down_decision_ecology.py src/monster/sim/decision_policy.py tests/test_decision_policy.py --ignore RUF046,I001,F401,UP035,UP037
           uv run pytest -q tests/test_decision_policy.py
 
       - name: Audit 2025 fourth-down decision ecology
