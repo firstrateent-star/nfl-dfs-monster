@@ -1,0 +1,114 @@
+name: Monster v1.3 MON-LEDGER-002C.1 state transition mirror
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_state_transition_mirror.py
+      - src/monster/sim/state_transition_eval.py
+      - tests/test_state_transition_eval.py
+      - .github/workflows/v13-state-transition-mirror.yml
+
+jobs:
+  state-transition-mirror:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Vlourish structural gates
+        run: |
+          uv run ruff check scripts/audit_state_transition_mirror.py src/monster/sim/state_transition_eval.py tests/test_state_transition_eval.py --ignore RUF046,I001
+          uv run pytest -q tests/test_state_transition_eval.py
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run Vlourish state-transition mirror
+        run: >-
+          uv run python scripts/audit_state_transition_mirror.py
+          --season 2025
+          --cache-dir .cache/monster
+          --game-flow-league artifacts/league-policy/game_flow_league.parquet
+          --game-flow-team artifacts/league-policy/game_flow_team.parquet
+          --pass-depth-league artifacts/league-policy/pass_depth_league.parquet
+          --pass-depth-team artifacts/league-policy/pass_depth_team.parquet
+          --pass-depth-qb artifacts/league-policy/pass_depth_qb.parquet
+          --pass-depth-outcomes artifacts/league-policy/pass_depth_outcomes.parquet
+          --target-depth artifacts/league-policy/target_depth.parquet
+          --run-geometry-league artifacts/league-policy/run_geometry_league.parquet
+          --run-geometry-team artifacts/league-policy/run_geometry_team.parquet
+          --run-geometry-rusher artifacts/league-policy/run_geometry_rusher.parquet
+          --run-geometry-outcomes artifacts/league-policy/run_geometry_outcomes.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --max-historical-states 12000
+          --replicates 1
+          --seed 2026091202
+          --out artifacts/state-transition-mirror
+
+      - name: Verify Vlourish evidence contract
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/state-transition-mirror')
+          m=json.loads((root/'manifest.json').read_text())
+          ledger=json.loads((root/'methodology_ledger.json').read_text())
+          coarse=pl.read_csv(root/'coarse_state_transition_cells.csv')
+          cf=pl.read_csv(root/'counterfactual_replacement.csv')
+          causes=pl.read_csv(root/'cause_decomposition.csv')
+          assert m['experiment']=='MON-LEDGER-002C.1-STATE-TRANSITION-MIRROR'
+          assert m['market_blind'] is True
+          assert m['behavior_changed_by_audit'] is False
+          assert m['production_authority'] is False
+          assert m['historical_rows'] > 10000
+          assert m['monster_rows'] >= 8000
+          assert ledger['governance']['stage']=='LAB'
+          assert ledger['governance']['football_coefficients_changed'] is False
+          assert ledger['governance']['full_game_simulation_required'] is False
+          assert coarse.height >= 10
+          assert cf.height >= 4
+          assert causes.height > 20
+          print(json.dumps(m['series_survival'], indent=2))
+          print(coarse.head(10))
+          print(cf.head(10))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-vlourish-state-transition-mirror
+          path: artifacts/state-transition-mirror/
+          retention-days: 14
