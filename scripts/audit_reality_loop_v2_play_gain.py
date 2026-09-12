@@ -8,12 +8,14 @@ import polars as pl
 import audit_play_gain_reality as audit
 from monster.sim import matchup_kernel, play_kernel, resolution_ecology
 from monster.sim.dispersion_bridge import enhanced_defensive_unit, enhanced_team_identity
-from monster.sim.play_kernel import PlayEvent, PlayType
+from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
 from monster.sim.resolution_bands_v2 import resolve_run_contact_v2, resolve_run_ecology_v2
 from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v2
 
 _SIM_RUNS: list[dict[str, object]] = []
 _HIST_RUNS: list[dict[str, object]] = []
+_SIM_THROWS: list[dict[str, object]] = []
+_HIST_THROWS: list[dict[str, object]] = []
 
 
 def _historical_geometry(row: dict[str, object]) -> str:
@@ -36,6 +38,20 @@ def _historical_geometry(row: dict[str, object]) -> str:
     return "other"
 
 
+def _depth_category(air_yards: float) -> str:
+    if air_yards < 0.0:
+        return "behind_los"
+    if air_yards <= 5.0:
+        return "short_0_5"
+    if air_yards <= 9.0:
+        return "short_6_9"
+    if air_yards <= 19.0:
+        return "intermediate_10_19"
+    if air_yards <= 39.0:
+        return "deep_20_39"
+    return "bomb_40_plus"
+
+
 def _capture_sim(original):
     def wrapped(store, event: PlayEvent):
         if event.play_type == PlayType.RUN:
@@ -43,6 +59,21 @@ def _capture_sim(original):
                 {
                     "category": event.run_geometry_category or "other",
                     "yards": float(event.yards),
+                }
+            )
+        elif event.play_type == PlayType.PASS and event.pass_result in {
+            PassResult.COMPLETE,
+            PassResult.INCOMPLETE,
+            PassResult.INTERCEPTION,
+        }:
+            _SIM_THROWS.append(
+                {
+                    "category": event.pass_depth_category or _depth_category(float(event.air_yards)),
+                    "complete": event.pass_result == PassResult.COMPLETE,
+                    "interception": event.pass_result == PassResult.INTERCEPTION,
+                    "pressured": bool(event.pressured),
+                    "yards": float(event.yards),
+                    "air_yards": float(event.air_yards),
                 }
             )
         return original(store, event)
@@ -61,12 +92,28 @@ def _capture_history(original):
                     "yards": float(row.get("yards_gained") or 0.0),
                 }
             )
+        if (
+            dropback
+            and float(row.get("sack") or 0.0) != 1.0
+            and float(row.get("qb_scramble") or 0.0) != 1.0
+            and row.get("air_yards") is not None
+        ):
+            air_yards = float(row.get("air_yards") or 0.0)
+            _HIST_THROWS.append(
+                {
+                    "category": _depth_category(air_yards),
+                    "complete": float(row.get("complete_pass") or 0.0) == 1.0,
+                    "interception": float(row.get("interception") or 0.0) == 1.0,
+                    "yards": float(row.get("yards_gained") or 0.0),
+                    "air_yards": air_yards,
+                }
+            )
         return original(store, row)
 
     return wrapped
 
 
-def _summary(rows: list[dict[str, object]], source: str) -> pl.DataFrame:
+def _run_summary(rows: list[dict[str, object]], source: str) -> pl.DataFrame:
     if not rows:
         return pl.DataFrame()
     frame = pl.DataFrame(rows)
@@ -90,9 +137,36 @@ def _summary(rows: list[dict[str, object]], source: str) -> pl.DataFrame:
     )
 
 
+def _throw_summary(rows: list[dict[str, object]], source: str) -> pl.DataFrame:
+    if not rows:
+        return pl.DataFrame()
+    frame = pl.DataFrame(rows)
+    total = frame.height
+    aggregations = [
+        pl.len().alias("attempts"),
+        pl.col("complete").cast(pl.Float64).mean().alias("completion_rate"),
+        pl.col("interception").cast(pl.Float64).mean().alias("interception_rate"),
+        (pl.col("yards") < 0.0).mean().alias("negative_gain_rate"),
+        (pl.col("yards") >= 5.0).mean().alias("gain_5plus_rate"),
+        (pl.col("yards") >= 10.0).mean().alias("gain_10plus_rate"),
+        pl.col("air_yards").mean().alias("air_yards_mean"),
+    ]
+    if "pressured" in frame.columns:
+        aggregations.append(pl.col("pressured").cast(pl.Float64).mean().alias("pressure_rate"))
+    return (
+        frame.group_by("category")
+        .agg(*aggregations)
+        .with_columns(
+            pl.lit(source).alias("source"),
+            (pl.col("attempts") / total).alias("share"),
+        )
+        .sort("category")
+    )
+
+
 def _write_geometry(out: Path) -> None:
-    sim = _summary(_SIM_RUNS, "monster")
-    hist = _summary(_HIST_RUNS, "nfl_2025")
+    sim = _run_summary(_SIM_RUNS, "monster")
+    hist = _run_summary(_HIST_RUNS, "nfl_2025")
     if sim.is_empty() or hist.is_empty():
         return
     pl.concat([sim, hist], how="diagonal_relaxed").write_csv(out / "run_geometry_gain_summary.csv")
@@ -131,6 +205,52 @@ def _write_geometry(out: Path) -> None:
     )
 
 
+def _write_pass_depth(out: Path) -> None:
+    sim = _throw_summary(_SIM_THROWS, "monster")
+    hist = _throw_summary(_HIST_THROWS, "nfl_2025")
+    if sim.is_empty() or hist.is_empty():
+        return
+    pl.concat([sim, hist], how="diagonal_relaxed").write_csv(out / "pass_depth_throw_summary.csv")
+    joined = sim.join(hist, on="category", suffix="_nfl")
+    metrics = [
+        "share",
+        "completion_rate",
+        "interception_rate",
+        "negative_gain_rate",
+        "gain_5plus_rate",
+        "gain_10plus_rate",
+        "air_yards_mean",
+    ]
+    rows: list[dict[str, object]] = []
+    for row in joined.to_dicts():
+        for metric in metrics:
+            monster = float(row[metric])
+            nfl = float(row[f"{metric}_nfl"])
+            rows.append(
+                {
+                    "category": row["category"],
+                    "metric": metric,
+                    "monster": monster,
+                    "nfl": nfl,
+                    "delta": monster - nfl,
+                    "relative_delta": (monster - nfl) / nfl if abs(nfl) > 1e-12 else None,
+                }
+            )
+    comparison = pl.DataFrame(rows).sort(["category", "metric"])
+    comparison.write_csv(out / "pass_depth_throw_comparison.csv")
+    print("PASS-DEPTH THROW LOCALIZATION")
+    print(
+        comparison.filter(
+            pl.col("metric").is_in(["share", "completion_rate", "interception_rate", "gain_5plus_rate"])
+        )
+    )
+    if "pressure_rate" in sim.columns:
+        weighted_pressure = float(
+            sim.select((pl.col("pressure_rate") * pl.col("attempts")).sum() / pl.col("attempts").sum()).item()
+        )
+        print({"monster_throw_pressure_rate": weighted_pressure, "league_dropback_pressure_reference": 0.297832})
+
+
 def _out_path() -> Path:
     if "--out" not in sys.argv:
         return Path("artifacts/reality-loop-v2-play-gain")
@@ -138,7 +258,7 @@ def _out_path() -> Path:
 
 
 def main() -> None:
-    """Run NFL-vs-Monster play-family and run-geometry audits on Reality Loop v2."""
+    """Run NFL-vs-Monster play-family, run-geometry and pass-depth audits on Reality Loop v2."""
 
     resolution_ecology._COARSE_MATCHUP_AUTHORITY = 0.35
     resolution_ecology._COARSE_RUN_MATCHUP_AUTHORITY = 0.25
@@ -158,7 +278,9 @@ def main() -> None:
     finally:
         audit._append_sim_event = original_sim
         audit._append_historical_row = original_history
-    _write_geometry(_out_path())
+    out = _out_path()
+    _write_geometry(out)
+    _write_pass_depth(out)
 
 
 if __name__ == "__main__":
