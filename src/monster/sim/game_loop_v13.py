@@ -5,6 +5,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from monster.sim.chaos_ecology import (
+    DEFAULT_CHAOS_ECOLOGY,
+    ChaosEcology,
+    ReturnEvent,
+    ReturnKind,
+    resolve_turnover_return,
+    sample_return_yards,
+)
 from monster.sim.clock import (
     OVERTIME_SECONDS,
     advance_game_clock,
@@ -16,10 +24,10 @@ from monster.sim.football_state import (
     FootballState,
     PossessionTerminal,
     apply_scrimmage_yards,
-    kickoff_transition,
+    change_possession,
     missed_field_goal_transition,
-    punt_transition,
-    turnover_at_spot,
+    mirror_field,
+    next_series_distance,
     turnover_on_downs,
 )
 from monster.sim.play_kernel import (
@@ -75,6 +83,8 @@ class DefensiveBoxScore:
     tackles: int = 0
     stuffs: int = 0
     forced_fumbles: int = 0
+    return_yards: float = 0.0
+    defensive_tds: int = 0
 
 
 @dataclass(frozen=True)
@@ -86,6 +96,7 @@ class GameResultV13:
     drive_traces: tuple[DriveTrace, ...] = ()
     defensive_stats: dict[str, DefensiveBoxScore] | None = None
     special_teams_events: tuple[SpecialTeamsEvent, ...] = ()
+    return_events: tuple[ReturnEvent, ...] = ()
     try_events: tuple[TryEvent, ...] = ()
     safeties: int = 0
     penalty_events: tuple[PenaltyEvent, ...] = ()
@@ -129,6 +140,20 @@ def _team_score(state: FootballState, team_id: str, *, away_team_id: str) -> int
 
 def _opponent_score(state: FootballState, team_id: str, *, away_team_id: str) -> int:
     return state.home_score if team_id == away_team_id else state.away_score
+
+
+def _team_for_id(team_id: str, away: TeamIdentity, home: TeamIdentity) -> TeamIdentity:
+    return away if team_id == away.team_id else home
+
+
+def _defense_strength_against(
+    team_id: str,
+    away: TeamIdentity,
+    *,
+    away_defense_strength: float,
+    home_defense_strength: float,
+) -> float:
+    return home_defense_strength if team_id == away.team_id else away_defense_strength
 
 
 def _box(stats: dict[str, PlayerBoxScore], player_id: str | None) -> PlayerBoxScore | None:
@@ -184,15 +209,569 @@ def _record(
         )
 
 
+def _record_return(
+    event: ReturnEvent,
+    defensive_stats: dict[str, DefensiveBoxScore],
+) -> None:
+    if event.returner_id is None:
+        return
+    box = _dbox(defensive_stats, event.returner_id)
+    if box is None:
+        return
+    box.return_yards += event.return_yards
+    box.defensive_tds += int(
+        event.touchdown and event.kind in {ReturnKind.INTERCEPTION, ReturnKind.FUMBLE}
+    )
+
+
+def _same_possession_first_down(
+    state: FootballState,
+    *,
+    yardline_100: float,
+    elapsed_seconds: int = 0,
+) -> FootballState:
+    spot = float(np.clip(yardline_100, 1.0, 99.0))
+    return FootballState(
+        possession=state.possession,
+        defense=state.defense,
+        quarter=state.quarter,
+        seconds_remaining=max(state.seconds_remaining - max(int(elapsed_seconds), 0), 0),
+        yardline_100=spot,
+        down=1,
+        distance=next_series_distance(spot),
+        away_score=state.away_score,
+        home_score=state.home_score,
+        away_team_id=state.away_team_id,
+        home_team_id=state.home_team_id,
+    )
+
+
+def _kick_state_after_score(state: FootballState, scoring_team: str, other_team: str) -> FootballState:
+    return FootballState(
+        possession=scoring_team,
+        defense=other_team,
+        quarter=state.quarter,
+        seconds_remaining=state.seconds_remaining,
+        yardline_100=35.0,
+        away_score=state.away_score,
+        home_score=state.home_score,
+        away_team_id=state.away_team_id,
+        home_team_id=state.home_team_id,
+    )
+
+
+def _score_touchdown(
+    state: FootballState,
+    *,
+    scoring_team: str,
+    rng: np.random.Generator,
+    tries: list[TryEvent],
+    away: TeamIdentity,
+    home: TeamIdentity,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    omit_try: bool = False,
+) -> FootballState:
+    state = _add_score_for_team(
+        state,
+        scoring_team,
+        6,
+        away_team_id=away.team_id,
+        home_team_id=home.team_id,
+    )
+    if omit_try:
+        return state
+    scoring_identity = _team_for_id(scoring_team, away, home)
+    defense_strength = _defense_strength_against(
+        scoring_team,
+        away,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+    )
+    margin = (
+        state.away_score - state.home_score
+        if scoring_team == away.team_id
+        else state.home_score - state.away_score
+    )
+    trial = simulate_try(
+        rng,
+        go_for_two=choose_two_point(
+            quarter=state.quarter,
+            seconds_remaining=state.seconds_remaining,
+            score_margin_after_td=margin,
+        ),
+        kicking_skill=scoring_identity.field_goal_skill,
+        offense_skill=scoring_identity.pass_efficiency,
+        defense_skill=defense_strength,
+    )
+    tries.append(trial)
+    return _add_score_for_team(
+        state,
+        scoring_team,
+        trial.points,
+        away_team_id=away.team_id,
+        home_team_id=home.team_id,
+    )
+
+
 def _kickoff(
     state: FootballState,
     rng: np.random.Generator,
     events: list[SpecialTeamsEvent],
+    return_events: list[ReturnEvent],
+    tries: list[TryEvent],
+    *,
+    away: TeamIdentity,
+    home: TeamIdentity,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    ecology: ChaosEcology,
+    max_return_tds: int = 3,
 ) -> FootballState:
-    kick = simulate_kickoff(rng)
-    events.append(kick)
-    receiving = 30.0 if kick.touchback else float(np.clip(kick.return_yards, 5.0, 45.0))
-    return kickoff_transition(state, receiving_yardline_100=receiving, elapsed_seconds=0)
+    """Resolve a kickoff through landing-zone geometry, muffs and rare return scores."""
+    current = state
+    for _ in range(max_return_tds):
+        kicking_team = current.possession
+        receiving_team = current.defense
+        kick = simulate_kickoff(rng, ecology=ecology)
+        if kick.touchback:
+            events.append(kick)
+            return change_possession(
+                current,
+                receiving_yardline_100=ecology.kickoff_touchback_yardline,
+                elapsed_seconds=0,
+            )
+
+        landing = float(kick.return_start_yardline_100 or 1.0)
+        if kick.muffed:
+            events.append(kick)
+            if kick.kicking_team_recovery:
+                recovery = ReturnEvent(
+                    kind=ReturnKind.KICKOFF,
+                    original_offense_team_id=kicking_team,
+                    return_team_id=kicking_team,
+                    returner_id=None,
+                    change_spot_yardline_100=100.0 - landing,
+                    return_yards=0.0,
+                    receiving_yardline_100=100.0 - landing,
+                    touchdown=False,
+                    muffed=True,
+                    kicking_team_recovery=True,
+                )
+                return_events.append(recovery)
+                return _same_possession_first_down(
+                    current,
+                    yardline_100=100.0 - landing,
+                    elapsed_seconds=4,
+                )
+            recovery = ReturnEvent(
+                kind=ReturnKind.KICKOFF,
+                original_offense_team_id=kicking_team,
+                return_team_id=receiving_team,
+                returner_id=None,
+                change_spot_yardline_100=landing,
+                return_yards=0.0,
+                receiving_yardline_100=landing,
+                touchdown=False,
+                muffed=True,
+            )
+            return_events.append(recovery)
+            return change_possession(
+                current,
+                receiving_yardline_100=max(landing, 1.0),
+                elapsed_seconds=4,
+            )
+
+        distance_to_goal = 100.0 - landing
+        return_yards = min(float(kick.return_yards), distance_to_goal)
+        receiving = landing + return_yards
+        touchdown = receiving >= 100.0 - 1e-9
+        events.append(
+            replace(kick, return_yards=return_yards, return_touchdown=touchdown)
+        )
+        return_events.append(
+            ReturnEvent(
+                kind=ReturnKind.KICKOFF,
+                original_offense_team_id=kicking_team,
+                return_team_id=receiving_team,
+                returner_id=kick.returner_id,
+                change_spot_yardline_100=landing,
+                return_yards=return_yards,
+                receiving_yardline_100=100.0 if touchdown else receiving,
+                touchdown=touchdown,
+            )
+        )
+        if not touchdown:
+            return change_possession(
+                current,
+                receiving_yardline_100=receiving,
+                elapsed_seconds=6,
+            )
+
+        scored = advance_game_clock(current, 6)
+        scored = _score_touchdown(
+            scored,
+            scoring_team=receiving_team,
+            rng=rng,
+            tries=tries,
+            away=away,
+            home=home,
+            away_defense_strength=away_defense_strength,
+            home_defense_strength=home_defense_strength,
+        )
+        current = _kick_state_after_score(scored, receiving_team, kicking_team)
+
+    # Back-to-back-to-back return TDs are physically possible but so rare that we terminate
+    # the recursive branch with a normal touchback rather than risking an unbounded loop.
+    forced = SpecialTeamsEvent(
+        event_type="kickoff",
+        kick_distance=65.0,
+        touchback=True,
+    )
+    events.append(forced)
+    return change_possession(
+        current,
+        receiving_yardline_100=ecology.kickoff_touchback_yardline,
+        elapsed_seconds=0,
+    )
+
+
+def _special_return_from_spot(
+    before: FootballState,
+    *,
+    kind: ReturnKind,
+    spot_yardline_100: float,
+    elapsed_seconds: int,
+    rng: np.random.Generator,
+    ecology: ChaosEcology,
+) -> tuple[FootballState, ReturnEvent]:
+    spot = float(np.clip(spot_yardline_100, 1.0, 99.0))
+    start = mirror_field(spot)
+    distance_to_goal = 100.0 - start
+    yards = sample_return_yards(
+        mean=ecology.fumble_return_mean,
+        sd=ecology.fumble_return_sd,
+        zero_rate=min(ecology.fumble_zero_return_rate, 0.40),
+        forty_plus_rate=ecology.fumble_40_plus_rate,
+        return_skill=1.0,
+        rng=rng,
+        maximum=distance_to_goal,
+    )
+    receiving = start + yards
+    touchdown = receiving >= 100.0 - 1e-9
+    event = ReturnEvent(
+        kind=kind,
+        original_offense_team_id=before.possession,
+        return_team_id=before.defense,
+        returner_id=None,
+        change_spot_yardline_100=spot,
+        return_yards=distance_to_goal if touchdown else yards,
+        receiving_yardline_100=100.0 if touchdown else receiving,
+        touchdown=touchdown,
+    )
+    state = change_possession(
+        before,
+        receiving_yardline_100=min(receiving, 99.0),
+        elapsed_seconds=elapsed_seconds,
+    )
+    return state, event
+
+
+def _resolve_punt(
+    before: FootballState,
+    *,
+    punt: SpecialTeamsEvent,
+    elapsed_seconds: int,
+    rng: np.random.Generator,
+    events: list[SpecialTeamsEvent],
+    return_events: list[ReturnEvent],
+    tries: list[TryEvent],
+    away: TeamIdentity,
+    home: TeamIdentity,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    ecology: ChaosEcology,
+    omit_try_on_return_td: bool = False,
+) -> tuple[FootballState, PossessionTerminal, bool]:
+    if punt.blocked:
+        state, ret = _special_return_from_spot(
+            before,
+            kind=ReturnKind.BLOCKED_PUNT,
+            spot_yardline_100=max(before.yardline_100 - 5.0, 1.0),
+            elapsed_seconds=elapsed_seconds,
+            rng=rng,
+            ecology=ecology,
+        )
+        return_events.append(ret)
+        if not ret.touchdown:
+            return state, PossessionTerminal.SPECIAL_TEAMS_TURNOVER, False
+        scored = advance_game_clock(before, elapsed_seconds)
+        scored = _score_touchdown(
+            scored,
+            scoring_team=ret.return_team_id,
+            rng=rng,
+            tries=tries,
+            away=away,
+            home=home,
+            away_defense_strength=away_defense_strength,
+            home_defense_strength=home_defense_strength,
+            omit_try=omit_try_on_return_td,
+        )
+        if omit_try_on_return_td:
+            return scored, PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN, True
+        kick_state = _kick_state_after_score(
+            scored, ret.return_team_id, ret.original_offense_team_id
+        )
+        return (
+            _kickoff(
+                kick_state,
+                rng,
+                events,
+                return_events,
+                tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=ecology,
+            ),
+            PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN,
+            True,
+        )
+
+    if punt.touchback or before.yardline_100 + punt.kick_distance >= 100.0:
+        return (
+            change_possession(before, receiving_yardline_100=20.0, elapsed_seconds=elapsed_seconds),
+            PossessionTerminal.PUNT,
+            False,
+        )
+
+    physical_end = float(
+        np.clip(before.yardline_100 + max(punt.kick_distance, 0.0), 1.0, 99.0)
+    )
+    receiving_start = mirror_field(physical_end)
+    if punt.muffed:
+        ret = ReturnEvent(
+            kind=ReturnKind.PUNT,
+            original_offense_team_id=before.possession,
+            return_team_id=before.possession if punt.kicking_team_recovery else before.defense,
+            returner_id=punt.returner_id,
+            change_spot_yardline_100=physical_end,
+            return_yards=0.0,
+            receiving_yardline_100=physical_end if punt.kicking_team_recovery else receiving_start,
+            touchdown=False,
+            muffed=True,
+            kicking_team_recovery=punt.kicking_team_recovery,
+        )
+        return_events.append(ret)
+        if punt.kicking_team_recovery:
+            return (
+                _same_possession_first_down(
+                    before,
+                    yardline_100=physical_end,
+                    elapsed_seconds=elapsed_seconds,
+                ),
+                PossessionTerminal.SPECIAL_TEAMS_TURNOVER,
+                False,
+            )
+        return (
+            change_possession(
+                before,
+                receiving_yardline_100=receiving_start,
+                elapsed_seconds=elapsed_seconds,
+            ),
+            PossessionTerminal.PUNT,
+            False,
+        )
+
+    distance_to_goal = 100.0 - receiving_start
+    yards = min(float(punt.return_yards), distance_to_goal)
+    receiving = receiving_start + yards
+    touchdown = receiving >= 100.0 - 1e-9
+    ret = ReturnEvent(
+        kind=ReturnKind.PUNT,
+        original_offense_team_id=before.possession,
+        return_team_id=before.defense,
+        returner_id=punt.returner_id,
+        change_spot_yardline_100=physical_end,
+        return_yards=distance_to_goal if touchdown else yards,
+        receiving_yardline_100=100.0 if touchdown else receiving,
+        touchdown=touchdown,
+    )
+    return_events.append(ret)
+    if not touchdown:
+        return (
+            change_possession(
+                before,
+                receiving_yardline_100=receiving,
+                elapsed_seconds=elapsed_seconds,
+            ),
+            PossessionTerminal.PUNT,
+            False,
+        )
+
+    scored = advance_game_clock(before, elapsed_seconds)
+    scored = _score_touchdown(
+        scored,
+        scoring_team=ret.return_team_id,
+        rng=rng,
+        tries=tries,
+        away=away,
+        home=home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        omit_try=omit_try_on_return_td,
+    )
+    if omit_try_on_return_td:
+        return scored, PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN, True
+    kick_state = _kick_state_after_score(
+        scored, ret.return_team_id, ret.original_offense_team_id
+    )
+    return (
+        _kickoff(
+            kick_state,
+            rng,
+            events,
+            return_events,
+            tries,
+            away=away,
+            home=home,
+            away_defense_strength=away_defense_strength,
+            home_defense_strength=home_defense_strength,
+            ecology=ecology,
+        ),
+        PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN,
+        True,
+    )
+
+
+def _resolve_blocked_field_goal(
+    before: FootballState,
+    *,
+    elapsed_seconds: int,
+    rng: np.random.Generator,
+    events: list[SpecialTeamsEvent],
+    return_events: list[ReturnEvent],
+    tries: list[TryEvent],
+    away: TeamIdentity,
+    home: TeamIdentity,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    ecology: ChaosEcology,
+    omit_try_on_return_td: bool = False,
+) -> tuple[FootballState, PossessionTerminal, bool]:
+    state, ret = _special_return_from_spot(
+        before,
+        kind=ReturnKind.BLOCKED_FIELD_GOAL,
+        spot_yardline_100=max(before.yardline_100 - 7.0, 1.0),
+        elapsed_seconds=elapsed_seconds,
+        rng=rng,
+        ecology=ecology,
+    )
+    return_events.append(ret)
+    if not ret.touchdown:
+        return state, PossessionTerminal.SPECIAL_TEAMS_TURNOVER, False
+    scored = advance_game_clock(before, elapsed_seconds)
+    scored = _score_touchdown(
+        scored,
+        scoring_team=ret.return_team_id,
+        rng=rng,
+        tries=tries,
+        away=away,
+        home=home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        omit_try=omit_try_on_return_td,
+    )
+    if omit_try_on_return_td:
+        return scored, PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN, True
+    kick_state = _kick_state_after_score(scored, ret.return_team_id, ret.original_offense_team_id)
+    return (
+        _kickoff(
+            kick_state,
+            rng,
+            events,
+            return_events,
+            tries,
+            away=away,
+            home=home,
+            away_defense_strength=away_defense_strength,
+            home_defense_strength=home_defense_strength,
+            ecology=ecology,
+        ),
+        PossessionTerminal.SPECIAL_TEAMS_TOUCHDOWN,
+        True,
+    )
+
+
+def _resolve_scrimmage_turnover(
+    before: FootballState,
+    event: PlayEvent,
+    *,
+    defense: DefensiveUnit | None,
+    rng: np.random.Generator,
+    defensive_stats: dict[str, DefensiveBoxScore],
+    events: list[SpecialTeamsEvent],
+    return_events: list[ReturnEvent],
+    tries: list[TryEvent],
+    away: TeamIdentity,
+    home: TeamIdentity,
+    away_defense_strength: float,
+    home_defense_strength: float,
+    ecology: ChaosEcology,
+    omit_try_on_return_td: bool = False,
+) -> tuple[FootballState, PossessionTerminal, bool]:
+    ret = resolve_turnover_return(
+        before,
+        event,
+        defense=defense,
+        rng=rng,
+        ecology=ecology,
+    )
+    return_events.append(ret)
+    _record_return(ret, defensive_stats)
+    if not ret.touchdown:
+        return (
+            change_possession(
+                before,
+                receiving_yardline_100=ret.receiving_yardline_100,
+                elapsed_seconds=event.elapsed_seconds,
+            ),
+            PossessionTerminal.TURNOVER,
+            False,
+        )
+
+    scored = advance_game_clock(before, event.elapsed_seconds)
+    scored = _score_touchdown(
+        scored,
+        scoring_team=ret.return_team_id,
+        rng=rng,
+        tries=tries,
+        away=away,
+        home=home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        omit_try=omit_try_on_return_td,
+    )
+    if omit_try_on_return_td:
+        return scored, PossessionTerminal.DEFENSIVE_TOUCHDOWN, True
+    kick_state = _kick_state_after_score(scored, ret.return_team_id, ret.original_offense_team_id)
+    return (
+        _kickoff(
+            kick_state,
+            rng,
+            events,
+            return_events,
+            tries,
+            away=away,
+            home=home,
+            away_defense_strength=away_defense_strength,
+            home_defense_strength=home_defense_strength,
+            ecology=ecology,
+        ),
+        PossessionTerminal.DEFENSIVE_TOUCHDOWN,
+        True,
+    )
 
 
 def simulate_regulation_game(
@@ -206,26 +785,45 @@ def simulate_regulation_game(
     seed: int = 1,
     max_plays: int = 260,
     penalty_rate: float = 0.055,
+    chaos_ecology: ChaosEcology = DEFAULT_CHAOS_ECOLOGY,
 ) -> GameResultV13:
     rng = np.random.default_rng(seed)
-    state = FootballState(
-        possession=away.team_id,
-        defense=home.team_id,
-        away_team_id=away.team_id,
-        home_team_id=home.team_id,
-    )
     stats: dict[str, PlayerBoxScore] = {}
     defensive_stats: dict[str, DefensiveBoxScore] = {}
     plays: list[PlayEvent] = []
     special: list[SpecialTeamsEvent] = []
+    return_events: list[ReturnEvent] = []
     tries: list[TryEvent] = []
     penalties: list[PenaltyEvent] = []
-    drives = 1
     drive_traces: list[DriveTrace] = []
-    drive_recorder = DriveTraceRecorder(state)
     safeties = 0
-    second_half_receiver = home.team_id
+
+    opening_receiver = away.team_id if rng.random() < 0.5 else home.team_id
+    opening_kicker = home.team_id if opening_receiver == away.team_id else away.team_id
+    second_half_receiver = opening_kicker
+    state = FootballState(
+        possession=opening_kicker,
+        defense=opening_receiver,
+        away_team_id=away.team_id,
+        home_team_id=home.team_id,
+        yardline_100=35.0,
+    )
+    state = _kickoff(
+        state,
+        rng,
+        special,
+        return_events,
+        tries,
+        away=away,
+        home=home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        ecology=chaos_ecology,
+    )
+    drives = 1
+    drive_recorder = DriveTraceRecorder(state)
     halftime_done = False
+
     for _ in range(max_plays):
         if regulation_complete(state):
             break
@@ -246,22 +844,27 @@ def simulate_regulation_game(
             _record(event, stats, defensive_stats)
             drive_recorder.observe(before, event)
             if event.play_type == PlayType.PUNT:
-                punt = simulate_punt(rng, punter_skill=offense.punt_skill)
+                punt = simulate_punt(
+                    rng,
+                    punter_skill=offense.punt_skill,
+                    ecology=chaos_ecology,
+                )
                 special.append(punt)
-                if punt.blocked:
-                    state = turnover_at_spot(
-                        state,
-                        max(state.yardline_100 - 5.0, 1.0),
-                        elapsed_seconds=event.elapsed_seconds,
-                    )
-                else:
-                    state = punt_transition(
-                        state,
-                        gross_yards=punt.kick_distance,
-                        return_yards=punt.return_yards,
-                        elapsed_seconds=event.elapsed_seconds,
-                    )
-                drive_traces.append(drive_recorder.finish(state, PossessionTerminal.PUNT, points=0))
+                state, terminal, _ = _resolve_punt(
+                    before,
+                    punt=punt,
+                    elapsed_seconds=event.elapsed_seconds,
+                    rng=rng,
+                    events=special,
+                    return_events=return_events,
+                    tries=tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
+                )
+                drive_traces.append(drive_recorder.finish(state, terminal, points=0))
                 drives += 1
                 drive_recorder = DriveTraceRecorder(state)
             elif event.play_type == PlayType.FIELD_GOAL:
@@ -269,17 +872,52 @@ def simulate_regulation_game(
                     rng,
                     distance=117.0 - state.yardline_100,
                     kicking_skill=offense.field_goal_skill,
+                    ecology=chaos_ecology,
                 )
                 special.append(fg)
-                state = advance_game_clock(state, event.elapsed_seconds)
                 if fg.made:
+                    state = advance_game_clock(state, event.elapsed_seconds)
                     scored_state = _add_score(state, 3, away_team_id=away.team_id)
                     drive_traces.append(
                         drive_recorder.finish(scored_state, PossessionTerminal.FIELD_GOAL)
                     )
-                    state = _kickoff(scored_state, rng, special)
+                    kick_state = _kick_state_after_score(
+                        scored_state,
+                        offense.team_id,
+                        state.defense,
+                    )
+                    state = _kickoff(
+                        kick_state,
+                        rng,
+                        special,
+                        return_events,
+                        tries,
+                        away=away,
+                        home=home,
+                        away_defense_strength=away_defense_strength,
+                        home_defense_strength=home_defense_strength,
+                        ecology=chaos_ecology,
+                    )
+                elif fg.blocked:
+                    state, terminal, _ = _resolve_blocked_field_goal(
+                        before,
+                        elapsed_seconds=event.elapsed_seconds,
+                        rng=rng,
+                        events=special,
+                        return_events=return_events,
+                        tries=tries,
+                        away=away,
+                        home=home,
+                        away_defense_strength=away_defense_strength,
+                        home_defense_strength=home_defense_strength,
+                        ecology=chaos_ecology,
+                    )
+                    drive_traces.append(drive_recorder.finish(state, terminal, points=0))
                 else:
-                    state = missed_field_goal_transition(state, elapsed_seconds=0)
+                    state = missed_field_goal_transition(
+                        state,
+                        elapsed_seconds=event.elapsed_seconds,
+                    )
                     drive_traces.append(
                         drive_recorder.finish(state, PossessionTerminal.MISSED_FIELD_GOAL, points=0)
                     )
@@ -299,15 +937,38 @@ def simulate_regulation_game(
                 drive_traces.append(
                     drive_recorder.finish(state, PossessionTerminal.SAFETY, points=0)
                 )
-                state = _kickoff(state, rng, special)
+                # After a safety, the team that conceded the safety free-kicks to the scorer.
+                state = _kickoff(
+                    state,
+                    rng,
+                    special,
+                    return_events,
+                    tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
+                )
                 drives += 1
                 drive_recorder = DriveTraceRecorder(state)
             elif event.turnover:
-                spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
-                state = turnover_at_spot(state, spot, elapsed_seconds=event.elapsed_seconds)
-                drive_traces.append(
-                    drive_recorder.finish(state, PossessionTerminal.TURNOVER, points=0)
+                state, terminal, _ = _resolve_scrimmage_turnover(
+                    before,
+                    event,
+                    defense=defense,
+                    rng=rng,
+                    defensive_stats=defensive_stats,
+                    events=special,
+                    return_events=return_events,
+                    tries=tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
                 )
+                drive_traces.append(drive_recorder.finish(state, terminal, points=0))
                 drives += 1
                 drive_recorder = DriveTraceRecorder(state)
             elif event.touchdown:
@@ -333,7 +994,19 @@ def simulate_regulation_game(
                 drive_traces.append(
                     drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
                 )
-                state = _kickoff(state, rng, special)
+                kick_state = _kick_state_after_score(state, offense.team_id, before.defense)
+                state = _kickoff(
+                    kick_state,
+                    rng,
+                    special,
+                    return_events,
+                    tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
+                )
                 drives += 1
                 drive_recorder = DriveTraceRecorder(state)
             else:
@@ -351,16 +1024,31 @@ def simulate_regulation_game(
                     drive_recorder.finish(state, PossessionTerminal.HALFTIME)
                 )
             halftime_done = True
+            halftime_kicker = (
+                home.team_id if second_half_receiver == away.team_id else away.team_id
+            )
             state = FootballState(
-                possession=second_half_receiver,
-                defense=away.team_id if second_half_receiver == home.team_id else home.team_id,
+                possession=halftime_kicker,
+                defense=second_half_receiver,
                 quarter=3,
                 seconds_remaining=1800,
-                yardline_100=30.0,
+                yardline_100=35.0,
                 away_score=state.away_score,
                 home_score=state.home_score,
                 away_team_id=away.team_id,
                 home_team_id=home.team_id,
+            )
+            state = _kickoff(
+                state,
+                rng,
+                special,
+                return_events,
+                tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=chaos_ecology,
             )
             drives += 1
             drive_recorder = DriveTraceRecorder(state)
@@ -376,6 +1064,7 @@ def simulate_regulation_game(
         drive_traces=tuple(drive_traces),
         defensive_stats=defensive_stats,
         special_teams_events=tuple(special),
+        return_events=tuple(return_events),
         try_events=tuple(tries),
         safeties=safeties,
         penalty_events=tuple(penalties),
@@ -394,29 +1083,23 @@ def _simulate_regular_season_overtime(
     seed: int,
     max_plays: int,
     penalty_rate: float,
+    chaos_ecology: ChaosEcology,
 ) -> GameResultV13:
-    """Continue one tied regulation world through the 2026 regular-season OT rules.
-
-    Both teams receive an initial possession opportunity, including after an opening-drive
-    touchdown, except when the team that kicked off scores a safety on the receiving team's
-    first possession. After both opportunities, the game is sudden death. The period is capped
-    at 10 minutes, so a true tie can still survive if the clock expires with equal scores.
-    """
+    """Continue one tied regulation world through the 2026 regular-season OT rules."""
     if not overtime_required(
         regulation.final_state.away_score, regulation.final_state.home_score
     ):
         return regulation
 
     rng = np.random.default_rng(seed)
-    stats = {
-        player_id: replace(box) for player_id, box in regulation.player_stats.items()
-    }
+    stats = {player_id: replace(box) for player_id, box in regulation.player_stats.items()}
     defensive_stats = {
         player_id: replace(box)
         for player_id, box in (regulation.defensive_stats or {}).items()
     }
     plays = list(regulation.plays)
     special = list(regulation.special_teams_events)
+    return_events = list(regulation.return_events)
     tries = list(regulation.try_events)
     penalties = list(regulation.penalty_events)
     drives = regulation.drives
@@ -433,16 +1116,33 @@ def _simulate_regular_season_overtime(
         defense=opening_receiver,
         quarter=5,
         seconds_remaining=OVERTIME_SECONDS,
-        yardline_100=30.0,
+        yardline_100=35.0,
         away_score=regulation.final_state.away_score,
         home_score=regulation.final_state.home_score,
         away_team_id=away.team_id,
         home_team_id=home.team_id,
     )
-    state = _kickoff(state, rng, special)
+    returns_before = len(return_events)
+    state = _kickoff(
+        state,
+        rng,
+        special,
+        return_events,
+        tries,
+        away=away,
+        home=home,
+        away_defense_strength=away_defense_strength,
+        home_defense_strength=home_defense_strength,
+        ecology=chaos_ecology,
+    )
+    kickoff_td_teams = {
+        event.return_team_id
+        for event in return_events[returns_before:]
+        if event.kind == ReturnKind.KICKOFF and event.touchdown
+    }
     drives += 1
     drive_recorder = DriveTraceRecorder(state)
-    initial_completed: set[str] = set()
+    initial_completed: set[str] = set(kickoff_td_teams)
 
     for _ in range(max_plays):
         if overtime_complete(state):
@@ -470,25 +1170,34 @@ def _simulate_regular_season_overtime(
         drive_recorder.observe(before, event)
 
         if event.play_type == PlayType.PUNT:
-            punt = simulate_punt(rng, punter_skill=offense.punt_skill)
+            punt = simulate_punt(
+                rng,
+                punter_skill=offense.punt_skill,
+                ecology=chaos_ecology,
+            )
             special.append(punt)
-            if punt.blocked:
-                state = turnover_at_spot(
-                    state,
-                    max(state.yardline_100 - 5.0, 1.0),
-                    elapsed_seconds=event.elapsed_seconds,
-                )
-            else:
-                state = punt_transition(
-                    state,
-                    gross_yards=punt.kick_distance,
-                    return_yards=punt.return_yards,
-                    elapsed_seconds=event.elapsed_seconds,
-                )
-            drive_traces.append(drive_recorder.finish(state, PossessionTerminal.PUNT, points=0))
+            state, terminal, return_td = _resolve_punt(
+                before,
+                punt=punt,
+                elapsed_seconds=event.elapsed_seconds,
+                rng=rng,
+                events=special,
+                return_events=return_events,
+                tries=tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=chaos_ecology,
+                omit_try_on_return_td=sudden_death,
+            )
+            drive_traces.append(drive_recorder.finish(state, terminal, points=0))
             drives += 1
-            drive_recorder = DriveTraceRecorder(state)
             initial_completed.add(offense.team_id)
+            if return_td and (sudden_death or len(initial_completed) >= 2):
+                overtime_touchdowns_without_try += int(sudden_death)
+                break
+            drive_recorder = DriveTraceRecorder(state)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
             continue
@@ -498,38 +1207,69 @@ def _simulate_regular_season_overtime(
                 rng,
                 distance=117.0 - state.yardline_100,
                 kicking_skill=offense.field_goal_skill,
+                ecology=chaos_ecology,
             )
             special.append(fg)
-            state = advance_game_clock(state, event.elapsed_seconds)
             if fg.made:
+                state = advance_game_clock(state, event.elapsed_seconds)
                 state = _add_score(state, 3, away_team_id=away.team_id)
-                drive_traces.append(
-                    drive_recorder.finish(state, PossessionTerminal.FIELD_GOAL)
-                )
-                drive_recorder = DriveTraceRecorder(state)
+                drive_traces.append(drive_recorder.finish(state, PossessionTerminal.FIELD_GOAL))
                 initial_completed.add(offense.team_id)
                 if sudden_death or (
-                    len(initial_completed) >= 2
-                    and state.away_score != state.home_score
+                    len(initial_completed) >= 2 and state.away_score != state.home_score
                 ):
                     break
                 if overtime_complete(state):
                     break
-                state = _kickoff(state, rng, special)
+                kick_state = _kick_state_after_score(state, offense.team_id, before.defense)
+                state = _kickoff(
+                    kick_state,
+                    rng,
+                    special,
+                    return_events,
+                    tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
+                )
+                drives += 1
+                drive_recorder = DriveTraceRecorder(state)
+            elif fg.blocked:
+                state, terminal, return_td = _resolve_blocked_field_goal(
+                    before,
+                    elapsed_seconds=event.elapsed_seconds,
+                    rng=rng,
+                    events=special,
+                    return_events=return_events,
+                    tries=tries,
+                    away=away,
+                    home=home,
+                    away_defense_strength=away_defense_strength,
+                    home_defense_strength=home_defense_strength,
+                    ecology=chaos_ecology,
+                    omit_try_on_return_td=True,
+                )
+                drive_traces.append(drive_recorder.finish(state, terminal, points=0))
+                initial_completed.add(offense.team_id)
+                if return_td:
+                    overtime_touchdowns_without_try += 1
+                    break
                 drives += 1
                 drive_recorder = DriveTraceRecorder(state)
             else:
-                state = missed_field_goal_transition(state, elapsed_seconds=0)
+                state = missed_field_goal_transition(
+                    state,
+                    elapsed_seconds=event.elapsed_seconds,
+                )
                 drive_traces.append(
                     drive_recorder.finish(state, PossessionTerminal.MISSED_FIELD_GOAL, points=0)
                 )
-                drive_recorder = DriveTraceRecorder(state)
                 drives += 1
                 initial_completed.add(offense.team_id)
-                if (
-                    len(initial_completed) >= 2
-                    and state.away_score != state.home_score
-                ):
+                drive_recorder = DriveTraceRecorder(state)
+                if len(initial_completed) >= 2 and state.away_score != state.home_score:
                     break
             continue
 
@@ -544,37 +1284,56 @@ def _simulate_regular_season_overtime(
                 home_team_id=home.team_id,
             )
             safeties += 1
-            drive_traces.append(
-                drive_recorder.finish(state, PossessionTerminal.SAFETY, points=0)
-            )
-            drive_recorder = DriveTraceRecorder(state)
+            drive_traces.append(drive_recorder.finish(state, PossessionTerminal.SAFETY, points=0))
             initial_completed.add(offense.team_id)
-
-            # 2026 Rule 16 exception: the team that kicked off wins immediately if it
-            # scores a safety on the opening receiver's initial possession.
             if offense.team_id == first_team and len(initial_completed) == 1:
                 break
             if sudden_death or (
-                len(initial_completed) >= 2
-                and state.away_score != state.home_score
+                len(initial_completed) >= 2 and state.away_score != state.home_score
             ):
                 break
             if overtime_complete(state):
                 break
-            state = _kickoff(state, rng, special)
+            state = _kickoff(
+                state,
+                rng,
+                special,
+                return_events,
+                tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=chaos_ecology,
+            )
             drives += 1
             drive_recorder = DriveTraceRecorder(state)
             continue
 
         if event.turnover:
-            spot = min(max(state.yardline_100 + event.yards, 1.0), 99.0)
-            state = turnover_at_spot(state, spot, elapsed_seconds=event.elapsed_seconds)
-            drive_traces.append(
-                drive_recorder.finish(state, PossessionTerminal.TURNOVER, points=0)
+            state, terminal, return_td = _resolve_scrimmage_turnover(
+                before,
+                event,
+                defense=defense,
+                rng=rng,
+                defensive_stats=defensive_stats,
+                events=special,
+                return_events=return_events,
+                tries=tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=chaos_ecology,
+                omit_try_on_return_td=True,
             )
-            drive_recorder = DriveTraceRecorder(state)
-            drives += 1
+            drive_traces.append(drive_recorder.finish(state, terminal, points=0))
             initial_completed.add(offense.team_id)
+            if return_td:
+                overtime_touchdowns_without_try += 1
+                break
+            drives += 1
+            drive_recorder = DriveTraceRecorder(state)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
             continue
@@ -582,10 +1341,6 @@ def _simulate_regular_season_overtime(
         if event.touchdown:
             state = advance_game_clock(state, event.elapsed_seconds)
             state = _add_score(state, 6, away_team_id=away.team_id)
-
-            # Once both teams have already had their opportunity, any TD is sudden-death.
-            # On the second team's initial possession, a TD also ends the game immediately
-            # if the six points themselves create the lead; in either case there is no try.
             game_ending_td = sudden_death or (
                 first_team in initial_completed
                 and offense.team_id != first_team
@@ -593,10 +1348,7 @@ def _simulate_regular_season_overtime(
                 > _opponent_score(state, offense.team_id, away_team_id=away.team_id)
             )
             if game_ending_td:
-                drive_traces.append(
-                    drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
-                )
-                drive_recorder = DriveTraceRecorder(state)
+                drive_traces.append(drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN))
                 initial_completed.add(offense.team_id)
                 overtime_touchdowns_without_try += 1
                 break
@@ -619,16 +1371,25 @@ def _simulate_regular_season_overtime(
             )
             tries.append(trial)
             state = _add_score(state, trial.points, away_team_id=away.team_id)
-            drive_traces.append(
-                drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN)
-            )
-            drive_recorder = DriveTraceRecorder(state)
+            drive_traces.append(drive_recorder.finish(state, PossessionTerminal.TOUCHDOWN))
             initial_completed.add(offense.team_id)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
             if overtime_complete(state):
                 break
-            state = _kickoff(state, rng, special)
+            kick_state = _kick_state_after_score(state, offense.team_id, before.defense)
+            state = _kickoff(
+                kick_state,
+                rng,
+                special,
+                return_events,
+                tries,
+                away=away,
+                home=home,
+                away_defense_strength=away_defense_strength,
+                home_defense_strength=home_defense_strength,
+                ecology=chaos_ecology,
+            )
             drives += 1
             drive_recorder = DriveTraceRecorder(state)
             continue
@@ -639,9 +1400,9 @@ def _simulate_regular_season_overtime(
             drive_traces.append(
                 drive_recorder.finish(state, PossessionTerminal.TURNOVER_ON_DOWNS, points=0)
             )
-            drive_recorder = DriveTraceRecorder(state)
             drives += 1
             initial_completed.add(offense.team_id)
+            drive_recorder = DriveTraceRecorder(state)
             if len(initial_completed) >= 2 and state.away_score != state.home_score:
                 break
 
@@ -658,6 +1419,7 @@ def _simulate_regular_season_overtime(
         drive_traces=tuple(drive_traces),
         defensive_stats=defensive_stats,
         special_teams_events=tuple(special),
+        return_events=tuple(return_events),
         try_events=tuple(tries),
         safeties=safeties,
         penalty_events=tuple(penalties),
@@ -678,8 +1440,9 @@ def simulate_game(
     max_plays: int = 260,
     max_overtime_plays: int = 80,
     penalty_rate: float = 0.055,
+    chaos_ecology: ChaosEcology = DEFAULT_CHAOS_ECOLOGY,
 ) -> GameResultV13:
-    """Simulate one complete 2026 regular-season NFL game, including overtime if tied."""
+    """Simulate one complete 2026 regular-season NFL game, including football oddities."""
     regulation = simulate_regulation_game(
         away,
         home,
@@ -690,6 +1453,7 @@ def simulate_game(
         seed=seed,
         max_plays=max_plays,
         penalty_rate=penalty_rate,
+        chaos_ecology=chaos_ecology,
     )
     if not overtime_required(
         regulation.final_state.away_score, regulation.final_state.home_score
@@ -706,4 +1470,5 @@ def simulate_game(
         seed=seed + 2_000_003,
         max_plays=max_overtime_plays,
         penalty_rate=penalty_rate,
+        chaos_ecology=chaos_ecology,
     )
