@@ -74,6 +74,7 @@ jobs:
           anatomy = pl.read_csv(out / 'football_anatomy.csv')
           games = pl.read_csv(out / 'game_distributions.csv')
           players = pl.read_csv(out / 'player_distributions.csv')
+          worlds = pl.read_csv(out / 'player_world_fanduel.csv')
           manifest = json.loads((out / 'manifest.json').read_text())
 
           def mean(column):
@@ -83,6 +84,19 @@ jobs:
           skill = players.filter(pl.col('position').is_in(['QB','RB','WR','TE']))
           totals = games['total_mean']
           margins = games['margin_mean']
+          world_skill = worlds.filter(pl.col('position').is_in(['QB','RB','WR','TE']))
+          player_world_stats = (
+              world_skill.group_by(['game','player_id','player','position'])
+              .agg(
+                  pl.col('fanduel_points').mean().alias('fanduel_mean'),
+                  pl.col('fanduel_points').std(ddof=1).alias('fanduel_sd'),
+                  pl.col('fanduel_points').quantile(0.90).alias('fanduel_p90'),
+                  pl.col('fanduel_points').quantile(0.99).alias('fanduel_p99'),
+                  (pl.col('fanduel_points') >= 20.0).mean().alias('fanduel_20_plus_probability'),
+                  (pl.col('fanduel_points') >= 30.0).mean().alias('fanduel_30_plus_probability'),
+              )
+              .sort('fanduel_mean', descending=True)
+          )
           summary = {
               'games': int(manifest['games']),
               'worlds_per_game': int(manifest['worlds_per_game']),
@@ -103,7 +117,8 @@ jobs:
               'qb_fanduel_mean_sd': float(qb['fanduel_mean'].std(ddof=1)) if qb.height > 1 else 0.0,
               'qb_fanduel_mean_range': float(qb['fanduel_mean'].max() - qb['fanduel_mean'].min()) if qb.height else 0.0,
               'skill_player_fanduel_mean_sd': float(skill['fanduel_mean'].std(ddof=1)) if skill.height > 1 else 0.0,
-              'top_players': players.select([
+              'skill_player_world_sd_mean': float(player_world_stats['fanduel_sd'].mean()),
+              'top_players': player_world_stats.select([
                   'player','position','game','fanduel_mean','fanduel_sd','fanduel_p90','fanduel_p99',
                   'fanduel_20_plus_probability','fanduel_30_plus_probability'
               ]).head(25).to_dicts(),
