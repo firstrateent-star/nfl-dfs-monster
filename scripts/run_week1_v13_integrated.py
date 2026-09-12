@@ -4,7 +4,7 @@ import argparse
 import json
 import time
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import numpy as np
@@ -36,11 +36,20 @@ from monster.feature_compile.skill_pools import compile_current_skill_pools
 from monster.sim.defensive_attribution import attribute_defensive_box_score
 from monster.sim.event_ledger import assert_event_conservation, summarize_game
 from monster.sim.game_loop_v13 import DefensiveBoxScore, PlayerBoxScore, simulate_game
+from monster.sim.intent_ecology import build_intent_ecology
 from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
 
 
-def _progress(completed: int, total: int, *, game: str, world: int, worlds: int, started: float) -> None:
+def _progress(
+    completed: int,
+    total: int,
+    *,
+    game: str,
+    world: int,
+    worlds: int,
+    started: float,
+) -> None:
     elapsed = max(time.monotonic() - started, 1e-9)
     rate = completed / elapsed
     remaining = (total - completed) / rate if rate > 0 else 0.0
@@ -53,6 +62,52 @@ def _progress(completed: int, total: int, *, game: str, world: int, worlds: int,
         f"{game} {world:,}/{worlds:,} | {rate:.2f} worlds/s | ETA {remaining/60:.1f}m",
         flush=True,
     )
+
+
+def _attach_historical_intent_ecology(teams: dict, policy_dir: Path) -> dict:
+    """Attach real historical intent/resolution priors without changing team identities.
+
+    The policy build already separates *what an offense tries* from *whether it succeeds*.
+    Here we activate that evidence in the integrated simulator: contextual pass depth and run
+    geometry come from 2025 regular-season play-by-play, while the existing current-player,
+    Madden, protection, coverage and game-state mechanisms retain bounded matchup authority.
+    """
+    stems = (
+        "pass_depth_league",
+        "pass_depth_team",
+        "pass_depth_qb",
+        "pass_depth_outcomes",
+        "target_depth",
+        "run_geometry_league",
+        "run_geometry_team",
+        "run_geometry_rusher",
+        "run_geometry_outcomes",
+    )
+    frames = {}
+    for stem in stems:
+        path = policy_dir / f"{stem}.parquet"
+        if not path.exists():
+            raise FileNotFoundError(f"historical intent ecology input missing: {path}")
+        frames[stem] = pl.read_parquet(path).to_dicts()
+
+    return {
+        team_id: replace(
+            team,
+            intent_ecology=build_intent_ecology(
+                team_id=team_id,
+                pass_league_rows=frames["pass_depth_league"],
+                pass_team_rows=frames["pass_depth_team"],
+                pass_qb_rows=frames["pass_depth_qb"],
+                pass_outcome_rows=frames["pass_depth_outcomes"],
+                target_depth_rows=frames["target_depth"],
+                run_league_rows=frames["run_geometry_league"],
+                run_team_rows=frames["run_geometry_team"],
+                run_rusher_rows=frames["run_geometry_rusher"],
+                run_outcome_rows=frames["run_geometry_outcomes"],
+            ),
+        )
+        for team_id, team in teams.items()
+    }
 
 
 def main() -> None:
@@ -94,6 +149,7 @@ def main() -> None:
         for pair in MATCHUPS
         for team in pair
     }
+    teams = _attach_historical_intent_ecology(teams, args.player_usage.parent)
     defenses = {team: _defensive_unit(units[team]) for pair in MATCHUPS for team in pair}
     names = _name_map(personnel, pools)
     positions = _position_map(personnel, pools)
@@ -264,18 +320,26 @@ def main() -> None:
                 "overtime_probability": row["went_to_overtime_mean"],
             }
         )
-        row["projected_winner"] = away if row["away_win_probability"] > row["home_win_probability"] else home
+        row["projected_winner"] = (
+            away if row["away_win_probability"] > row["home_win_probability"] else home
+        )
         row["projected_away_score"] = round(row["away_points_mean"])
         row["projected_home_score"] = round(row["home_points_mean"])
-        row["projected_score"] = f'{away} {row["projected_away_score"]} - {home} {row["projected_home_score"]}'
-        row["winner_probability"] = max(row["away_win_probability"], row["home_win_probability"])
+        row["projected_score"] = (
+            f'{away} {row["projected_away_score"]} - {home} {row["projected_home_score"]}'
+        )
+        row["winner_probability"] = max(
+            row["away_win_probability"], row["home_win_probability"]
+        )
         game_rows.append(row)
 
     first_player_rows = []
     player_world_rows = []
     for (game, player_id), metrics in offensive_acc.items():
         arrays = {key: np.asarray(values, dtype=float) for key, values in metrics.items()}
-        fd_scores = score_offensive_player_worlds({stat: arrays[stat] for stat in FANDUEL_SCORING})
+        fd_scores = score_offensive_player_worlds(
+            {stat: arrays[stat] for stat in FANDUEL_SCORING}
+        )
         row = {
             "game": game,
             "player_id": player_id,
@@ -339,36 +403,76 @@ def main() -> None:
     game_df = pl.DataFrame(game_rows).sort("total_mean", descending=True)
     player_df = pl.DataFrame(first_player_rows).sort("fanduel_mean", descending=True)
     world_df = pl.DataFrame(player_world_rows).sort(["game", "world", "player_id"])
-    rush_plan_df = pl.DataFrame(rush_plan_rows).sort(["team", "plan_share_mean"], descending=[False, True])
+    rush_plan_df = pl.DataFrame(rush_plan_rows).sort(
+        ["team", "plan_share_mean"], descending=[False, True]
+    )
     game_df.write_csv(args.first_out / "game_distributions.csv")
     player_df.write_csv(args.first_out / "player_distributions.csv")
     world_df.write_csv(args.first_out / "player_world_fanduel.csv")
     rush_plan_df.write_csv(args.first_out / "rushing_role_plan_audit.csv")
-    game_df.select([
-        "game", "projected_winner", "winner_probability", "projected_score",
-        "projected_away_score", "projected_home_score", "away_win_probability",
-        "home_win_probability", "tie_probability", "overtime_probability", "total_mean",
-        "margin_mean", "away_points_p10", "away_points_p50", "away_points_p90",
-        "home_points_p10", "home_points_p50", "home_points_p90",
-    ]).write_csv(args.first_out / "projected_scores_and_outcomes.csv")
-    game_df.select([
-        "game", "scrimmage_plays_mean", "pass_plays_mean", "pass_attempts_mean", "dropbacks_mean",
-        "run_plays_mean", "rush_attempts_mean", "scrambles_mean", "sacks_mean", "completions_mean",
-        "completion_percentage", "interceptions_mean", "interception_rate", "fumbles_lost_mean",
-        "sack_rate", "scramble_rate", "punts_mean", "field_goal_attempts_mean", "field_goals_made_mean",
-        "touchdowns_mean", "drives_mean", "went_to_overtime_mean", "overtime_touchdowns_without_try_mean",
-        "total_mean",
-    ]).write_csv(args.first_out / "football_anatomy.csv")
+    game_df.select(
+        [
+            "game",
+            "projected_winner",
+            "winner_probability",
+            "projected_score",
+            "projected_away_score",
+            "projected_home_score",
+            "away_win_probability",
+            "home_win_probability",
+            "tie_probability",
+            "overtime_probability",
+            "total_mean",
+            "margin_mean",
+            "away_points_p10",
+            "away_points_p50",
+            "away_points_p90",
+            "home_points_p10",
+            "home_points_p50",
+            "home_points_p90",
+        ]
+    ).write_csv(args.first_out / "projected_scores_and_outcomes.csv")
+    game_df.select(
+        [
+            "game",
+            "scrimmage_plays_mean",
+            "pass_plays_mean",
+            "pass_attempts_mean",
+            "dropbacks_mean",
+            "run_plays_mean",
+            "rush_attempts_mean",
+            "scrambles_mean",
+            "sacks_mean",
+            "completions_mean",
+            "completion_percentage",
+            "interceptions_mean",
+            "interception_rate",
+            "fumbles_lost_mean",
+            "sack_rate",
+            "scramble_rate",
+            "punts_mean",
+            "field_goal_attempts_mean",
+            "field_goals_made_mean",
+            "touchdowns_mean",
+            "drives_mean",
+            "went_to_overtime_mean",
+            "overtime_touchdowns_without_try_mean",
+            "total_mean",
+        ]
+    ).write_csv(args.first_out / "football_anatomy.csv")
     situation_context.write_csv(args.first_out / "situational_pass_context.csv")
-    pl.DataFrame([
-        {
-            "team": team,
-            "team_neutral_pass_rate": teams[team].neutral_pass_rate,
-            "league_neutral_pass_rate": league_neutral_pass_rate,
-            "team_neutral_deviation": teams[team].neutral_pass_rate - league_neutral_pass_rate,
-        }
-        for team in sorted(teams)
-    ]).write_csv(args.first_out / "team_play_call_inputs.csv")
+    pl.DataFrame(
+        [
+            {
+                "team": team,
+                "team_neutral_pass_rate": teams[team].neutral_pass_rate,
+                "league_neutral_pass_rate": league_neutral_pass_rate,
+                "team_neutral_deviation": teams[team].neutral_pass_rate
+                - league_neutral_pass_rate,
+            }
+            for team in sorted(teams)
+        ]
+    ).write_csv(args.first_out / "team_play_call_inputs.csv")
     first_manifest = {
         "model": "Monster v1.3 Full-Reality integrated event-by-event simulation",
         "week": 1,
@@ -381,6 +485,12 @@ def main() -> None:
         "player_stats_event_derived": True,
         "definition_safe_anatomy": True,
         "empirical_situational_pass_context_active": True,
+        "historical_intent_ecology_active": True,
+        "historical_intent_ecology_scope": "2025 regular-season NFL play-by-play",
+        "pass_depth_contextual_by_team_and_qb": True,
+        "target_depth_compatibility_active": True,
+        "depth_specific_air_yards_and_yac_active": True,
+        "run_geometry_ecology_active": True,
         "defensive_identity_active": True,
         "full_reality_player_bridge_active": True,
         "unit_bridge_active": True,
@@ -399,8 +509,12 @@ def main() -> None:
     }
     (args.first_out / "manifest.json").write_text(json.dumps(first_manifest, indent=2))
 
-    offense_rows = _aggregate_player_rows(offensive_acc, names, positions, player_teams, side="offense")
-    defense_rows = _aggregate_player_rows(defensive_acc, names, positions, player_teams, side="defense")
+    offense_rows = _aggregate_player_rows(
+        offensive_acc, names, positions, player_teams, side="offense"
+    )
+    defense_rows = _aggregate_player_rows(
+        defensive_acc, names, positions, player_teams, side="defense"
+    )
     team_rows = []
     for (game, team), metrics in game_acc.items():
         row = {"game": game, "team": team}
@@ -414,32 +528,56 @@ def main() -> None:
         representative_world = _representative_world(worlds)
         away, home = game.split("@")
         world_summary = next(x for x in worlds if x["world"] == representative_world)
-        representative_rows.append({
-            "game": game, "world": representative_world, "record_type": "game", "team": "",
-            "player_id": "", "player": "", "position": "", "away_points": world_summary["away_points"],
-            "home_points": world_summary["home_points"],
-        })
+        representative_rows.append(
+            {
+                "game": game,
+                "world": representative_world,
+                "record_type": "game",
+                "team": "",
+                "player_id": "",
+                "player": "",
+                "position": "",
+                "away_points": world_summary["away_points"],
+                "home_points": world_summary["home_points"],
+            }
+        )
         for team in (away, home):
             for player_id in [p.player_id for p in pools[team].players]:
-                representative_rows.append({
-                    "game": game, "world": representative_world, "record_type": "offense", "team": team,
-                    "player_id": player_id, "player": names.get(player_id, player_id),
-                    "position": positions.get(player_id, ""),
-                    **representative_offense[(game, representative_world, player_id)],
-                })
+                representative_rows.append(
+                    {
+                        "game": game,
+                        "world": representative_world,
+                        "record_type": "offense",
+                        "team": team,
+                        "player_id": player_id,
+                        "player": names.get(player_id, player_id),
+                        "position": positions.get(player_id, ""),
+                        **representative_offense[(game, representative_world, player_id)],
+                    }
+                )
             for player_id in [p.player_id for p in units[team] if p.defense_snap_share >= 0.03]:
-                representative_rows.append({
-                    "game": game, "world": representative_world, "record_type": "defense", "team": team,
-                    "player_id": player_id, "player": names.get(player_id, player_id),
-                    "position": positions.get(player_id, ""),
-                    **representative_defense[(game, representative_world, player_id)],
-                })
+                representative_rows.append(
+                    {
+                        "game": game,
+                        "world": representative_world,
+                        "record_type": "defense",
+                        "team": team,
+                        "player_id": player_id,
+                        "player": names.get(player_id, player_id),
+                        "position": positions.get(player_id, ""),
+                        **representative_defense[(game, representative_world, player_id)],
+                    }
+                )
 
     args.box_out.mkdir(parents=True, exist_ok=True)
     offense_df = pl.DataFrame(offense_rows).sort(["game", "team", "position", "player"])
-    defense_df = pl.DataFrame(defense_rows).sort(["game", "team", "tackles_mean"], descending=[False, False, True])
+    defense_df = pl.DataFrame(defense_rows).sort(
+        ["game", "team", "tackles_mean"], descending=[False, False, True]
+    )
     team_df = pl.DataFrame(team_rows).sort(["game", "team"])
-    representative_df = pl.DataFrame(representative_rows).sort(["game", "record_type", "team", "player"])
+    representative_df = pl.DataFrame(representative_rows).sort(
+        ["game", "record_type", "team", "player"]
+    )
     offense_df.write_csv(args.box_out / "offensive_player_box_score_distributions.csv")
     defense_df.write_csv(args.box_out / "defensive_player_box_score_distributions.csv")
     team_df.write_csv(args.box_out / "team_box_score_distributions.csv")
@@ -447,16 +585,20 @@ def main() -> None:
     game_summaries = []
     for game in sorted(game_world_rows):
         away, home = game.split("@")
-        game_summaries.append({
-            "game": game,
-            "representative_world": _representative_world(game_world_rows[game]),
-            "away": away,
-            "home": home,
-            "teams": [row for row in team_rows if row["game"] == game],
-            "offense": [row for row in offense_rows if row["game"] == game],
-            "defense": [row for row in defense_rows if row["game"] == game],
-        })
-    (args.box_out / "simulated_game_box_scores.json").write_text(json.dumps(game_summaries, indent=2))
+        game_summaries.append(
+            {
+                "game": game,
+                "representative_world": _representative_world(game_world_rows[game]),
+                "away": away,
+                "home": home,
+                "teams": [row for row in team_rows if row["game"] == game],
+                "offense": [row for row in offense_rows if row["game"] == game],
+                "defense": [row for row in defense_rows if row["game"] == game],
+            }
+        )
+    (args.box_out / "simulated_game_box_scores.json").write_text(
+        json.dumps(game_summaries, indent=2)
+    )
     box_manifest = {
         "model": "Monster v1.3 same-world box-score observability layer",
         "season": 2026,
