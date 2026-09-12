@@ -1,6 +1,10 @@
 name: Simulate slate
 
 on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - .github/workflows/simulate-slate.yml
   workflow_dispatch:
     inputs:
       worlds:
@@ -71,8 +75,8 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
-          --worlds ${{ inputs.worlds }}
-          --seed ${{ inputs.seed }}
+          --worlds ${{ github.event.inputs.worlds || '100' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
           --progress-every 100
           --first-out artifacts/monster-simulation
           --box-out artifacts/monster-box-scores
