@@ -185,21 +185,63 @@ def resolve_run_contact(
     explosiveness: float,
     rng: np.random.Generator,
 ) -> RunAnatomy:
+    """Resolve contact while preserving a real open-field positive tail.
+
+    This helper is used by the non-geometry fallback and, importantly, by QB scrambles.
+    The former implementation produced the correct probability of a useful scramble but
+    compressed nearly every successful escape into 3-6 yards because every non-penetrated
+    run was forced into immediate contact around three yards. NFL scrambles have a distinct
+    open-field topology: once the QB clears the rush there can be meaningful space before the
+    first tackle attempt. We therefore separate penetration, ordinary pursuit, clean-lane and
+    breakaway branches. ``explosiveness`` (which now carries Madden speed/mobility evidence)
+    and defender tackling govern movement among those branches rather than directly adding
+    fantasy yards.
+    """
+    runner = float(np.clip(runner_power, 0.60, 1.45))
+    pursuit = float(np.clip(tackling, 0.60, 1.55))
+    burst = float(np.clip(explosiveness, 0.60, 1.55))
+
     penetration = rng.random() < penetration_probability
     if penetration:
-        before = float(np.clip(rng.normal(0.0, 1.1), -4.0, 2.0))
-        break_p = float(np.clip(0.12 * runner_power / max(tackling, 0.60), 0.03, 0.32))
-        if rng.random() >= break_p:
-            return RunAnatomy(penetration, ContactResult.STUFF, before, 0.0, before)
-    else:
-        before = float(np.clip(rng.normal(3.1, 1.8), 0.0, 12.0))
+        before = float(np.clip(rng.normal(-0.10, 1.20), -5.0, 2.0))
+        escape_p = float(np.clip(0.14 * runner * burst / pursuit, 0.035, 0.38))
+        if rng.random() >= escape_p:
+            return RunAnatomy(True, ContactResult.STUFF, before, 0.0, before)
+        # Escaping a penetrated pocket should not immediately guarantee an explosive play.
+        before = float(np.clip(rng.normal(2.8 * burst, 1.35), 0.0, 7.0))
 
-    break_p = float(np.clip(0.22 * runner_power / max(tackling, 0.60), 0.06, 0.46))
+    else:
+        # Roughly one quarter of league scrambles reach 10+ yards and about one tenth reach
+        # 15+. These are causal open-space branches, not final-stat targets: player burst and
+        # pursuit shift their mass while the broad branch structure supplies the missing NFL
+        # topology. The remaining mass resolves through ordinary pursuit around 3-8 yards.
+        open_field_factor = float(np.clip(burst / pursuit, 0.55, 1.75))
+        breakaway_p = float(np.clip(0.105 * open_field_factor, 0.035, 0.22))
+        clear_lane_p = float(np.clip(0.165 * open_field_factor, 0.06, 0.30))
+        lane_draw = rng.random()
+        if lane_draw < breakaway_p:
+            before = float(np.clip(14.0 + rng.exponential(5.5 * burst), 11.0, 45.0))
+            after = float(np.clip(rng.lognormal(0.65, 0.50) * burst / pursuit, 0.0, 12.0))
+            return RunAnatomy(
+                False,
+                ContactResult.BROKEN_TACKLE,
+                before,
+                after,
+                before + after,
+            )
+        if lane_draw < breakaway_p + clear_lane_p:
+            before = float(np.clip(rng.normal(8.0 * burst, 2.2), 4.5, 15.0))
+        else:
+            before = float(np.clip(rng.normal(4.0 * burst, 1.55), 0.0, 9.0))
+
+    break_p = float(np.clip(0.20 * runner * burst / pursuit, 0.055, 0.46))
     broken = rng.random() < break_p
     if broken:
-        after = float(np.clip(rng.lognormal(1.25, 0.65) * explosiveness, 0.5, 55.0))
+        after = float(
+            np.clip(rng.lognormal(1.10, 0.68) * burst / max(pursuit**0.35, 0.80), 0.5, 42.0)
+        )
         contact = ContactResult.BROKEN_TACKLE
     else:
-        after = float(np.clip(rng.normal(1.0, 0.8), 0.0, 4.0))
+        after = float(np.clip(rng.normal(0.85, 0.72), 0.0, 3.5))
         contact = ContactResult.TACKLED
     return RunAnatomy(penetration, contact, before, after, before + after)
