@@ -1,0 +1,112 @@
+name: Monster v1.3 MON-LEDGER-002A early-down outcome anatomy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_week1_v13_early_down_anatomy.py
+      - .github/workflows/v13-early-down-anatomy-audit.yml
+
+jobs:
+  early-down-anatomy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/audit_week1_v13_early_down_anatomy.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run pytest -q
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run MON-LEDGER-002A early-down anatomy audit
+        run: >-
+          uv run python scripts/audit_week1_v13_early_down_anatomy.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --history 2025 --worlds 100 --seed 2026190921
+          --out artifacts/early-down-anatomy
+
+      - name: Verify early-down anatomy contract
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/early-down-anatomy')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-LEDGER-002A'
+          assert m['parent_experiment']=='MON-LEDGER-002'
+          assert m['governance']['stage']=='LAB'
+          assert m['governance']['production_promoted'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['governance']['market_inputs_used'] is False
+          assert m['field_position_correction']['status']=='applied'
+          assert m['field_position_correction']['prior_MON_LEDGER_002_start_yardline_metric_superseded'] is True
+          assert m['worlds_per_game']==100
+          assert m['games']==12
+
+          hist=pl.read_csv(root/'historical_early_down_plays.csv')
+          sim=pl.read_csv(root/'simulated_early_down_plays.csv')
+          metrics=pl.read_csv(root/'early_down_metric_comparison.csv')
+          overall=pl.read_csv(root/'overall_outcome_distribution.csv')
+          context=pl.read_csv(root/'context_outcome_distribution.csv')
+          starts=pl.read_csv(root/'drive_start_field_position_correction.csv')
+          assert hist.height > 10000
+          assert sim.height > 10000
+          assert metrics.height >= 20
+          assert overall.height >= 15
+          assert context.height > 100
+          assert set(hist.get_column('play_family').unique()) == {'run','pass'}
+          assert set(sim.get_column('play_family').unique()) == {'run','pass'}
+          start_means=starts.get_column('mean_start_yardline_100')
+          assert start_means.min() > 15.0
+          assert start_means.max() < 45.0
+          print(metrics.head(20))
+          print(overall)
+          print(starts)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-mon-ledger-002a-early-down-anatomy-100-world
+          path: |
+            artifacts/early-down-anatomy/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+            artifacts/continuity-policy/manifest.json
+          retention-days: 14
