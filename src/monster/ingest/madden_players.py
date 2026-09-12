@@ -65,15 +65,18 @@ def _low_authority_rating(composite: pl.Expr, center: float = 78.0, weight: floa
 
 
 def _legacy_ol_schema(ratings: pl.DataFrame) -> pl.DataFrame:
-    """Expose the old OL adapter contract from the canonical official-EA schema.
+    """Expose the legacy OL contract from either Madden ratings representation.
 
-    Raw official madden_* fields remain authoritative and untouched; these aliases only
-    keep the older bounded OL proxy compiler compatible with the richer snapshot.
+    Official EA ``madden_*`` fields remain untouched.  Each legacy alias is bridged
+    independently so one absent optional EA attribute cannot disable the entire adapter.
+    Missing secondary numeric attributes are neutral (78), never zero-as-bad.
     """
-    aliases = {
+    identity_aliases = {
         "full_name": "madden_player_name",
         "position": "madden_position",
         "team_name": "madden_team",
+    }
+    numeric_aliases = {
         "pass_block_rating": "madden_pass_block",
         "pass_block_power_rating": "madden_pass_block_power",
         "pass_block_finesse_rating": "madden_pass_block_finesse",
@@ -86,15 +89,18 @@ def _legacy_ol_schema(ratings: pl.DataFrame) -> pl.DataFrame:
         "injury_rating": "madden_injury",
         "stamina_rating": "madden_stamina",
     }
-    missing_legacy = [target for target in aliases if target not in ratings.columns]
-    if not missing_legacy:
-        return ratings
-    missing_source = [source for target, source in aliases.items() if target in missing_legacy and source not in ratings.columns]
-    if missing_source:
-        return ratings
-    return ratings.with_columns(
-        *[pl.col(source).alias(target) for target, source in aliases.items() if target not in ratings.columns]
-    )
+    expressions: list[pl.Expr] = []
+    for target, source in identity_aliases.items():
+        if target not in ratings.columns and source in ratings.columns:
+            expressions.append(pl.col(source).alias(target))
+    for target, source in numeric_aliases.items():
+        if target in ratings.columns:
+            continue
+        if source in ratings.columns:
+            expressions.append(pl.col(source).alias(target))
+        else:
+            expressions.append(pl.lit(78.0, dtype=pl.Float64).alias(target))
+    return ratings.with_columns(*expressions) if expressions else ratings
 
 
 def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
@@ -108,7 +114,7 @@ def compile_madden_ol_proxies(ratings: pl.DataFrame) -> pl.DataFrame:
     }
     missing = required.difference(ratings.columns)
     if missing:
-        raise ValueError(f"Madden OL ratings missing columns: {sorted(missing)}")
+        raise ValueError(f"Madden OL ratings missing identity columns: {sorted(missing)}")
 
     ol = ratings.filter(pl.col("position").cast(pl.Utf8).is_in(sorted(_OL_POSITIONS)))
     ol = ol.with_columns(
