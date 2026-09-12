@@ -3,16 +3,21 @@ from __future__ import annotations
 import math
 import re
 import time
-import unicodedata
+from collections.abc import Callable, Hashable, Mapping
 
 import polars as pl
 import requests
+
+from monster.ingest.madden_schema import (
+    normalize_madden_name,
+    normalize_madden_position,
+    normalize_madden_team,
+)
 
 EA_RATINGS_URL = "https://www.ea.com/games/madden-nfl/ratings"
 EA_BASE_URL = "https://www.ea.com"
 EA_USER_AGENT = "Mozilla/5.0 (compatible; MonsterFootballReality/1.0)"
 _BUILD_ID_PATTERN = re.compile(r"/_next/static/([^/]+)/_buildManifest\.js")
-
 
 EA_STAT_ALIASES = {
     "speedRating": "madden_speed",
@@ -77,9 +82,7 @@ def _snake(value: str) -> str:
 
 
 def _normalize_name(value: str) -> str:
-    folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    folded = re.sub(r"\b(jr|sr|ii|iii|iv|v)\.?\b", "", folded, flags=re.IGNORECASE)
-    return re.sub(r"[^a-z0-9]", "", folded.lower())
+    return normalize_madden_name(value)
 
 
 def _extract_team(record: dict) -> str | None:
@@ -152,7 +155,7 @@ def _flatten_player(record: dict) -> dict[str, object]:
     row["madden_running_style"] = record.get("runningStyle")
     for index in range(1, 7):
         row[f"madden_ability_{index}"] = record.get(f"ability{index}")
-    row["madden_match_name_key"] = _normalize_name(str(row["madden_player_name"] or ""))
+    row["madden_match_name_key"] = normalize_madden_name(row["madden_player_name"])
     return row
 
 
@@ -197,85 +200,157 @@ def load_official_madden27_player_ratings(
 
 
 def _candidate_team_columns(frame: pl.DataFrame) -> tuple[str, ...]:
-    return tuple(
-        column
-        for column in ("team_id", "team", "club", "recent_team")
-        if column in frame.columns
-    )
+    return tuple(column for column in ("team_id", "team", "club", "recent_team") if column in frame.columns)
 
 
 def _candidate_name_columns(frame: pl.DataFrame) -> tuple[str, ...]:
     return tuple(
-        column
-        for column in ("display_name", "full_name", "player_name", "football_name", "name")
+        column for column in ("display_name", "full_name", "player_name", "football_name", "name")
         if column in frame.columns
     )
+
+
+def _candidate_position_columns(frame: pl.DataFrame) -> tuple[str, ...]:
+    return tuple(column for column in ("position", "depth_chart_position", "position_group") if column in frame.columns)
+
+
+def _unique_lookup(
+    rows: list[dict[str, object]],
+    key_fn: Callable[[dict[str, object]], Hashable | None],
+) -> dict[Hashable, int]:
+    buckets: dict[Hashable, list[int]] = {}
+    for row in rows:
+        key = key_fn(row)
+        if key is None:
+            continue
+        index = int(row["_madden_attach_index"])
+        buckets.setdefault(key, []).append(index)
+    return {key: indices[0] for key, indices in buckets.items() if len(set(indices)) == 1}
 
 
 def attach_all_madden_attributes(
     personnel: pl.DataFrame,
     ratings: pl.DataFrame,
     *,
-    team_aliases: dict[str, str] | None = None,
+    team_aliases: Mapping[str, str] | None = None,
 ) -> pl.DataFrame:
+    """Attach the complete EA record with conservative hierarchical identity matching.
+
+    Match authority is: normalized name + canonical current team, then unique normalized
+    name + position, then unique normalized name.  The fallbacks recover legitimate team
+    changes while refusing ambiguous identities.  Every Madden column remains preserved.
+    """
     if personnel.is_empty() or ratings.is_empty():
         return personnel
-    team_aliases = team_aliases or {}
-    team_columns = _candidate_team_columns(personnel)
     name_columns = _candidate_name_columns(personnel)
     if not name_columns:
         return personnel
+    team_columns = _candidate_team_columns(personnel)
+    position_columns = _candidate_position_columns(personnel)
 
-    name_column = name_columns[0]
-    team_column = team_columns[0] if team_columns else None
-    personnel_work = personnel.with_columns(
-        pl.col(name_column)
-        .cast(pl.String)
-        .fill_null("")
-        .map_elements(_normalize_name, return_dtype=pl.String)
-        .alias("_madden_name_key")
+    ratings_work = ratings.with_row_index("_madden_attach_index").with_columns(
+        pl.col("_madden_attach_index").cast(pl.Int64)
     )
-    ratings_work = ratings
-    if team_column is not None and "madden_team" in ratings_work.columns:
-        ratings_work = ratings_work.with_columns(
-            pl.col("madden_team")
-            .cast(pl.String)
-            .replace(team_aliases)
-            .alias("_madden_team_key")
+    rating_rows = ratings_work.select(
+        [
+            "_madden_attach_index",
+            *[c for c in ("madden_player_name", "madden_match_name_key", "madden_team", "madden_position") if c in ratings_work.columns],
+        ]
+    ).to_dicts()
+
+    def rating_name(row: dict[str, object]) -> str:
+        return normalize_madden_name(row.get("madden_player_name") or row.get("madden_match_name_key"))
+
+    def exact_key(row: dict[str, object]) -> Hashable | None:
+        name = rating_name(row)
+        team = normalize_madden_team(row.get("madden_team"), team_aliases)
+        return (name, team) if name and team else None
+
+    def position_key(row: dict[str, object]) -> Hashable | None:
+        name = rating_name(row)
+        position = normalize_madden_position(row.get("madden_position"))
+        return (name, position) if name and position else None
+
+    def name_key(row: dict[str, object]) -> Hashable | None:
+        name = rating_name(row)
+        return name or None
+
+    exact = _unique_lookup(rating_rows, exact_key)
+    by_name_position = _unique_lookup(rating_rows, position_key)
+    by_unique_name = _unique_lookup(rating_rows, name_key)
+
+    identity_columns = list(dict.fromkeys([*name_columns, *team_columns, *position_columns]))
+    personnel_rows = personnel.select(identity_columns).to_dicts()
+    attach_indices: list[int | None] = []
+    match_types: list[str | None] = []
+    name_sources: list[str | None] = []
+
+    for row in personnel_rows:
+        names: list[tuple[str, str]] = []
+        seen_names: set[str] = set()
+        for column in name_columns:
+            key = normalize_madden_name(row.get(column))
+            if key and key not in seen_names:
+                names.append((column, key))
+                seen_names.add(key)
+        team = next(
+            (normalized for column in team_columns if (normalized := normalize_madden_team(row.get(column), team_aliases))),
+            None,
         )
-        personnel_work = personnel_work.with_columns(
-            pl.col(team_column).cast(pl.String).replace(team_aliases).alias("_madden_team_key")
-        )
-        joined = personnel_work.join(
-            ratings_work,
-            left_on=["_madden_name_key", "_madden_team_key"],
-            right_on=["madden_match_name_key", "_madden_team_key"],
-            how="left",
-            suffix="_madden_dup",
-        )
-    else:
-        joined = personnel_work.join(
-            ratings_work,
-            left_on="_madden_name_key",
-            right_on="madden_match_name_key",
-            how="left",
-            suffix="_madden_dup",
+        position = next(
+            (normalized for column in position_columns if (normalized := normalize_madden_position(row.get(column)))),
+            None,
         )
 
-    madden_columns = [column for column in ratings.columns if column.startswith("madden_")]
+        matched_index: int | None = None
+        matched_type: str | None = None
+        matched_source: str | None = None
+        if team:
+            for source, name in names:
+                candidate = exact.get((name, team))
+                if candidate is not None:
+                    matched_index, matched_type, matched_source = candidate, "team_name", source
+                    break
+        if matched_index is None and position:
+            for source, name in names:
+                candidate = by_name_position.get((name, position))
+                if candidate is not None:
+                    matched_index, matched_type, matched_source = candidate, "name_position", source
+                    break
+        if matched_index is None:
+            for source, name in names:
+                candidate = by_unique_name.get(name)
+                if candidate is not None:
+                    matched_index, matched_type, matched_source = candidate, "unique_name", source
+                    break
+
+        attach_indices.append(matched_index)
+        match_types.append(matched_type)
+        name_sources.append(matched_source)
+
+    personnel_work = personnel.with_row_index("_monster_row_index").with_columns(
+        pl.col("_monster_row_index").cast(pl.Int64),
+        pl.Series("_madden_attach_index", attach_indices, dtype=pl.Int64),
+        pl.Series("madden_official_match_type", match_types, dtype=pl.Utf8),
+        pl.Series("madden_official_name_source", name_sources, dtype=pl.Utf8),
+    )
+    joined = personnel_work.join(ratings_work, on="_madden_attach_index", how="left", suffix="_madden_dup").sort("_monster_row_index")
     duplicate_columns = [column for column in joined.columns if column.endswith("_madden_dup")]
-    joined = joined.drop([column for column in ("_madden_name_key", "_madden_team_key") if column in joined.columns])
     if duplicate_columns:
         joined = joined.drop(duplicate_columns)
+    madden_columns = [column for column in ratings.columns if column.startswith("madden_") and column not in personnel.columns]
     return joined.select(
-        list(personnel.columns)
-        + [column for column in madden_columns if column in joined.columns and column not in personnel.columns]
+        [
+            *personnel.columns,
+            *[column for column in madden_columns if column in joined.columns],
+            "madden_official_match_type",
+            "madden_official_name_source",
+        ]
     )
 
 
 def official_madden_numeric_columns(frame: pl.DataFrame) -> tuple[str, ...]:
     return tuple(
-        column
-        for column, dtype in frame.schema.items()
+        column for column, dtype in frame.schema.items()
         if column.startswith("madden_") and dtype.is_numeric()
     )
