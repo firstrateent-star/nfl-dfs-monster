@@ -55,6 +55,7 @@ def _record_experiment() -> None:
                 "opening_and_halftime_kickoffs_simulated": True,
                 "2026_dynamic_kickoff_touchback_yardline": 35,
                 "football_weirdness_audit_active": True,
+                "scoreboard_conservation_includes_return_touchdowns": True,
                 "score_dispersion_not_directly_calibrated": True,
                 "principle_dispersion": (
                     "Totals, margins and rare tails must emerge from offense, defense, personnel, "
