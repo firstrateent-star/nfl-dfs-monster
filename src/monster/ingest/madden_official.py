@@ -4,7 +4,6 @@ import math
 import re
 import time
 import unicodedata
-from collections.abc import Iterable
 
 import polars as pl
 import requests
@@ -79,7 +78,7 @@ def _snake(value: str) -> str:
 
 def _normalize_name(value: str) -> str:
     folded = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    folded = re.sub(r"\b(jr|sr|ii|iii|iv|v)\.?\b", "", folded, flags=re.I)
+    folded = re.sub(r"\b(jr|sr|ii|iii|iv|v)\.?\b", "", folded, flags=re.IGNORECASE)
     return re.sub(r"[^a-z0-9]", "", folded.lower())
 
 
