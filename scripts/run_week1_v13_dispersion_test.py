@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import run_week1_v13_integrated as integrated
-import monster.sim.resolution_ecology as resolution_ecology
+from monster.sim import resolution_ecology
 from monster.sim.dispersion_bridge import enhanced_defensive_unit, enhanced_team_identity
 
 
