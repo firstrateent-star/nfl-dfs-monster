@@ -28,10 +28,11 @@ def _profile(category: str, *, air_mean: float) -> PassDepthOutcome:
     )
 
 
-def test_short_completion_v2_restores_empirical_gain_bands() -> None:
+def test_short_completion_v2_restores_empirical_gain_bands_and_conserves_yac() -> None:
     profile = _profile("short_0_5", air_mean=3.0)
     rng = np.random.default_rng(2026091221)
     totals = []
+    yacs = []
     for _ in range(35_000):
         air = float(rng.uniform(0.0, 5.0))
         yac = sample_yac_v2(
@@ -42,10 +43,12 @@ def test_short_completion_v2_restores_empirical_gain_bands() -> None:
             air_yards=air,
         )
         totals.append(air + yac)
+        yacs.append(yac)
     arr = np.asarray(totals)
     assert abs(float(np.mean(arr >= 5.0)) - profile.gain_5plus_completion_rate) < 0.018
     assert abs(float(np.mean(arr >= 10.0)) - profile.gain_10plus_completion_rate) < 0.015
     assert abs(float(np.mean(arr >= 15.0)) - profile.gain_15plus_completion_rate) < 0.012
+    assert abs(float(np.mean(yacs)) - profile.yac_mean_completed) < 0.35
 
 
 def test_behind_los_v2_preserves_signed_negative_completion_branch() -> None:
@@ -57,7 +60,7 @@ def test_behind_los_v2_preserves_signed_negative_completion_branch() -> None:
         touchdown_rate=0.03,
         air_yards_mean=-3.7,
         air_yards_sd=2.0,
-        yac_mean_completed=7.2,
+        yac_mean_completed=9.9,
         yac_sd_completed=7.4,
         negative_completion_rate=0.143,
         zero_completion_rate=0.018,
