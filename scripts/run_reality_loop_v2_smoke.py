@@ -9,12 +9,13 @@ from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v
 
 
 def configure_reality_loop_v2() -> None:
-    """Activate the Reality Loop v2 causal seams without mutating the stable v1.3 runner."""
+    """Activate the Reality Loop v2 causal seams without mutating the stable v1.3 defaults."""
 
     # Historical outcome families provide the NFL center. Team/player/Madden matchup evidence
     # should explain deviations around that center, not re-apply average league difficulty.
     resolution_ecology._COARSE_MATCHUP_AUTHORITY = 0.35
     resolution_ecology._COARSE_RUN_MATCHUP_AUTHORITY = 0.25
+    runner._PASS_MATCHUP_AUTHORITY_OVERRIDE = 0.35
 
     # Role/participation-aware snap ecology preserves individual skill while removing the old
     # selection bias where the strongest defensive players effectively participated in every
