@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from monster.sim.matchup_kernel import (
     LEAGUE_PRESSURE_RATE,
+    LEAGUE_THROW_COMPLETION_RATE,
+    LEAGUE_THROW_INTERCEPTION_RATE,
     DefensiveIdentity,
     DefensiveUnit,
     resolve_pass_matchup,
@@ -31,19 +33,68 @@ def test_neutral_matchup_preserves_empirical_pressure_baseline() -> None:
     assert abs(matchup.pressure_probability - LEAGUE_PRESSURE_RATE) < 1e-6
 
 
+def test_neutral_matchup_is_centered_on_empirical_throw_baselines() -> None:
+    target = PlayerIdentity("wr", "WR", "WR")
+    matchup = resolve_pass_matchup(
+        target,
+        _defense(),
+        pass_protection=1.0,
+        quarterback_efficiency=1.0,
+    )
+    assert abs(matchup.completion_probability - LEAGUE_THROW_COMPLETION_RATE) < 0.03
+    assert abs(matchup.interception_probability - LEAGUE_THROW_INTERCEPTION_RATE) < 0.006
+
+
 def test_better_coverage_reduces_completion_and_explosiveness() -> None:
     target = PlayerIdentity("wr", "WR", "WR", efficiency=1.1, explosive=1.1)
-    weak = resolve_pass_matchup(target, _defense(coverage=0.8), pass_protection=1.0, quarterback_efficiency=1.0)
-    elite = resolve_pass_matchup(target, _defense(coverage=1.25), pass_protection=1.0, quarterback_efficiency=1.0)
+    weak = resolve_pass_matchup(
+        target,
+        _defense(coverage=0.8),
+        pass_protection=1.0,
+        quarterback_efficiency=1.0,
+    )
+    elite = resolve_pass_matchup(
+        target,
+        _defense(coverage=1.25),
+        pass_protection=1.0,
+        quarterback_efficiency=1.0,
+    )
     assert elite.completion_probability < weak.completion_probability
     assert elite.yards_multiplier < weak.yards_multiplier
     assert elite.interception_probability > weak.interception_probability
 
 
+def test_qb_and_receiver_quality_still_create_completion_separation() -> None:
+    defense = _defense()
+    ordinary = resolve_pass_matchup(
+        PlayerIdentity("wr1", "WR1", "WR", efficiency=0.9),
+        defense,
+        pass_protection=1.0,
+        quarterback_efficiency=0.9,
+    )
+    strong = resolve_pass_matchup(
+        PlayerIdentity("wr2", "WR2", "WR", efficiency=1.15),
+        defense,
+        pass_protection=1.0,
+        quarterback_efficiency=1.15,
+    )
+    assert strong.completion_probability > ordinary.completion_probability
+
+
 def test_pass_rush_and_protection_interact_mechanically() -> None:
     target = PlayerIdentity("wr", "WR", "WR")
-    strong_rush = resolve_pass_matchup(target, _defense(rush=1.3), pass_protection=0.85, quarterback_efficiency=1.0)
-    protected = resolve_pass_matchup(target, _defense(rush=1.3), pass_protection=1.2, quarterback_efficiency=1.0)
+    strong_rush = resolve_pass_matchup(
+        target,
+        _defense(rush=1.3),
+        pass_protection=0.85,
+        quarterback_efficiency=1.0,
+    )
+    protected = resolve_pass_matchup(
+        target,
+        _defense(rush=1.3),
+        pass_protection=1.2,
+        quarterback_efficiency=1.0,
+    )
     assert strong_rush.pressure_probability > protected.pressure_probability
 
 
