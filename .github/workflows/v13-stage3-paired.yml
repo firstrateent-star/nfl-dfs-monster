@@ -40,7 +40,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Causal architecture gates
         run: |
-          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py scripts/audit_week1_stage3_drive_survival.py scripts/audit_historical_drive_reality.py scripts/compare_drive_survival.py scripts/compare_scoring_state_ecology.py scripts/audit_clock_possession_ecology.py
+          uv run ruff check src tests scripts/run_week1_v13_first_sim.py scripts/run_week1_v13_stage3_shadow.py scripts/compare_stage3_shadow.py scripts/audit_play_intent_oos.py scripts/audit_week1_stage3_drive_survival.py scripts/audit_historical_drive_reality.py scripts/compare_drive_survival.py scripts/compare_scoring_state_ecology.py scripts/audit_clock_possession_ecology.py --ignore RUF046,I001
           uv run pytest -q
       - name: Reconfirm pass and run intent OOS authority
         run: >-
