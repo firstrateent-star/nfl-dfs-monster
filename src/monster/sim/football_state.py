@@ -6,6 +6,9 @@ from enum import StrEnum
 
 class PossessionTerminal(StrEnum):
     TOUCHDOWN = "touchdown"
+    DEFENSIVE_TOUCHDOWN = "defensive_touchdown"
+    SPECIAL_TEAMS_TOUCHDOWN = "special_teams_touchdown"
+    SPECIAL_TEAMS_TURNOVER = "special_teams_turnover"
     FIELD_GOAL = "field_goal"
     MISSED_FIELD_GOAL = "missed_field_goal"
     SAFETY = "safety"
@@ -119,14 +122,15 @@ def change_possession(
 ) -> FootballState:
     """Hand the same physical field state to the opponent rather than resetting to the 25."""
     elapsed = max(int(elapsed_seconds), 0)
+    receiving = float(min(max(receiving_yardline_100, 1.0), 99.0))
     return FootballState(
         possession=state.defense,
         defense=state.possession,
         quarter=state.quarter,
         seconds_remaining=max(state.seconds_remaining - elapsed, 0),
-        yardline_100=float(min(max(receiving_yardline_100, 1.0), 99.0)),
+        yardline_100=receiving,
         down=1,
-        distance=next_series_distance(float(receiving_yardline_100)),
+        distance=next_series_distance(receiving),
         away_score=state.away_score,
         home_score=state.home_score,
         away_team_id=state.away_team_id,
@@ -134,7 +138,9 @@ def change_possession(
     )
 
 
-def turnover_at_spot(state: FootballState, spot_yardline_100: float, elapsed_seconds: int = 0) -> FootballState:
+def turnover_at_spot(
+    state: FootballState, spot_yardline_100: float, elapsed_seconds: int = 0
+) -> FootballState:
     """A turnover gives the opponent the mirrored physical spot."""
     return change_possession(
         state,
@@ -172,7 +178,7 @@ def punt_transition(
 def kickoff_transition(
     state: FootballState,
     *,
-    receiving_yardline_100: float = 30.0,
+    receiving_yardline_100: float = 35.0,
     elapsed_seconds: int = 6,
 ) -> FootballState:
     return change_possession(
