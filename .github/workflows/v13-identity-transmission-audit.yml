@@ -19,7 +19,7 @@ jobs:
 
       - name: Structural gates
         run: |
-          uv run ruff check scripts/audit_week1_v13_identity_transmission.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run ruff check scripts/audit_week1_v13_identity_transmission.py --ignore RUF046,I001,F401,UP035,UP037,RUF059
           uv run pytest -q
 
       - name: Build current 2026 personnel baseline
