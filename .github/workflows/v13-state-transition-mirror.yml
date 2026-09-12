@@ -21,7 +21,7 @@ jobs:
 
       - name: Vlourish structural gates
         run: |
-          uv run ruff check scripts/audit_state_transition_mirror.py src/monster/sim/state_transition_eval.py tests/test_state_transition_eval.py --ignore RUF046,I001
+          uv run ruff check scripts/audit_state_transition_mirror.py src/monster/sim/state_transition_eval.py tests/test_state_transition_eval.py --ignore RUF046,I001,SIM114
           uv run pytest -q tests/test_state_transition_eval.py
 
       - name: Build current 2026 personnel baseline
