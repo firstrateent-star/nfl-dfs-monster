@@ -98,33 +98,103 @@ _FOURTH_DOWN_PRIORS: dict[tuple[str, str], FourthDownProbabilities] = {
 }
 
 
-def fourth_down_probabilities(state: FootballState) -> FourthDownProbabilities:
-    """Return market-blind fourth-down decision probabilities from football state.
+def _weighted_context(
+    base: FourthDownProbabilities,
+    multipliers: tuple[float, float, float],
+) -> FourthDownProbabilities:
+    """Reweight a field/distance prior without inventing an impossible action.
 
-    Ordinary states use coarse 2025 league decision anatomy. Late trailing and overtime
-    response possessions remain governed by explicit game-theory constraints rather than the
-    pooled historical prior.
+    A zero in the base prior stays zero. Context therefore changes the relative appetite to
+    go, kick, or punt while the physical field/distance jurisdiction remains authoritative.
+    """
+    go = base.go * multipliers[0]
+    field_goal = base.field_goal * multipliers[1]
+    punt = base.punt * multipliers[2]
+    total = go + field_goal + punt
+    if total <= 0.0:
+        return base
+    return FourthDownProbabilities(go / total, field_goal / total, punt / total)
+
+
+def _late_context_multipliers(state: FootballState) -> tuple[float, float, float] | None:
+    """2025 evidence-conditioned clock/score modifiers for fourth-down decisions.
+
+    These multipliers were measured by applying the ordinary field/distance prior to actual
+    2025 fourth-down states and comparing that baseline mix with observed choices. They fix
+    the prior runtime's single six-minute `desperate => go` override, which erased tying field
+    goals and made early desperation far too aggressive.
+    """
+    q_clock = seconds_remaining_in_quarter(state.seconds_remaining)
+    margin = state.score_margin_for_offense
+
+    if state.quarter == 2:
+        if q_clock <= 30:
+            return (0.52, 1.47, 0.85)
+        if q_clock <= 120:
+            return (0.75, 1.13, 1.05)
+        return None
+
+    if state.quarter != 4 or q_clock > 360:
+        return None
+
+    if q_clock <= 30:
+        if margin < -8:
+            return (2.27, 0.44, 0.05)
+        if margin < -3:
+            return (3.45, 0.05, 0.05)
+        if margin < 0:
+            return (1.04, 1.49, 0.05)
+        if margin == 0:
+            # Tiny tied-state sample: preserve alternatives while strongly favoring a kick
+            # when the ordinary field/distance prior already says a field goal is available.
+            return (0.25, 2.00, 0.25)
+        return (1.09, 0.79, 1.07)
+
+    if q_clock <= 120:
+        if margin < -8:
+            return (5.17, 0.30, 0.11)
+        if margin < -3:
+            return (4.32, 0.05, 0.06)
+        if margin < 0:
+            return (1.77, 1.34, 0.30)
+        if margin == 0:
+            return (0.58, 0.50, 1.07)
+        return (0.99, 0.79, 1.17)
+
+    if margin < -8:
+        return (2.74, 0.38, 0.38)
+    if margin < -3:
+        return (2.49, 0.53, 0.67)
+    if margin < 0:
+        return (2.01, 1.15, 0.57)
+    if margin == 0:
+        return (0.73, 1.22, 1.03)
+    return (0.68, 1.01, 1.19)
+
+
+def fourth_down_probabilities(state: FootballState) -> FourthDownProbabilities:
+    """Return market-blind fourth-down probabilities from physical game state.
+
+    Field position and distance establish the ordinary 2025 prior. End-of-half and late-game
+    score/clock evidence then reweights that prior rather than replacing it with a blanket
+    decision. This preserves probabilistic fourth-and-short attempts, tying/winning field-goal
+    behavior, late possession preservation, and normal punts when the football state warrants
+    them. Overtime remains a separate rules/game-theory jurisdiction.
     """
     if state.down != 4:
         raise ValueError("fourth_down_probabilities requires fourth down")
 
     yards_to_goal = 100.0 - state.yardline_100
     margin = state.score_margin_for_offense
-    q_clock = seconds_remaining_in_quarter(state.seconds_remaining)
+    base = _FOURTH_DOWN_PRIORS[(_fourth_down_zone(state), _fourth_down_distance(state))]
 
     if state.quarter == 5 and margin < 0:
         if margin >= -3 and state.yardline_100 >= 58.0 and yards_to_goal <= 42.0:
             return FourthDownProbabilities(0.0, 1.0, 0.0)
         return FourthDownProbabilities(1.0, 0.0, 0.0)
 
-    desperate = state.quarter >= 4 and q_clock <= 360 and margin < 0
-    if desperate:
-        if state.distance <= 8.0:
-            return FourthDownProbabilities(1.0, 0.0, 0.0)
-        # Very long desperation downs should still overwhelmingly preserve possession.
-        return FourthDownProbabilities(0.92, 0.04, 0.04)
-
-    return _FOURTH_DOWN_PRIORS[(_fourth_down_zone(state), _fourth_down_distance(state))]
+    multipliers = _late_context_multipliers(state)
+    return base if multipliers is None else _weighted_context(base, multipliers)
 
 
 def sample_fourth_down_decision(
