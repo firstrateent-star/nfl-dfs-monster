@@ -143,6 +143,7 @@ def main() -> None:
         "madden_snapshot_attribute_columns": len(madden_attribute_columns),
         "players_with_full_madden_match": official_match_count,
         "madden_official_match_breakdown": match_breakdown,
+        "madden_identity_boundary": "canonical team/name/position hierarchy with ambiguity-safe fallbacks",
         "madden_authority": "bounded scouting-style proxy; no direct fantasy authority",
         "rich_madden_metadata_storage": "canonical parquet; nested fields serialized only in convenience CSV",
         "principle": "League baseline is canonical; weekly DFS slates are downstream filters.",
