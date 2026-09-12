@@ -25,6 +25,7 @@ def _profile(category: str, *, air_mean: float) -> PassDepthOutcome:
         gain_5plus_completion_rate=0.7068,
         gain_10plus_completion_rate=0.2331,
         gain_15plus_completion_rate=0.105,
+        gain_20plus_completion_rate=0.040,
     )
 
 
@@ -48,6 +49,7 @@ def test_short_completion_v2_restores_empirical_gain_bands_and_conserves_yac() -
     assert abs(float(np.mean(arr >= 5.0)) - profile.gain_5plus_completion_rate) < 0.018
     assert abs(float(np.mean(arr >= 10.0)) - profile.gain_10plus_completion_rate) < 0.015
     assert abs(float(np.mean(arr >= 15.0)) - profile.gain_15plus_completion_rate) < 0.012
+    assert abs(float(np.mean(arr >= 20.0)) - profile.gain_20plus_completion_rate) < 0.010
     assert abs(float(np.mean(yacs)) - profile.yac_mean_completed) < 0.35
 
 
@@ -69,6 +71,7 @@ def test_behind_los_v2_preserves_signed_negative_completion_branch() -> None:
         gain_5plus_completion_rate=0.4975,
         gain_10plus_completion_rate=0.1934,
         gain_15plus_completion_rate=0.082,
+        gain_20plus_completion_rate=0.037,
     )
     rng = np.random.default_rng(2026091222)
     totals = []
@@ -86,6 +89,7 @@ def test_behind_los_v2_preserves_signed_negative_completion_branch() -> None:
     assert abs(float(np.mean(arr < 0.0)) - profile.negative_completion_rate) < 0.015
     assert abs(float(np.mean(arr >= 5.0)) - profile.gain_5plus_completion_rate) < 0.018
     assert abs(float(np.mean(arr >= 10.0)) - profile.gain_10plus_completion_rate) < 0.015
+    assert abs(float(np.mean(arr >= 20.0)) - profile.gain_20plus_completion_rate) < 0.010
 
 
 def test_shallow_completion_v2_keeps_receiver_open_field_authority() -> None:
@@ -109,6 +113,7 @@ def test_shallow_completion_v2_keeps_receiver_open_field_authority() -> None:
     constrained = sample(0.86, 1.12, 2026091223)
     open_field = sample(1.18, 0.92, 2026091224)
     assert float(np.mean(open_field >= 10.0)) > float(np.mean(constrained >= 10.0))
+    assert float(np.mean(open_field >= 20.0)) > float(np.mean(constrained >= 20.0))
     assert float(open_field.mean()) > float(constrained.mean())
 
 
