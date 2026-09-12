@@ -6,8 +6,13 @@ on:
     paths:
       - src/monster/sim/rich_identity.py
       - src/monster/sim/matchup_kernel.py
+      - src/monster/sim/play_anatomy.py
+      - src/monster/sim/snap_ecology_v2.py
       - src/monster/feature_compile/v13_identity_bridge.py
+      - scripts/run_reality_loop_v2_smoke.py
       - tests/test_reality_loop_v2_identity_authority.py
+      - tests/test_reality_loop_v2_play_topology.py
+      - tests/test_reality_loop_v2_snap_centering.py
       - .github/workflows/reality-loop-v2-smoke.yml
   workflow_dispatch:
 
@@ -20,14 +25,21 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
 
-      - name: Reality Loop identity gates
+      - name: Reality Loop causal gates
         run: |
-          uv run pytest -q tests/test_reality_loop_v2_identity_authority.py
+          uv run pytest -q \
+            tests/test_reality_loop_v2_identity_authority.py \
+            tests/test_reality_loop_v2_play_topology.py \
+            tests/test_reality_loop_v2_snap_centering.py
           uv run ruff check \
             src/monster/sim/rich_identity.py \
             src/monster/sim/matchup_kernel.py \
+            src/monster/sim/snap_ecology_v2.py \
             src/monster/feature_compile/v13_identity_bridge.py \
+            scripts/run_reality_loop_v2_smoke.py \
             tests/test_reality_loop_v2_identity_authority.py \
+            tests/test_reality_loop_v2_play_topology.py \
+            tests/test_reality_loop_v2_snap_centering.py \
             --ignore RUF046,I001
 
       - name: Build current 2026 personnel baseline
@@ -57,9 +69,9 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
 
-      - name: Run 25-world Reality Loop smoke slate
+      - name: Run 25-world Reality Loop v2 smoke slate
         run: >-
-          uv run python scripts/run_week1_v13_dispersion_test.py
+          uv run python scripts/run_reality_loop_v2_smoke.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
