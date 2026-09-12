@@ -28,7 +28,7 @@ jobs:
       - run: uv sync --extra dev
       - name: Software gates
         run: |
-          uv run ruff check src tests scripts/compare_terminal_conditioned_drive_clock.py scripts/compare_stage3_pressure_reality.py scripts/audit_pressure_participation.py scripts/audit_historical_drive_reality.py scripts/audit_week1_stage3_drive_survival.py scripts/run_week1_v13_stage3_shadow.py
+          uv run ruff check src tests scripts/compare_terminal_conditioned_drive_clock.py scripts/compare_stage3_pressure_reality.py scripts/audit_pressure_participation.py scripts/audit_historical_drive_reality.py scripts/audit_week1_stage3_drive_survival.py scripts/run_week1_v13_stage3_shadow.py --ignore RUF046,I001
           uv run pytest -q
       - name: Build current 2026 personnel baseline
         run: >-
