@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from monster.sim.event_ledger import assert_event_conservation
 from monster.sim.football_state import PossessionTerminal
 from monster.sim.game_loop_v13 import simulate_regulation_game
 from monster.sim.play_kernel import PassResult, PlayerIdentity, TeamIdentity
@@ -60,14 +61,21 @@ def test_same_seed_reproduces_same_game_world() -> None:
 def test_score_changes_emerge_from_explicit_scoring_events() -> None:
     result = simulate_regulation_game(_team("away"), _team("home"), seed=55)
     points = result.final_state.away_score + result.final_state.home_score
-    touchdowns = sum(play.touchdown for play in result.plays)
+    offensive_touchdowns = sum(play.touchdown for play in result.plays)
+    return_touchdowns = sum(event.touchdown for event in result.return_events)
     made_fgs = sum(
         event.made is True
         for event in result.special_teams_events
         if event.event_type == "field_goal"
     )
     try_points = sum(event.points for event in result.try_events)
-    assert points == 6 * touchdowns + 3 * made_fgs + try_points + 2 * result.safeties
+    assert points == (
+        6 * (offensive_touchdowns + return_touchdowns)
+        + 3 * made_fgs
+        + try_points
+        + 2 * result.safeties
+    )
+    assert_event_conservation(result)
 
 
 def test_drive_traces_reconcile_to_event_derived_scoring() -> None:
@@ -78,7 +86,20 @@ def test_drive_traces_reconcile_to_event_derived_scoring() -> None:
     )
     event_touchdowns = sum(play.touchdown for play in result.plays)
     assert traced_touchdowns == event_touchdowns
+
+    # Drive points intentionally belong only to the offense that owned the possession.
+    # Defensive and return touchdowns occur outside that offensive scoring ledger, so the
+    # remaining scoreboard delta must be fully explained by those return TDs, their tries,
+    # and safeties. The event ledger provides the exact full-game conservation check.
     traced_offensive_points = sum(trace.points for trace in result.drive_traces)
     scoreboard_points = result.final_state.away_score + result.final_state.home_score
-    assert traced_offensive_points + 2 * result.safeties == scoreboard_points
+    return_touchdowns = sum(event.touchdown for event in result.return_events)
+    unexplained_after_sixes_and_safeties = (
+        scoreboard_points
+        - traced_offensive_points
+        - 6 * return_touchdowns
+        - 2 * result.safeties
+    )
+    assert 0 <= unexplained_after_sixes_and_safeties <= 2 * return_touchdowns
+    assert_event_conservation(result)
     assert all(trace.offense_team_id != trace.defense_team_id for trace in result.drive_traces)
