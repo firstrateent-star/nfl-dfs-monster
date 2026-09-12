@@ -1,0 +1,3 @@
+MON-LEDGER-001 rerun requested after verifier environment fix.
+Reason: validate uv-based verifier and reproduce paired B/C/D/E evidence.
+Requested: 2026-09-12
