@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import run_week1_v13_dispersion_test as runner
 
-from monster.sim import matchup_kernel, resolution_ecology
+from monster.sim import matchup_kernel, play_kernel, resolution_ecology
+from monster.sim.clock_ecology_v2 import sample_snap_cadence_v2
 from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v2
 
 
@@ -19,6 +20,10 @@ def configure_reality_loop_v2() -> None:
     # relevant interaction.
     matchup_kernel.resolve_pass_snap = resolve_pass_snap_v2
     matchup_kernel.resolve_run_snap = resolve_run_snap_v2
+
+    # Drive conversion/survival is already close to NFL reality; low play volume was therefore
+    # a clock ecology problem rather than an invitation to inflate offensive success.
+    play_kernel._sample_snap_cadence = sample_snap_cadence_v2
 
 
 def main() -> None:
