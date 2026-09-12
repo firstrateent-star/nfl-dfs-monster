@@ -6,9 +6,10 @@ from pathlib import Path
 import polars as pl
 
 import audit_play_gain_reality as audit
-from monster.sim import matchup_kernel, resolution_ecology
+from monster.sim import matchup_kernel, play_kernel, resolution_ecology
 from monster.sim.dispersion_bridge import enhanced_defensive_unit, enhanced_team_identity
 from monster.sim.play_kernel import PlayEvent, PlayType
+from monster.sim.resolution_bands_v2 import resolve_run_contact_v2, resolve_run_ecology_v2
 from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v2
 
 _SIM_RUNS: list[dict[str, object]] = []
@@ -125,7 +126,7 @@ def _write_geometry(out: Path) -> None:
     print("RUN-GEOMETRY LOCALIZATION")
     print(
         comparison.filter(
-            pl.col("metric").is_in(["share", "negative_rate", "gain_5plus_rate", "gain_10plus_rate"])
+            pl.col("metric").is_in(["share", "negative_rate", "gain_3plus_rate", "gain_5plus_rate", "gain_10plus_rate", "gain_15plus_rate"])
         )
     )
 
@@ -143,6 +144,8 @@ def main() -> None:
     resolution_ecology._COARSE_RUN_MATCHUP_AUTHORITY = 0.25
     matchup_kernel.resolve_pass_snap = resolve_pass_snap_v2
     matchup_kernel.resolve_run_snap = resolve_run_snap_v2
+    resolution_ecology.resolve_run_ecology = resolve_run_ecology_v2
+    play_kernel.resolve_run_contact = resolve_run_contact_v2
     audit._team_identity = enhanced_team_identity
     audit._defensive_unit = enhanced_defensive_unit
 
