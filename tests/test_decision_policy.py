@@ -72,10 +72,10 @@ def test_own_territory_fourth_down_selects_punt() -> None:
     assert fourth_down_decision(state) == FourthDownDecision.PUNT
 
 
-def test_late_trailing_four_to_eight_points_preserves_possession() -> None:
+def test_final_two_minutes_trailing_four_to_eight_points_preserves_possession() -> None:
     state = _state(
         quarter=4,
-        seconds_remaining=180,
+        seconds_remaining=90,
         yardline_100=48.0,
         down=4,
         distance=5.0,
