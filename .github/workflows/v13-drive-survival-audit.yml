@@ -1,0 +1,100 @@
+name: Monster v1.3 MON-LEDGER-002 drive survival audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/football-state-v13-clock]
+    paths:
+      - scripts/audit_week1_v13_drive_survival.py
+
+jobs:
+  drive-survival:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Structural gates
+        run: |
+          uv run ruff check scripts/audit_week1_v13_drive_survival.py --ignore RUF046,I001,F401,UP035,UP037
+          uv run pytest -q
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build current Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run MON-LEDGER-002 drive survival audit
+        run: >-
+          uv run python scripts/audit_week1_v13_drive_survival.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --history 2025 --worlds 100 --seed 2026190921
+          --out artifacts/drive-survival-audit
+
+      - name: Verify drive-survival contract
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          root=Path('artifacts/drive-survival-audit')
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['experiment']=='MON-LEDGER-002'
+          assert m['governance']['stage']=='LAB'
+          assert m['governance']['production_promoted'] is False
+          assert m['governance']['football_coefficients_changed_for_experiment'] is False
+          assert m['governance']['market_inputs_used'] is False
+          assert m['worlds_per_game']==100
+          assert m['games']==12
+          metrics=pl.read_csv(root/'drive_metric_comparison.csv')
+          survival=pl.read_csv(root/'drive_survival_curve.csv')
+          sim=pl.read_csv(root/'simulated_drive_traces.csv')
+          hist=pl.read_csv(root/'historical_drive_traces.csv')
+          assert metrics.height >= 15
+          assert survival.height >= 12
+          assert sim.height > 1000
+          assert hist.height > 1000
+          assert metrics.select(pl.col('monster_value').is_not_null().all()).item()
+          assert metrics.select(pl.col('historical_value').is_not_null().all()).item()
+          print(metrics.sort('absolute_relative_gap', descending=True).head(12))
+          print(survival)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v1-3-mon-ledger-002-drive-survival-100-world
+          path: |
+            artifacts/drive-survival-audit/
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+            artifacts/continuity-policy/manifest.json
+          retention-days: 14
