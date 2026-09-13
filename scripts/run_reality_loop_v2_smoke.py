@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 import run_week1_v13_dispersion_test as runner
 
+from monster.dfs.same_world_dst import SameWorldDSTCollector, write_combined_fanduel_worlds
 from monster.sim import (
     game_loop_v13,
     intent_ecology,
@@ -44,6 +45,7 @@ _NATIVE_RUN_SKILL_EDGE = progressive_skill_tail_v2._run_skill_edge
 _TELEMETRY = FullWorldTelemetryV5()
 _SKILL_TELEMETRY = PlayerSkillTelemetryV2()
 _OPPORTUNITY_TAIL = OpportunitySkillTailV3()
+_DST_WORLDS = SameWorldDSTCollector()
 
 
 def _attach_reality_loop_policy(teams: dict, policy_dir: Path) -> dict:
@@ -91,6 +93,7 @@ def _defensive_unit_with_skill_telemetry(*args, **kwargs):
 def _simulate_game_with_telemetry(*args, **kwargs):
     result = _NATIVE_SIMULATE_GAME(*args, **kwargs)
     _TELEMETRY.capture(result)
+    _DST_WORLDS.capture(result)
     return result
 
 
@@ -220,6 +223,8 @@ def main() -> None:
     _TELEMETRY.write(out)
     _SKILL_TELEMETRY.write(out)
     _OPPORTUNITY_TAIL.write(out)
+    _DST_WORLDS.write(out)
+    write_combined_fanduel_worlds(out)
     manifest_path = out / "manifest.json"
     if manifest_path.exists():
         import json
@@ -234,6 +239,9 @@ def main() -> None:
                 "defensive_shell_and_rush_plan_active": True,
                 "production_individual_ol_registration_active": True,
                 "stronger_local_run_interaction_active": True,
+                "same_world_fanduel_dst_active": True,
+                "same_world_complete_fanduel_matrix_active": True,
+                "fanduel_dst_blocked_kick_scoring_active": True,
             }
         )
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
