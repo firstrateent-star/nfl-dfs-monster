@@ -18,6 +18,7 @@ from monster.sim import (
     resolution_ecology,
 )
 from monster.sim.clock_ecology_v2 import sample_snap_cadence_v2
+from monster.sim.decision_policy import FourthDownDecision, fourth_down_probabilities
 from monster.sim.full_world_telemetry_v5 import FullWorldTelemetryV5
 from monster.sim.game_flow_lookup import build_team_game_flow_policy
 from monster.sim.interaction_topology_v4b import snap_responsibility_key
@@ -42,6 +43,7 @@ _NATIVE_CHOOSE_TARGET_FOR_DEPTH = intent_ecology.choose_target_for_depth
 _NATIVE_CHOOSE_RUSHER_FOR_GEOMETRY = intent_ecology.choose_rusher_for_geometry
 _NATIVE_PASS_INTERACTION = progressive_skill_tail_v2._pass_interaction
 _NATIVE_RUN_SKILL_EDGE = progressive_skill_tail_v2._run_skill_edge
+_NATIVE_DEPTH_THROW_PROBABILITIES = resolution_ecology.depth_throw_probabilities
 _TELEMETRY = FullWorldTelemetryV5()
 _SKILL_TELEMETRY = PlayerSkillTelemetryV2()
 _OPPORTUNITY_TAIL = OpportunitySkillTailV3()
@@ -177,6 +179,41 @@ def _run_skill_edge_with_opportunity(*, explosiveness: float, runner_power: floa
     return float(np.clip(base * _OPPORTUNITY_TAIL.run_multiplier(), 0.55, 1.90))
 
 
+def _sample_fourth_down_decision_v61(state, rng):
+    """Re-center fourth-down choices in viable FG territory without touching score totals.
+
+    v6 reaches plus territory more efficiently than the historical state mix used to compile
+    the base fourth-down table. A modest neutral-context reweight keeps the empirical action
+    set intact while preventing excess GO decisions from turning short-field drives into too
+    many touchdowns/turnovers-on-downs and too few field-goal attempts.
+    """
+    probabilities = fourth_down_probabilities(state)
+    go = probabilities.go
+    field_goal = probabilities.field_goal
+    punt = probabilities.punt
+    if state.yardline_100 >= 55.0 and field_goal > 0.0:
+        go *= 0.88
+        field_goal *= 1.35
+    total = go + field_goal + punt
+    draw = float(rng.random())
+    go /= total
+    field_goal /= total
+    if draw < go:
+        return FourthDownDecision.GO
+    if draw < go + field_goal:
+        return FourthDownDecision.FIELD_GOAL
+    return FourthDownDecision.PUNT
+
+
+def _depth_throw_probabilities_v61(*args, **kwargs):
+    """Preserve matchup ordering while re-centering the unconditional interception channel."""
+    result = _NATIVE_DEPTH_THROW_PROBABILITIES(*args, **kwargs)
+    return replace(
+        result,
+        interception=float(np.clip(result.interception * 1.18, 0.001, 0.12)),
+    )
+
+
 def _first_out_path() -> Path:
     if "--first-out" in sys.argv:
         index = sys.argv.index("--first-out")
@@ -210,6 +247,11 @@ def configure_reality_loop_v2() -> None:
     progressive_skill_tail_v2._pass_interaction = _pass_interaction_with_opportunity
     progressive_skill_tail_v2._run_skill_edge = _run_skill_edge_with_opportunity
 
+    # v6.1 event-channel repairs: preserve the player-duel architecture while correcting two
+    # mechanisms exposed by the 1,200-world audit (too few FGs and too few takeaways).
+    play_kernel.sample_fourth_down_decision = _sample_fourth_down_decision_v61
+    resolution_ecology.depth_throw_probabilities = _depth_throw_probabilities_v61
+
     resolution_ecology.resolve_run_ecology = resolve_run_ecology_progressive_skill_v2
     resolution_ecology.sample_yac = sample_yac_progressive_skill_v2
     play_kernel.resolve_run_contact = resolve_run_contact_progressive_skill_v2
@@ -242,6 +284,8 @@ def main() -> None:
                 "same_world_fanduel_dst_active": True,
                 "same_world_complete_fanduel_matrix_active": True,
                 "fanduel_dst_blocked_kick_scoring_active": True,
+                "v61_fourth_down_fg_recenter_active": True,
+                "v61_interception_recenter_active": True,
             }
         )
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
