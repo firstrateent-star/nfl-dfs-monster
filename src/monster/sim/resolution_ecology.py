@@ -13,12 +13,13 @@ from monster.sim.play_anatomy import (
     condition_throw_probabilities,
 )
 
-# Stage 3 historical outcome priors already contain league-wide difficulty. The current
-# matchup kernel is still a coarse unit/player bridge rather than a snap-specific assignment,
-# so it receives only partial relative authority. Run blocking/front evidence is somewhat
-# more direct than pass coverage assignment, hence the modestly higher run authority.
-_COARSE_MATCHUP_AUTHORITY = 0.35
-_COARSE_RUN_MATCHUP_AUTHORITY = 0.50
+# Historical depth/run outcomes remain the league-wide causal prior.  Earlier versions
+# deliberately shrank matchup evidence because the matchup layer was only a coarse team/unit
+# bridge.  v5/v6 now constructs explicit snap participants, coverage responsibility, trench
+# duels, run-lane blockers, box fit and pursuit.  Those observed snap interactions therefore
+# deserve materially more relative authority while remaining neutral-centered around 1.0.
+_SNAP_MATCHUP_AUTHORITY = 0.78
+_SNAP_RUN_MATCHUP_AUTHORITY = 0.82
 _STANDARD_NORMAL = NormalDist()
 
 
@@ -30,13 +31,13 @@ class DepthThrowProbabilities:
 
 def _shrink_relative(relative: float, *, low: float, high: float) -> float:
     clipped = float(np.clip(relative, low, high))
-    return float(exp(_COARSE_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
+    return float(exp(_SNAP_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
 
 
 def _shrink_run_relative(relative: float, *, low: float, high: float) -> float:
-    """Grant coarse run matchup evidence bounded authority around a neutral 1.0 prior."""
+    """Grant explicit snap-level run matchup evidence bounded neutral-centered authority."""
     clipped = float(np.clip(relative, low, high))
-    return float(exp(_COARSE_RUN_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
+    return float(exp(_SNAP_RUN_MATCHUP_AUTHORITY * log(max(clipped, 1e-9))))
 
 
 def depth_throw_probabilities(
@@ -48,10 +49,10 @@ def depth_throw_probabilities(
 ) -> DepthThrowProbabilities:
     """Resolve depth-aware throw quality without reintroducing a second league baseline.
 
-    Historical depth outcome is the unconditional causal prior. The existing matchup path
-    contributes only a shrunk relative player/QB/unit perturbation because it is still a
-    coarse interaction layer. Pressure then conditions the already depth-aware probability
-    through the independently measured clean-vs-pressure split.
+    Historical depth outcome remains the unconditional causal prior.  The current matchup
+    path is now an explicit player-v-player snap interaction, so its neutral-centered relative
+    signal receives substantial authority before pressure conditions the throw through the
+    independently measured clean-vs-pressure split.
     """
 
     completion = profile.completion_rate
@@ -130,8 +131,6 @@ def sample_yac(
     )
     positive_p = max(1.0 - negative_p - zero_p, 1e-6)
 
-    # A negative completed screen must finish short of the line of scrimmage. A beta
-    # fraction gives a smooth distribution within that physically constrained interval.
     negative_mean = threshold * (2.2 / (2.2 + 1.8))
     positive_mean = (
         target_mean - negative_p * negative_mean - zero_p * threshold
@@ -221,18 +220,11 @@ def _conditional_loss_mean(profile: RunGeometryOutcome) -> float:
     loss_2 = float(np.clip(profile.loss_2_plus_rate / negative, 0.0, 1.0))
     moderate = max(loss_2 - loss_5, 0.0)
     shallow = max(1.0 - loss_2, 0.0)
-    # These are the expected severities of the explicit negative-yard samplers below.
     return -(loss_5 * 5.85 + moderate * 3.0 + shallow * 1.0)
 
 
 def _breakaway_scale(profile: RunGeometryOutcome) -> float:
-    """Derive conditional 20+ severity from the global p99 and 20+ frequency.
-
-    If p20 > 1%, the league-wide 99th percentile lies inside the conditional 20+ tail.
-    For a shifted exponential Y=20+Exp(scale), solve the scale so that corresponding
-    conditional quantile lands on the observed global p99. This keeps breakaway frequency
-    and breakaway severity as separate mechanisms.
-    """
+    """Derive conditional 20+ severity from the global p99 and 20+ frequency."""
 
     p20 = max(profile.explosive_20_rate, 0.0)
     if p20 > 0.010001 and profile.yards_p99 > 20.0:
@@ -279,12 +271,7 @@ def _resolve_other_run(
     *,
     rng: np.random.Generator,
 ) -> RunAnatomy:
-    """Resolve missing/unrecognized run geometry without inventing a known blocking lane.
-
-    Kneels/spikes are excluded upstream. The remaining `other` class is overwhelmingly
-    missing/unknown run location or gap, so it receives low-information empirical anatomy
-    rather than ordinary interior/edge matchup assumptions.
-    """
+    """Resolve missing/unrecognized run geometry without inventing a known blocking lane."""
 
     negative_p = float(np.clip(profile.negative_rate, 0.0, 0.95))
     zero_p = float(np.clip(profile.zero_rate, 0.0, max(0.0, 0.98 - negative_p)))
@@ -334,12 +321,10 @@ def resolve_run_ecology(
 ) -> RunAnatomy:
     """Resolve a run through explicit failure/routine/crease/breakaway branches.
 
-    Frequency and severity are separate. Historical geometry provides the branch prior.
-    Coarse front/player matchup evidence receives bounded relative authority: it can move
-    a world above or below the historical prior without replacing the prior itself. Front
-    penetration controls loss frequency; runner power can resist that penetration; the
-    matchup yards multiplier owns ordinary efficiency; explosiveness and pursuit own
-    breakaway frequency.
+    Frequency and severity are separate. Historical geometry provides the branch prior while
+    explicit snap-level blocking/front/pursuit matchups provide neutral-centered relative
+    authority. Front penetration controls loss frequency; runner power can resist penetration;
+    matchup efficiency owns routine gains; explosiveness and pursuit own breakaway frequency.
     """
 
     if profile.category == "other":
