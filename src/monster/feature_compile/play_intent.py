@@ -200,9 +200,10 @@ def compile_pass_intent_policy(
     completions = pl.col("complete_pass").fill_null(0).cast(pl.Float64)
     interceptions = pl.col("interception").fill_null(0).cast(pl.Float64)
     pass_tds = pl.col("pass_touchdown").fill_null(0).cast(pl.Float64)
+    yards = pl.col("yards_gained").cast(pl.Float64)
     yac = pl.col("yards_after_catch").cast(pl.Float64)
-    completion_yards = pl.col("yards_gained").cast(pl.Float64).filter(completions == 1.0)
-    forty_plus_completion_yards = completion_yards.filter(completion_yards >= 40.0)
+    completion_yards = yards.filter(completions == 1.0)
+    forty_plus_completion_yards = yards.filter((completions == 1.0) & (yards >= 40.0))
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -212,7 +213,7 @@ def compile_pass_intent_policy(
             pass_tds.mean().alias("touchdown_rate"),
             pl.col("air_yards").mean().alias("air_yards_mean"),
             pl.col("air_yards").std().fill_null(0.0).alias("air_yards_sd"),
-            pl.col("yards_gained").mean().alias("yards_per_attempt"),
+            yards.mean().alias("yards_per_attempt"),
             completion_yards.mean().fill_null(0.0).alias("yards_mean_completed"),
             completion_yards.std().fill_null(0.0).alias("yards_sd_completed"),
             (completion_yards >= 5.0).mean().fill_null(0.0).alias("gain_5plus_completion_rate"),
