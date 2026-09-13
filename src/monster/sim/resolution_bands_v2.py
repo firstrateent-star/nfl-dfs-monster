@@ -19,10 +19,6 @@ class RunBandTarget:
     gain_5plus: float
 
 
-# 2025 regular-season NFL designed-run topology, measured from the same nflverse definition
-# used by the Reality Loop audit. These are branch priors, not fantasy/stat targets. Existing
-# negative/zero/10+/15+/20+ ecology stays owned by RunGeometryOutcome; this table supplies the
-# missing 3+ and 5+ boundaries so the routine branch cannot collapse too much mass into 2-4 yd.
 _RUN_BAND_TARGETS: dict[str, RunBandTarget] = {
     "interior": RunBandTarget(0.565136, 0.309198),
     "left_edge": RunBandTarget(0.597662, 0.423659),
@@ -31,9 +27,6 @@ _RUN_BAND_TARGETS: dict[str, RunBandTarget] = {
     "right_offtackle": RunBandTarget(0.592883, 0.361882),
 }
 
-# Unknown/missing run geometry is deliberately low-information. The old fallback accidentally
-# turned this small class into an 80% negative-gain bucket. Preserve its observed marginal
-# topology instead of pretending an unknown lane has known front/blocking mechanics.
 _OTHER_RUN = {
     "negative": 0.047619,
     "gain_3plus": 0.023810,
@@ -43,17 +36,16 @@ _OTHER_RUN = {
     "yards_mean": 0.357143,
 }
 
-# 2025 regular-season QB scramble topology from the same play-family audit. Once the QB has
-# resolved to SCRAMBLE, the old generic contact model created too many small/negative gains and
-# skipped the 10-14 yard escape band. These probabilities describe open-field topology only;
-# mobility, runner power, pursuit and tackling still tilt probability between adjacent bands.
+# 2025 regular-season QB scramble topology from the same nflverse audit used by Reality Loop.
+_SCRAMBLE_15PLUS = 0.10192837465564739
+_SCRAMBLE_40PLUS = 0.004591
 _SCRAMBLE_BANDS = np.asarray(
     [
-        1.0 - 0.8356290174471993,  # 0-2
-        0.8356290174471993 - 0.6299357208448118,  # 3-4
-        0.6299357208448118 - 0.25895316804407714,  # 5-9
-        0.25895316804407714 - 0.10192837465564739,  # 10-14
-        0.10192837465564739,  # 15+
+        1.0 - 0.8356290174471993,
+        0.8356290174471993 - 0.6299357208448118,
+        0.6299357208448118 - 0.25895316804407714,
+        0.25895316804407714 - _SCRAMBLE_15PLUS,
+        _SCRAMBLE_15PLUS,
     ],
     dtype=float,
 )
@@ -109,15 +101,11 @@ def _sample_routine_run_band_v2(
     if target is None:
         return None
 
-    # This function is called only after the base resolver chose a positive sub-10 routine
-    # outcome. Reconstruct the empirical conditional topology of that same reservoir.
     p0_3 = max(1.0 - profile.negative_rate - profile.zero_rate - target.gain_3plus, 0.0)
     p3_5 = max(target.gain_3plus - target.gain_5plus, 0.0)
     p5_10 = max(target.gain_5plus - profile.explosive_10_rate, 0.0)
     probabilities = np.asarray([p0_3, p3_5, p5_10], dtype=float)
 
-    # Matchup quality moves mass between adjacent routine bands. It does not alter the
-    # negative or 10+ branches already chosen by the base causal ecology.
     edge = float(
         np.clip(
             matchup_yards_multiplier
@@ -131,13 +119,10 @@ def _sample_routine_run_band_v2(
     band = int(rng.choice(3, p=probabilities))
 
     if band == 0:
-        # Dense low-success cluster without piling probability at exactly 3 yards.
         yards = 0.10 + 2.899 * float(rng.beta(2.0, 2.7))
     elif band == 1:
         yards = 3.0 + 1.999 * float(rng.beta(2.2, 2.0))
     else:
-        # The missing Monster mass lives mainly here. Use a continuous 5-9.999 branch,
-        # preserving the existing 10+ tail as a separate mechanism.
         yards = 5.0 + 4.999 * float(rng.beta(2.15, 1.95))
 
     return _anatomy_from_yards(
@@ -162,8 +147,6 @@ def _resolve_other_run_v2(*, rng: np.random.Generator) -> RunAnatomy:
         yards = -float(np.clip(rng.normal(1.0, 0.40), 0.1, 2.5))
         return RunAnatomy(True, ContactResult.STUFF, yards, 0.0, yards)
     if band == 1:
-        # Solve the low branch around the observed marginal mean instead of assigning normal
-        # run-lane efficiency to a class whose geometry is explicitly unknown.
         yards = float(np.clip(rng.exponential(0.22), 0.0, 2.999))
         return _anatomy_from_yards(yards, rng=rng)
     if band == 2:
@@ -173,6 +156,78 @@ def _resolve_other_run_v2(*, rng: np.random.Generator) -> RunAnatomy:
     if band == 4:
         return _anatomy_from_yards(float(rng.uniform(10.0, 15.0)), rng=rng)
     return _anatomy_from_yards(float(np.clip(15.0 + rng.exponential(3.0), 15.0, 35.0)), rng=rng)
+
+
+def _run_far_tail_probability(
+    profile: RunGeometryOutcome,
+    *,
+    runner_power: float,
+    tackling: float,
+    explosiveness: float,
+) -> float:
+    if profile.explosive_20_rate <= 1e-9 or profile.explosive_40_rate <= 0.0:
+        return 0.0
+    baseline_conditional = float(
+        np.clip(profile.explosive_40_rate / profile.explosive_20_rate, 0.0, 0.90)
+    )
+    edge = float(
+        np.clip(
+            max(explosiveness, 0.60) ** 0.75
+            * max(runner_power, 0.60) ** 0.18
+            / max(tackling, 0.60) ** 0.30,
+            0.68,
+            1.50,
+        )
+    )
+    probability = baseline_conditional * edge**0.90
+    return float(
+        np.clip(
+            probability,
+            baseline_conditional * 0.58,
+            min(0.95, baseline_conditional * 1.55),
+        )
+    )
+
+
+def _reshape_run_20plus_tail(
+    anatomy: RunAnatomy,
+    profile: RunGeometryOutcome,
+    *,
+    runner_power: float,
+    tackling: float,
+    explosiveness: float,
+    rng: np.random.Generator,
+) -> RunAnatomy:
+    if anatomy.total_yards < 20.0 or profile.explosive_40_rate <= 0.0:
+        return anatomy
+    p40 = _run_far_tail_probability(
+        profile,
+        runner_power=runner_power,
+        tackling=tackling,
+        explosiveness=explosiveness,
+    )
+    edge = float(
+        np.clip(
+            max(explosiveness, 0.60) / max(tackling, 0.60) ** 0.28,
+            0.70,
+            1.48,
+        )
+    )
+    if rng.random() < p40:
+        observed_mean = float(profile.yards_40plus_mean)
+        mean = observed_mean if observed_mean >= 40.0 else 48.0
+        residual_mean = max(mean - 40.0, 1.5)
+        yards = float(np.clip(40.0 + rng.gamma(2.0, residual_mean / 2.0), 40.0, 90.0))
+        return _anatomy_from_yards(
+            yards,
+            rng=rng,
+            broken_tackle_bias=0.14 * max(edge - 1.0, 0.0) + 0.10,
+        )
+    # The empirical p40 owns the far-tail frequency. Keep the remaining 20+ branch below 40.
+    if anatomy.total_yards >= 40.0:
+        yards = 20.0 + 19.999 * float(rng.beta(1.8, 2.4))
+        return _anatomy_from_yards(yards, rng=rng)
+    return anatomy
 
 
 def resolve_run_ecology_v2(
@@ -185,7 +240,7 @@ def resolve_run_ecology_v2(
     explosiveness: float,
     rng: np.random.Generator,
 ) -> RunAnatomy:
-    """Preserve negative/explosive branches while restoring ordinary NFL run-success bands."""
+    """Preserve measured run branches while restoring routine and true-breakaway topology."""
     if profile.category == "other":
         return _resolve_other_run_v2(rng=rng)
 
@@ -198,8 +253,15 @@ def resolve_run_ecology_v2(
         explosiveness=explosiveness,
         rng=rng,
     )
-    # Do not disturb failure, zero, or explosive outcomes; those were already near the NFL
-    # target. Only re-express the positive sub-10 routine reservoir.
+    if anatomy.total_yards >= 20.0:
+        return _reshape_run_20plus_tail(
+            anatomy,
+            profile,
+            runner_power=runner_power,
+            tackling=tackling,
+            explosiveness=explosiveness,
+            rng=rng,
+        )
     if anatomy.total_yards <= 0.0 or anatomy.total_yards >= 10.0:
         return anatomy
     replacement = _sample_routine_run_band_v2(
@@ -220,7 +282,7 @@ def resolve_scramble_contact_v2(
     explosiveness: float,
     rng: np.random.Generator,
 ) -> RunAnatomy:
-    """Resolve a QB scramble through measured 0-2/3-4/5-9/10-14/15+ open-field bands."""
+    """Resolve QB scramble topology, including the observed rare 40+ escape tail."""
     burst = float(np.clip(explosiveness, 0.60, 1.55))
     runner = float(np.clip(runner_power, 0.60, 1.45))
     pursuit = float(np.clip(tackling, 0.60, 1.55))
@@ -242,10 +304,21 @@ def resolve_scramble_contact_v2(
     elif band == 2:
         yards = 5.0 + 4.999 * float(rng.beta(2.0, 2.0))
     elif band == 3:
-        # Explicitly fill the missing chunk-escape band without stealing from 15+ plays.
         yards = 10.0 + 4.999 * float(rng.beta(2.1, 2.0))
     else:
-        yards = float(np.clip(15.0 + rng.exponential(4.8 * burst), 15.0, 48.0))
+        baseline_conditional = _SCRAMBLE_40PLUS / _SCRAMBLE_15PLUS
+        p40 = float(
+            np.clip(
+                baseline_conditional * edge**1.05,
+                baseline_conditional * 0.52,
+                min(0.30, baseline_conditional * 1.75),
+            )
+        )
+        if rng.random() < p40:
+            # Long QB escapes are rare but materially longer than the ordinary 15+ branch.
+            yards = float(np.clip(40.0 + rng.gamma(2.0, 4.0 * burst), 40.0, 70.0))
+        else:
+            yards = 15.0 + 24.999 * float(rng.beta(1.6, 2.5))
 
     return _anatomy_from_yards(
         yards,
