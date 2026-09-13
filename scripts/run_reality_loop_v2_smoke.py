@@ -11,13 +11,20 @@ from monster.sim import matchup_kernel, play_kernel, resolution_ecology
 from monster.sim.clock_ecology_v2 import sample_snap_cadence_v2
 from monster.sim.full_world_telemetry_v2 import FullWorldTelemetryV2
 from monster.sim.game_flow_lookup import build_team_game_flow_policy
-from monster.sim.pass_resolution_bands_v2 import sample_yac_v2
-from monster.sim.resolution_bands_v2 import resolve_run_contact_v2, resolve_run_ecology_v2
+from monster.sim.player_skill_telemetry_v2 import PlayerSkillTelemetryV2
+from monster.sim.progressive_skill_tail_v2 import (
+    resolve_run_contact_progressive_skill_v2,
+    resolve_run_ecology_progressive_skill_v2,
+    sample_yac_progressive_skill_v2,
+)
 from monster.sim.snap_ecology_v2 import resolve_pass_snap_v2, resolve_run_snap_v2
 
 _NATIVE_ATTACH_INTENT = runner.integrated._attach_historical_intent_ecology
 _NATIVE_SIMULATE_GAME = runner.integrated.simulate_game
+_NATIVE_ENHANCED_TEAM_IDENTITY = runner.enhanced_team_identity
+_NATIVE_ENHANCED_DEFENSIVE_UNIT = runner.enhanced_defensive_unit
 _TELEMETRY = FullWorldTelemetryV2()
+_SKILL_TELEMETRY = PlayerSkillTelemetryV2()
 
 
 def _attach_reality_loop_policy(teams: dict, policy_dir: Path) -> dict:
@@ -54,6 +61,18 @@ def _attach_reality_loop_policy(teams: dict, policy_dir: Path) -> dict:
     }
 
 
+def _team_identity_with_skill_telemetry(*args, **kwargs):
+    team = _NATIVE_ENHANCED_TEAM_IDENTITY(*args, **kwargs)
+    _SKILL_TELEMETRY.register_team_identity(team)
+    return team
+
+
+def _defensive_unit_with_skill_telemetry(*args, **kwargs):
+    defense = _NATIVE_ENHANCED_DEFENSIVE_UNIT(*args, **kwargs)
+    _SKILL_TELEMETRY.register_defensive_unit(defense)
+    return defense
+
+
 def _simulate_game_with_telemetry(*args, **kwargs):
     result = _NATIVE_SIMULATE_GAME(*args, **kwargs)
     _TELEMETRY.capture(result)
@@ -77,6 +96,12 @@ def configure_reality_loop_v2() -> None:
     resolution_ecology._COARSE_RUN_MATCHUP_AUTHORITY = 0.25
     runner._PASS_MATCHUP_AUTHORITY_OVERRIDE = 0.35
 
+    # Capture the exact rich identity and defensive capability state that the integrated runner
+    # constructs. The dispersion runner binds these functions inside main(), so wrap its source
+    # functions here rather than patching the downstream names too early.
+    runner.enhanced_team_identity = _team_identity_with_skill_telemetry
+    runner.enhanced_defensive_unit = _defensive_unit_with_skill_telemetry
+
     # Full-game and audit worlds must traverse the same contextual play-calling policy. This
     # eliminates a hidden experiment-path difference before any further completion tuning.
     runner.integrated._attach_historical_intent_ecology = _attach_reality_loop_policy
@@ -92,13 +117,12 @@ def configure_reality_loop_v2() -> None:
     matchup_kernel.resolve_pass_snap = resolve_pass_snap_v2
     matchup_kernel.resolve_run_snap = resolve_run_snap_v2
 
-    # Preserve designed-run failure/explosive branches while restoring empirical routine bands,
-    # give QB scrambles their own escape topology, and use the already-shadow-gated shallow-pass
-    # gain-band sampler. Completion probability remains owned by the throw resolver; this changes
-    # only the yards topology after a shallow catch.
-    resolution_ecology.resolve_run_ecology = resolve_run_ecology_v2
-    resolution_ecology.sample_yac = sample_yac_v2
-    play_kernel.resolve_run_contact = resolve_run_contact_v2
+    # The NFL empirical distributions remain the neutral center. Player-vs-defender skill now
+    # receives progressively more authority as a successful play enters 10+, 15+, 20+ and 40+
+    # territory. This redistributes outcome mass; it does not grant direct scoring authority.
+    resolution_ecology.resolve_run_ecology = resolve_run_ecology_progressive_skill_v2
+    resolution_ecology.sample_yac = sample_yac_progressive_skill_v2
+    play_kernel.resolve_run_contact = resolve_run_contact_progressive_skill_v2
 
     # Drive conversion/survival is already close to NFL reality; low play volume was therefore
     # a clock ecology problem rather than an invitation to inflate offensive success.
@@ -108,7 +132,9 @@ def configure_reality_loop_v2() -> None:
 def main() -> None:
     configure_reality_loop_v2()
     runner.main()
-    _TELEMETRY.write(_first_out_path())
+    out = _first_out_path()
+    _TELEMETRY.write(out)
+    _SKILL_TELEMETRY.write(out)
 
 
 if __name__ == "__main__":
