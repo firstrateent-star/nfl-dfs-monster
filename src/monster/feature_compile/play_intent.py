@@ -202,6 +202,7 @@ def compile_pass_intent_policy(
     pass_tds = pl.col("pass_touchdown").fill_null(0).cast(pl.Float64)
     yac = pl.col("yards_after_catch").cast(pl.Float64)
     completion_yards = pl.col("yards_gained").cast(pl.Float64).filter(completions == 1.0)
+    forty_plus_completion_yards = completion_yards.filter(completion_yards >= 40.0)
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -218,6 +219,8 @@ def compile_pass_intent_policy(
             (completion_yards >= 10.0).mean().fill_null(0.0).alias("gain_10plus_completion_rate"),
             (completion_yards >= 15.0).mean().fill_null(0.0).alias("gain_15plus_completion_rate"),
             (completion_yards >= 20.0).mean().fill_null(0.0).alias("gain_20plus_completion_rate"),
+            (completion_yards >= 40.0).mean().fill_null(0.0).alias("gain_40plus_completion_rate"),
+            forty_plus_completion_yards.mean().fill_null(0.0).alias("yards_40plus_mean_completed"),
             yac.filter(completions == 1.0).mean().fill_null(0.0).alias("yac_mean_completed"),
             yac.filter(completions == 1.0).std().fill_null(0.0).alias("yac_sd_completed"),
             (completion_yards < 0).mean().fill_null(0.0).alias("negative_completion_rate"),
@@ -272,6 +275,7 @@ def compile_run_intent_policy(
         rusher = pl.DataFrame(schema={"actor_id": pl.String, "category": pl.String, "attempts": pl.Int64})
 
     yards = pl.col("yards_gained").fill_null(0.0).cast(pl.Float64)
+    forty_plus_yards = yards.filter(yards >= 40.0)
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -285,6 +289,8 @@ def compile_run_intent_policy(
             (yards >= 10).mean().alias("explosive_10_rate"),
             (yards >= 15).mean().alias("explosive_15_rate"),
             (yards >= 20).mean().alias("explosive_20_rate"),
+            (yards >= 40).mean().alias("explosive_40_rate"),
+            forty_plus_yards.mean().fill_null(0.0).alias("yards_40plus_mean"),
             pl.col("rush_touchdown").fill_null(0).cast(pl.Float64).mean().alias("touchdown_rate"),
             pl.col("fumble_lost").fill_null(0).cast(pl.Float64).mean().alias("fumble_lost_rate"),
             yards.quantile(0.10).alias("yards_p10"),
