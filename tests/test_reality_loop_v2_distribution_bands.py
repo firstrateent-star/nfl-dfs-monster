@@ -28,6 +28,8 @@ def _profile(category: str = "interior") -> RunGeometryOutcome:
         yards_p50=3.0,
         yards_p90=8.0,
         yards_p99=24.0,
+        explosive_40_rate=0.0032,
+        yards_40plus_mean=47.5,
     )
 
 
@@ -38,10 +40,12 @@ def _rates(values: np.ndarray) -> dict[str, float]:
         "gain5": float(np.mean(values >= 5.0)),
         "gain10": float(np.mean(values >= 10.0)),
         "gain15": float(np.mean(values >= 15.0)),
+        "gain20": float(np.mean(values >= 20.0)),
+        "gain40": float(np.mean(values >= 40.0)),
     }
 
 
-def test_designed_run_v2_restores_middle_band_without_moving_negative_or_tail() -> None:
+def test_designed_run_v2_restores_middle_band_and_empirical_far_tail() -> None:
     rng = np.random.default_rng(2026091211)
     profile = _profile()
     values = np.asarray(
@@ -55,7 +59,7 @@ def test_designed_run_v2_restores_middle_band_without_moving_negative_or_tail() 
                 explosiveness=1.0,
                 rng=rng,
             ).total_yards
-            for _ in range(30_000)
+            for _ in range(55_000)
         ],
         dtype=float,
     )
@@ -63,14 +67,40 @@ def test_designed_run_v2_restores_middle_band_without_moving_negative_or_tail() 
     assert abs(rates["negative"] - profile.negative_rate) < 0.015
     assert abs(rates["gain10"] - profile.explosive_10_rate) < 0.015
     assert abs(rates["gain15"] - profile.explosive_15_rate) < 0.012
+    assert abs(rates["gain20"] - profile.explosive_20_rate) < 0.009
+    assert abs(rates["gain40"] - profile.explosive_40_rate) < 0.0025
     assert abs(rates["gain5"] - 0.309198) < 0.020
     assert abs(rates["gain3"] - 0.565136) < 0.022
 
 
+def test_designed_run_far_tail_preserves_player_explosive_authority() -> None:
+    profile = _profile()
+
+    def sample(explosive: float, power: float, tackling: float, seed: int) -> np.ndarray:
+        rng = np.random.default_rng(seed)
+        return np.asarray(
+            [
+                resolve_run_ecology_v2(
+                    profile,
+                    matchup_stuff_probability=0.18,
+                    matchup_yards_multiplier=1.0,
+                    runner_power=power,
+                    tackling=tackling,
+                    explosiveness=explosive,
+                    rng=rng,
+                ).total_yards
+                for _ in range(45_000)
+            ],
+            dtype=float,
+        )
+
+    constrained = sample(0.82, 0.90, 1.12, 2026091218)
+    elite = sample(1.24, 1.12, 0.90, 2026091219)
+    assert float(np.mean(elite >= 40.0)) > float(np.mean(constrained >= 40.0))
+
+
 def test_unknown_run_geometry_no_longer_becomes_an_artificial_stuff_bucket() -> None:
     rng = np.random.default_rng(2026091212)
-    # Deliberately hostile profile values reproduce the old failure mode; v2 treats unknown
-    # geometry as low-information empirical anatomy rather than a known blocking lane.
     profile = RunGeometryOutcome(
         category="other",
         attempts=100,
@@ -110,7 +140,7 @@ def test_unknown_run_geometry_no_longer_becomes_an_artificial_stuff_bucket() -> 
     assert 0.008 < rates["gain5"] < 0.025
 
 
-def test_scramble_v2_fills_10_to_14_band_without_inflating_15_plus() -> None:
+def test_scramble_v2_fills_10_to_14_and_40plus_bands_without_inflating_15_plus() -> None:
     rng = np.random.default_rng(2026091213)
     values = np.asarray(
         [
@@ -121,7 +151,7 @@ def test_scramble_v2_fills_10_to_14_band_without_inflating_15_plus() -> None:
                 explosiveness=1.0,
                 rng=rng,
             ).total_yards
-            for _ in range(35_000)
+            for _ in range(80_000)
         ],
         dtype=float,
     )
@@ -131,26 +161,28 @@ def test_scramble_v2_fills_10_to_14_band_without_inflating_15_plus() -> None:
     assert abs(rates["gain5"] - 0.629936) < 0.016
     assert abs(rates["gain10"] - 0.258953) < 0.015
     assert abs(rates["gain15"] - 0.101928) < 0.012
+    assert abs(rates["gain40"] - 0.004591) < 0.0018
 
 
 def test_scramble_v2_preserves_player_mobility_authority() -> None:
-    def sample(explosiveness: float, seed: int) -> np.ndarray:
+    def sample(explosiveness: float, tackling: float, seed: int) -> np.ndarray:
         rng = np.random.default_rng(seed)
         return np.asarray(
             [
                 resolve_scramble_contact_v2(
                     penetration_probability=0.08,
                     runner_power=explosiveness,
-                    tackling=1.0,
+                    tackling=tackling,
                     explosiveness=explosiveness,
                     rng=rng,
                 ).total_yards
-                for _ in range(12_000)
+                for _ in range(45_000)
             ],
             dtype=float,
         )
 
-    ordinary = sample(0.86, 2026091214)
-    elite = sample(1.22, 2026091215)
+    ordinary = sample(0.86, 1.10, 2026091214)
+    elite = sample(1.22, 0.90, 2026091215)
     assert float(elite.mean()) > float(ordinary.mean())
     assert float(np.mean(elite >= 10.0)) > float(np.mean(ordinary >= 10.0))
+    assert float(np.mean(elite >= 40.0)) > float(np.mean(ordinary >= 40.0))
