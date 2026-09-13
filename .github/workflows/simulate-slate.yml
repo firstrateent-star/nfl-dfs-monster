@@ -8,19 +8,24 @@ on:
       - src/monster/sim/intent_ecology.py
       - src/monster/sim/pass_resolution_bands_v2.py
       - src/monster/sim/resolution_bands_v2.py
+      - src/monster/sim/progressive_skill_tail_v2.py
+      - src/monster/sim/player_skill_telemetry_v2.py
       - src/monster/sim/snap_ecology_v2.py
       - src/monster/sim/clock_ecology_v2.py
       - src/monster/sim/full_world_telemetry_v2.py
       - scripts/run_reality_loop_v2_smoke.py
+      - scripts/persist_simulation_run.py
       - scripts/audit_reality_loop_v2_score_anatomy.py
+      - tests/test_reality_loop_v2_distribution_bands.py
       - tests/test_reality_loop_v2_pass_resolution_bands.py
+      - tests/test_reality_loop_v2_progressive_skill_tail.py
       - .github/workflows/simulate-slate.yml
   workflow_dispatch:
     inputs:
       worlds:
         description: Monte Carlo worlds per game
         required: true
-        default: '1000'
+        default: '100'
       seed:
         description: Base deterministic seed
         required: true
@@ -77,6 +82,40 @@ jobs:
           tests/test_reality_loop_v2_clock_ecology.py
           tests/test_reality_loop_v2_distribution_bands.py
           tests/test_reality_loop_v2_pass_resolution_bands.py
+          tests/test_reality_loop_v2_progressive_skill_tail.py
+
+      - name: Progressive skill tail 300-game smoke
+        run: >-
+          uv run python scripts/run_reality_loop_v2_smoke.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 25
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/monster-smoke
+          --box-out artifacts/monster-smoke-box-scores
+
+      - name: Audit 300-game smoke
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/monster-smoke
+          --history 2025
+          --out artifacts/monster-smoke
+
+      - name: Smoke anatomy guard
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          score = json.loads(Path('artifacts/monster-smoke/score_anatomy.json').read_text())['model']
+          assert 112 <= score['scrimmage_plays_per_game'] <= 135, score
+          assert 30 <= score['points_per_game'] <= 52, score
+          assert 1.2 <= score['turnovers_per_game'] <= 3.4, score
+          assert 0.2 <= score['explosive_40_per_game'] <= 2.2, score
+          print(json.dumps(score, indent=2))
+          PY
 
       - name: Simulate football worlds
         run: >-
@@ -129,6 +168,7 @@ jobs:
               'score_anatomy_gap': score['gaps']['scoreboard_points_per_game'],
               'football_is_source_of_truth': True,
               'fanduel_scoring_downstream_only': True,
+              'progressive_player_skill_tail_active': True,
               'outputs': {
                   'games': 'game_distributions.csv',
                   'projected_scores': 'projected_scores_and_outcomes.csv',
@@ -139,12 +179,32 @@ jobs:
                   'dropback_outcomes': 'same_world_dropback_outcomes.csv',
                   'run_geometry': 'same_world_run_geometry_summary.csv',
                   'scrambles': 'same_world_scramble_summary.csv',
+                  'player_explosives': 'same_world_player_explosive_summary.csv',
+                  'player_skill_snapshot': 'player_skill_snapshot.csv',
+                  'defender_skill_snapshot': 'defender_skill_snapshot.csv',
                   'score_anatomy': 'score_anatomy.json',
               },
           }
           (out / 'simulator_run_manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           print(json.dumps(manifest, indent=2))
           PY
+
+      - name: Persist simulator run to Supabase
+        env:
+          SUPABASE_URL: https://nuyvuwqvsgopapjbnndu.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MONSTER_PARENT_RUN_ID: rlv2_2026091301_1200
+          MONSTER_MODEL_VERSION: Reality Loop v2 progressive player-skill tail
+          MONSTER_RUN_PURPOSE: player_skill_tail_calibration
+          MONSTER_PROMOTION_STATUS: shadow
+        run: >-
+          uv run python scripts/persist_simulation_run.py
+          --simulation artifacts/monster-simulation
+          --boxes artifacts/monster-box-scores
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
 
       - name: Upload working simulator outputs
         uses: actions/upload-artifact@v4
@@ -154,4 +214,5 @@ jobs:
           path: |
             artifacts/monster-simulation/
             artifacts/monster-box-scores/
+            artifacts/monster-smoke/score_anatomy.json
           retention-days: 14
