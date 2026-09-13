@@ -101,8 +101,16 @@ def _defense(skill_flip: bool = False) -> DefensiveUnit:
                 snap_weight=snap,
             )
         )
-    front = tuple(p for p in players if p.position in {"EDGE", "DE", "DT", "NT", "DL", "LB", "ILB", "MLB", "OLB"})
-    coverage = tuple(p for p in players if p.position in {"CB", "DB", "S", "FS", "SS", "LB", "ILB", "MLB", "OLB"})
+    front = tuple(
+        p
+        for p in players
+        if p.position in {"EDGE", "DE", "DT", "NT", "DL", "LB", "ILB", "MLB", "OLB"}
+    )
+    coverage = tuple(
+        p
+        for p in players
+        if p.position in {"CB", "DB", "S", "FS", "SS", "LB", "ILB", "MLB", "OLB"}
+    )
     return DefensiveUnit(front=front, coverage=coverage)
 
 
@@ -139,14 +147,39 @@ def test_v5_snap_world_is_exact_11v11_with_real_ol() -> None:
     assert len(world.active_receiver_ids) <= 5
 
 
+def test_v5_qb_is_never_reused_as_skill_participant_across_packages() -> None:
+    offense = _offense()
+    register_team_units("OFF", _unit_players())
+    packages: set[str] = set()
+    for index in range(100):
+        _, _, world = prepare_snap_world(
+            state=_state(),
+            offense=offense,
+            defense=_defense(),
+            responsibility_key=f"package-unique-{index}",
+        )
+        packages.add(world.offense_package)
+        participants = world.offense_participant_ids
+        assert participants.count("qb") == 1
+        assert len(participants) == 11
+        assert len(set(participants)) == 11
+    assert {"10", "11", "12", "13", "21"} <= packages
+
+
 def test_v5_participation_does_not_depend_on_defender_skill() -> None:
     offense = _offense()
     register_team_units("OFF", _unit_players())
     _, _, base = prepare_snap_world(
-        state=_state(), offense=offense, defense=_defense(False), responsibility_key="skill-blind"
+        state=_state(),
+        offense=offense,
+        defense=_defense(False),
+        responsibility_key="skill-blind",
     )
     _, _, flipped = prepare_snap_world(
-        state=_state(), offense=offense, defense=_defense(True), responsibility_key="skill-blind"
+        state=_state(),
+        offense=offense,
+        defense=_defense(True),
+        responsibility_key="skill-blind",
     )
     assert base.defense_participant_ids == flipped.defense_participant_ids
     assert base.rush_participant_ids == flipped.rush_participant_ids
@@ -157,10 +190,16 @@ def test_v5_same_snap_has_one_shared_defensive_call() -> None:
     offense = _offense()
     register_team_units("OFF", _unit_players())
     _, _, first = prepare_snap_world(
-        state=_state(), offense=offense, defense=_defense(), responsibility_key="shared-intent"
+        state=_state(),
+        offense=offense,
+        defense=_defense(),
+        responsibility_key="shared-intent",
     )
     _, _, second = prepare_snap_world(
-        state=_state(), offense=offense, defense=_defense(), responsibility_key="shared-intent"
+        state=_state(),
+        offense=offense,
+        defense=_defense(),
+        responsibility_key="shared-intent",
     )
     assert first.offense_package == second.offense_package
     assert first.defense_package == second.defense_package
