@@ -82,6 +82,8 @@ class FullWorldTelemetryV2:
                 self.designed_runs.append(
                     {
                         "game": game,
+                        "rusher_id": event.rusher_id,
+                        "primary_defender_id": event.primary_defender_id,
                         "category": event.run_geometry_category or "other",
                         "yards": float(event.yards),
                         "touchdown": bool(event.touchdown),
@@ -96,6 +98,9 @@ class FullWorldTelemetryV2:
             self.dropbacks.append(
                 {
                     "game": game,
+                    "passer_id": event.passer_id,
+                    "target_id": event.target_id,
+                    "primary_defender_id": event.primary_defender_id,
                     "outcome": outcome,
                     "category": event.pass_depth_category or "none",
                     "yards": float(event.yards),
@@ -107,6 +112,9 @@ class FullWorldTelemetryV2:
                 self.scrambles.append(
                     {
                         "game": game,
+                        "player_id": event.rusher_id or event.passer_id,
+                        "passer_id": event.passer_id,
+                        "primary_defender_id": event.primary_defender_id,
                         "yards": float(event.yards),
                         "pressured": bool(event.pressured),
                         "touchdown": bool(event.touchdown),
@@ -121,6 +129,9 @@ class FullWorldTelemetryV2:
             self.pass_throws.append(
                 {
                     "game": game,
+                    "passer_id": event.passer_id,
+                    "target_id": event.target_id,
+                    "primary_defender_id": event.primary_defender_id,
                     "category": event.pass_depth_category or "none",
                     "outcome": outcome,
                     "complete": event.pass_result == PassResult.COMPLETE,
@@ -143,6 +154,7 @@ class FullWorldTelemetryV2:
             (pl.col("yards") >= 10.0).mean().alias("gain_10plus_rate"),
             (pl.col("yards") >= 15.0).mean().alias("gain_15plus_rate"),
             (pl.col("yards") >= 20.0).mean().alias("gain_20plus_rate"),
+            (pl.col("yards") >= 40.0).mean().alias("gain_40plus_rate"),
         ]
 
     @staticmethod
@@ -241,9 +253,67 @@ class FullWorldTelemetryV2:
                 "segment", *[column for column in summaries[0].columns if column != "segment"]
             ).write_csv(out / "same_world_drive_progression_summary.csv")
 
+    def _write_player_explosive_summary(self, out: Path) -> None:
+        frames: list[pl.DataFrame] = []
+        if self.pass_throws:
+            completed = pl.DataFrame(self.pass_throws).filter(
+                pl.col("complete") & pl.col("target_id").is_not_null()
+            )
+            if not completed.is_empty():
+                frames.append(
+                    completed.select(
+                        pl.col("game"),
+                        pl.col("target_id").alias("player_id"),
+                        pl.lit("receiving").alias("play_family"),
+                        pl.col("yards"),
+                        pl.col("touchdown"),
+                    )
+                )
+        if self.designed_runs:
+            runs = pl.DataFrame(self.designed_runs).filter(pl.col("rusher_id").is_not_null())
+            if not runs.is_empty():
+                frames.append(
+                    runs.select(
+                        pl.col("game"),
+                        pl.col("rusher_id").alias("player_id"),
+                        pl.lit("designed_run").alias("play_family"),
+                        pl.col("yards"),
+                        pl.col("touchdown"),
+                    )
+                )
+        if self.scrambles:
+            scrambles = pl.DataFrame(self.scrambles).filter(pl.col("player_id").is_not_null())
+            if not scrambles.is_empty():
+                frames.append(
+                    scrambles.select(
+                        pl.col("game"),
+                        pl.col("player_id"),
+                        pl.lit("scramble").alias("play_family"),
+                        pl.col("yards"),
+                        pl.col("touchdown"),
+                    )
+                )
+        if not frames:
+            return
+        events = pl.concat(frames, how="diagonal_relaxed")
+        events.group_by(["player_id", "play_family"]).agg(
+            pl.len().alias("events"),
+            pl.col("yards").mean().alias("yards_mean"),
+            pl.col("touchdown").cast(pl.Int64).sum().alias("touchdowns"),
+            (pl.col("yards") >= 15.0).cast(pl.Int64).sum().alias("gain_15plus"),
+            (pl.col("yards") >= 20.0).cast(pl.Int64).sum().alias("gain_20plus"),
+            (pl.col("yards") >= 40.0).cast(pl.Int64).sum().alias("gain_40plus"),
+            (pl.col("yards") >= 15.0).mean().alias("gain_15plus_rate"),
+            (pl.col("yards") >= 20.0).mean().alias("gain_20plus_rate"),
+            (pl.col("yards") >= 40.0).mean().alias("gain_40plus_rate"),
+        ).sort(["gain_40plus", "gain_20plus", "events"], descending=True).write_csv(
+            out / "same_world_player_explosive_summary.csv"
+        )
+
     def write(self, out: Path) -> None:
         out.mkdir(parents=True, exist_ok=True)
         self._write_drive_telemetry(out)
+        self._write_player_explosive_summary(out)
 
         if self.pass_throws:
             throws = pl.DataFrame(self.pass_throws)
