@@ -13,7 +13,7 @@ from monster.sim.rich_identity import (
     rush_creation_skill,
     skill_multiplier,
 )
-from monster.sim.snap_ecology import resolve_pass_snap, resolve_run_snap
+from monster.sim.snap_ecology_v4b import resolve_pass_snap, resolve_run_snap
 
 # 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
 # Team/player matchup traits perturb these baselines rather than replacing the causal priors.
@@ -126,13 +126,7 @@ def _representative_defender(
 
 
 def _bounded_relative_product(*terms: tuple[float, float], low: float, high: float) -> float:
-    """Combine relative football edges without allowing many small effects to collapse a prior.
-
-    Each term is ``(relative_value, authority)``. Log-space authority means neutral values
-    remain exactly neutral, while player/QB/coverage differences still move the outcome in
-    the correct direction. This is intentionally different from multiplying several raw
-    factors at full authority, which systematically depressed the league completion ecology.
-    """
+    """Combine relative football edges without allowing many small effects to collapse a prior."""
     log_relative = 0.0
     for value, authority in terms:
         log_relative += authority * log(max(float(value), 1e-6))
@@ -145,20 +139,15 @@ def resolve_pass_matchup(
     *,
     pass_protection: float,
     quarterback_efficiency: float,
+    responsibility_key: str = "static",
 ) -> PassMatchup:
-    """Resolve target/protection/coverage while preserving multidimensional player identity.
-
-    Historical league throw outcomes remain the unconditional causal prior. Madden/physical/
-    NFL capability evidence is allowed to move only the mechanisms it owns: route skill moves
-    separation, catchpoint skill moves completion, and speed/open-field skill moves the yardage
-    continuation tail. This prevents rich player evidence from being averaged back into one
-    generic fantasy multiplier while avoiding a second league baseline.
-    """
+    """Resolve one receiver against the shared defensive world for the current snap."""
     snap = resolve_pass_snap(
         target=target,
         defense=defense,
         pass_protection=pass_protection,
         quarterback_efficiency=quarterback_efficiency,
+        responsibility_key=responsibility_key,
     )
     coverage_unit = _unit_strength(defense.coverage, "coverage")
     ball_hawk_unit = _unit_strength(defense.coverage, "ball_hawk")
@@ -194,9 +183,7 @@ def resolve_pass_matchup(
             1.50,
         )
     )
-    effective_rush = float(
-        np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55)
-    )
+    effective_rush = float(np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55))
 
     pressure = float(
         np.clip(
@@ -210,9 +197,7 @@ def resolve_pass_matchup(
         )
     )
 
-    route_signal = float(
-        np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0)
-    )
+    route_signal = float(np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0))
     speed_signal = float(np.clip(getattr(target, "speed_skill", 0.0), -1.0, 1.0))
     identity_separation = float(
         np.clip(
@@ -221,9 +206,7 @@ def resolve_pass_matchup(
             1.0,
         )
     )
-    separation_factor = float(
-        np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14)
-    )
+    separation_factor = float(np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14))
     target_catch = catch_skill(target)
     target_route = route_skill(target)
     target_open_field = open_field_skill(target)
@@ -300,12 +283,16 @@ def resolve_run_matchup(
     defense: DefensiveUnit,
     *,
     run_blocking: float,
+    responsibility_key: str = "static",
+    run_geometry: str | None = None,
 ) -> RunMatchup:
-    """Resolve runner, five-man blocking lane, front fit and second-level tackling."""
+    """Resolve geometry-specific blockers, front fit and second-level pursuit."""
     snap = resolve_run_snap(
         rusher=rusher,
         defense=defense,
         run_blocking=run_blocking,
+        responsibility_key=responsibility_key,
+        run_geometry=run_geometry,
     )
     primary = next(
         (d for d in defense.front if d.player_id == snap.primary_defender_id),
@@ -316,9 +303,7 @@ def resolve_run_matchup(
     creation = rush_creation_skill(rusher)
     open_field = open_field_skill(rusher)
     power = skill_multiplier(rusher, "runner_power", 0.14)
-    runner_signal = float(
-        np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0)
-    )
+    runner_signal = float(np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0))
     runner_edge = float(np.clip(snap.runner_edge + 0.28 * runner_signal, -1.0, 1.0))
     stuff = float(
         np.clip(
