@@ -71,7 +71,7 @@ def resolve_pass_protection(
                 blocker_strength,
                 rusher_strength,
                 rush_edge,
-                float(np.clip(2.75 - 0.72 * rush_edge, 1.25, 3.55)),
+                float(np.clip(2.75 - 0.90 * rush_edge, 1.15, 3.70)),
             )
         )
 
@@ -90,25 +90,25 @@ def resolve_pass_protection(
             duel.blocker_strength,
             duel.rusher_strength,
             helped,
-            float(np.clip(duel.time_to_pressure + 0.30 * help_strength, 1.25, 3.70)),
+            float(np.clip(duel.time_to_pressure + 0.30 * help_strength, 1.15, 3.85)),
         )
 
     worst = max(duel.rush_edge for duel in duels)
     mean = float(np.mean([duel.rush_edge for duel in duels]))
     pocket = float(
         np.clip(
-            1.0 - 0.20 * worst - 0.09 * mean + 0.06 * help_strength,
-            0.68,
-            1.30,
+            1.0 - 0.30 * worst - 0.14 * mean + 0.06 * help_strength,
+            0.60,
+            1.36,
         )
     )
     pressure = float(
         np.clip(
             base_pressure_rate
-            * (1.0 + 0.34 * worst + 0.18 * mean)
-            / max(pocket, 0.65),
-            0.07,
-            0.62,
+            * (1.0 + 0.52 * worst + 0.26 * mean)
+            / max(pocket, 0.58),
+            0.05,
+            0.68,
         )
     )
     fastest = min(duels, key=lambda duel: duel.time_to_pressure)
@@ -142,7 +142,18 @@ def resolve_coverage_assignment(
     bracket = _defender_by_id(defenders, participants.bracket_defender_id)
 
     local = 1.0 if primary is None else float(getattr(primary, "coverage", 1.0))
-    separation = _edge(float(getattr(target, "efficiency", 1.0)), local)
+    route_signal = float(np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0))
+    speed_signal = float(np.clip(getattr(target, "speed_skill", 0.0), -1.0, 1.0))
+    route_strength = float(
+        np.clip(
+            float(getattr(target, "efficiency", 1.0))
+            * (1.0 + 0.18 * route_signal)
+            * (1.0 + 0.06 * speed_signal),
+            0.55,
+            1.55,
+        )
+    )
+    separation = _edge(route_strength, local, scale=0.18)
     safety_help = (
         0.0
         if safety is None
@@ -209,8 +220,8 @@ def resolve_pass_snap(
             + 0.50 * coverage.safety_help
             + 0.70 * coverage.bracket_factor
             + 0.45 * coverage.zone_overlap,
-            0.55,
-            1.60,
+            0.50,
+            1.68,
         )
     )
     return PassSnapResolution(
@@ -281,33 +292,33 @@ def resolve_run_snap(
 
     unit_front_fit = exposure_weighted_mean(front, "run_defense") if front else 1.0
     local_front_fit = 1.0 if primary is None else float(getattr(primary, "run_defense", 1.0))
-    front_fit = float(np.clip(0.72 * unit_front_fit + 0.28 * local_front_fit, 0.55, 1.55))
+    front_fit = float(np.clip(0.25 * unit_front_fit + 0.75 * local_front_fit, 0.50, 1.62))
 
     unit_second_level = exposure_weighted_mean(pursuit_pool, "tackling") if pursuit_pool else 1.0
     local_second_level = 1.0 if pursuit is None else float(getattr(pursuit, "tackling", 1.0))
-    second_level = float(np.clip(0.58 * unit_second_level + 0.42 * local_second_level, 0.55, 1.55))
+    second_level = float(np.clip(0.25 * unit_second_level + 0.75 * local_second_level, 0.50, 1.62))
 
     runner_skill = float(getattr(rusher, "efficiency", 1.0))
-    runner_edge = _edge(runner_skill * lane_blocking, front_fit)
+    runner_edge = _edge(runner_skill * lane_blocking, front_fit, scale=0.18)
     stuff = float(
         np.clip(
             float(getattr(defense, "run_stuff_rate", 0.18))
             * front_fit
             / max(lane_blocking, 0.55)
-            * (1.0 - 0.14 * runner_edge),
-            0.04,
-            0.50,
+            * (1.0 - 0.20 * runner_edge),
+            0.03,
+            0.54,
         )
     )
     yards = float(
         np.clip(
             runner_skill
             * lane_blocking
-            / max(front_fit, 0.60)
-            * (1.0 + 0.10 * runner_edge)
-            / max(second_level**0.16, 0.90),
-            0.46,
-            1.78,
+            / max(front_fit, 0.55)
+            * (1.0 + 0.16 * runner_edge)
+            / max(second_level**0.28, 0.84),
+            0.40,
+            1.95,
         )
     )
     return RunSnapResolution(
