@@ -4,6 +4,16 @@ on:
   push:
     branches: [work/reality-loop-v2-test]
     paths:
+      - src/monster/feature_compile/play_intent.py
+      - src/monster/sim/intent_ecology.py
+      - src/monster/sim/pass_resolution_bands_v2.py
+      - src/monster/sim/resolution_bands_v2.py
+      - src/monster/sim/snap_ecology_v2.py
+      - src/monster/sim/clock_ecology_v2.py
+      - src/monster/sim/full_world_telemetry_v2.py
+      - scripts/run_reality_loop_v2_smoke.py
+      - scripts/audit_reality_loop_v2_score_anatomy.py
+      - tests/test_reality_loop_v2_pass_resolution_bands.py
       - .github/workflows/simulate-slate.yml
   workflow_dispatch:
     inputs:
