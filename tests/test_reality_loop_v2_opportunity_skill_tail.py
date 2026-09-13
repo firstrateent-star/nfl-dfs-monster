@@ -41,8 +41,10 @@ def test_usage_alone_cannot_create_tail_authority() -> None:
 
 
 def test_featured_role_amplifies_signed_skill_not_usage_itself() -> None:
-    elite = _player(player_id="elite", usage=0.50, skill=0.70)
-    constrained = _player(player_id="constrained", usage=0.50, skill=-0.70)
+    # Use strong but unsaturated signals so the gate tests the causal slope rather than the
+    # explicit safety floor/ceiling. Extreme players are allowed to flatten at those bounds.
+    elite = _player(player_id="elite", usage=0.50, skill=0.50)
+    constrained = _player(player_id="constrained", usage=0.50, skill=-0.50)
 
     elite_low = opportunity_skill_multiplier(
         elite,
