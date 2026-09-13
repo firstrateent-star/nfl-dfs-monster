@@ -68,6 +68,19 @@ class PassMatchup:
     safety_defender_id: str | None = None
     bracket_defender_id: str | None = None
 
+    @property
+    def participant_ids(self) -> frozenset[str]:
+        return frozenset(
+            player_id
+            for player_id in (
+                self.primary_defender_id,
+                self.primary_rusher_id,
+                self.safety_defender_id,
+                self.bracket_defender_id,
+            )
+            if player_id
+        )
+
 
 @dataclass(frozen=True)
 class RunMatchup:
@@ -80,6 +93,14 @@ class RunMatchup:
     lane_blocking: float = 1.0
     front_fit: float = 1.0
     pursuit_defender_id: str | None = None
+
+    @property
+    def participant_ids(self) -> frozenset[str]:
+        return frozenset(
+            player_id
+            for player_id in (self.primary_defender_id, self.pursuit_defender_id)
+            if player_id
+        )
 
 
 def _unit_strength(defenders: tuple[DefensiveIdentity, ...], attribute: str) -> float:
