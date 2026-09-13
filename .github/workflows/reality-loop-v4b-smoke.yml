@@ -6,8 +6,10 @@ on:
     paths:
       - src/monster/sim/interaction_topology_v4b.py
       - src/monster/sim/snap_ecology_v4b.py
+      - src/monster/sim/snap_ecology_v2.py
       - src/monster/sim/matchup_kernel.py
       - src/monster/sim/play_kernel.py
+      - scripts/run_reality_loop_v2_smoke.py
       - tests/test_interaction_topology_v4b.py
       - .github/workflows/reality-loop-v4b-smoke.yml
   workflow_dispatch:
@@ -88,21 +90,26 @@ jobs:
           out = Path('artifacts/reality-loop-v4b-smoke')
           anatomy = pl.read_csv(out / 'football_anatomy.csv')
           games = pl.read_csv(out / 'game_distributions.csv')
+          score_anatomy = json.loads((out / 'score_anatomy.json').read_text())
+          manifest = json.loads((out / 'manifest.json').read_text())
 
           def mean(column: str) -> float:
               return float(anatomy.select(pl.col(column).mean()).item())
 
+          totals = games['total_mean']
           summary = {
-              'simulated_games': 300,
-              'points_per_game': float(games.select(pl.col('total_mean').mean()).item()),
-              'between_matchup_total_sd': float(games.select(pl.col('total_mean').std()).item()),
+              'games': int(manifest['games']),
+              'worlds_per_game': int(manifest['worlds_per_game']),
+              'simulated_games': int(manifest['games'] * manifest['worlds_per_game']),
+              'points_per_game': float(totals.mean()),
+              'between_matchup_total_sd': float(totals.std(ddof=1)),
               'scrimmage_plays_per_game': mean('scrimmage_plays_mean'),
-              'offensive_touchdowns_per_game': mean('offensive_touchdowns_mean'),
-              'punts_per_game': mean('punts_mean'),
-              'field_goal_attempts_per_game': mean('field_goal_attempts_mean'),
-              'explosive_15_per_game': mean('explosive_15_mean'),
-              'explosive_20_per_game': mean('explosive_20_mean'),
-              'explosive_40_per_game': mean('explosive_40_mean'),
+              'touchdowns_per_game': mean('touchdowns_mean'),
+              'drives_per_game': mean('drives_mean'),
+              'completion_percentage': mean('completion_percentage'),
+              'sack_rate': mean('sack_rate'),
+              'scramble_rate': mean('scramble_rate'),
+              'score_anatomy_gaps': score_anatomy['gaps'],
           }
           (out / 'v4b_scorecard.json').write_text(json.dumps(summary, indent=2) + '\n')
           print(json.dumps(summary, indent=2))
