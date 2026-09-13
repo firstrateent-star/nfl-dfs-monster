@@ -137,12 +137,22 @@ def _skill_counts(package: str) -> tuple[int, int, int]:
 def _offense_skill_players(
     offense: object, package: str, key: str
 ) -> tuple[object, ...]:
+    """Select five unique non-QB eligible skill players for the snap.
+
+    Package preferences choose the first seats. If the abstracted rotation cannot satisfy an
+    exact personnel count, the remaining seats may be filled by another eligible RB/FB/TE/WR,
+    but the quarterback is never reused as a skill participant merely because he also appears
+    in the rushing pool.
+    """
     unique: dict[str, object] = {}
     for player in (
         *tuple(getattr(offense, "receivers", ())),
         *tuple(getattr(offense, "rushers", ())),
     ):
-        unique.setdefault(_pid(player), player)
+        player_id = _pid(player)
+        if not player_id or _pos(player) not in {"RB", "FB", "TE", "WR"}:
+            continue
+        unique.setdefault(player_id, player)
     players = tuple(unique.values())
     rb_need, te_need, wr_need = _skill_counts(package)
     selected: list[object] = []
@@ -167,6 +177,12 @@ def _offense_skill_players(
             pool, 5 - len(selected), key=f"{key}:fallback"
         )
         selected.extend(picks)
+        selected_ids.update(_pid(player) for player in picks)
+    if len(selected) < 5:
+        raise RuntimeError(
+            "V5 snap package cannot field five unique non-QB skill participants: "
+            f"package={package}, available={sorted(unique)}"
+        )
     return tuple(selected[:5])
 
 
