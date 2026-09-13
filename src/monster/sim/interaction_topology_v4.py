@@ -73,7 +73,7 @@ def _choose_by_exposure(
 
 def _coverage_role_weights(target_position: str) -> dict[str, float]:
     position = target_position.upper()
-    if position in {"TE"}:
+    if position == "TE":
         return {
             "CB": 0.55,
             "DB": 0.85,
@@ -110,6 +110,50 @@ def _coverage_role_weights(target_position: str) -> dict[str, float]:
     }
 
 
+def _coverage_exposure_order(
+    defenders: tuple[object, ...],
+    *,
+    target_position: str,
+) -> tuple[object, ...]:
+    role_weights = _coverage_role_weights(target_position)
+    return tuple(
+        sorted(
+            defenders,
+            key=lambda player: (
+                -_snap_weight(player) * role_weights.get(_position(player), 0.10),
+                _player_id(player),
+            ),
+        )
+    )
+
+
+def _usage_responsibility_slot(target: object, available: int) -> int:
+    """Map offensive opportunity hierarchy to defender exposure hierarchy.
+
+    This is a temporary alignment proxy until route/alignment data is promoted. It uses only
+    offensive role/opportunity and defensive participation, never defensive skill.
+    """
+    if available <= 1:
+        return 0
+    usage = float(np.clip(getattr(target, "usage_weight", 0.0) or 0.0, 0.0, 1.0))
+    position = _position(target)
+    if position == "WR":
+        if usage >= 0.32:
+            return 0
+        if usage >= 0.24:
+            return min(1, available - 1)
+        if usage >= 0.14:
+            return min(2, available - 1)
+    if position == "TE" and usage >= 0.18:
+        return 0
+    if position in {"RB", "FB"} and usage >= 0.14:
+        return 0
+    return min(
+        int(_stable_unit_interval(f"coverage-slot:{_player_id(target)}") * available),
+        available - 1,
+    )
+
+
 def choose_coverage_participants(
     *,
     target: object,
@@ -118,11 +162,8 @@ def choose_coverage_participants(
     """Assign primary/help coverage from role and exposure before evaluating skill."""
     target_id = _player_id(target)
     target_position = _position(target)
-    primary = _choose_by_exposure(
-        defenders,
-        key=f"coverage:{target_id}",
-        position_weights=_coverage_role_weights(target_position),
-    )
+    ordered = _coverage_exposure_order(defenders, target_position=target_position)
+    primary = None if not ordered else ordered[_usage_responsibility_slot(target, len(ordered))]
     primary_id = None if primary is None else _player_id(primary)
 
     remaining = tuple(player for player in defenders if _player_id(player) != primary_id)
@@ -186,7 +227,9 @@ def pair_pass_rushers_to_blockers(
     interior = tuple(
         blocker for blocker in blockers if _position(blocker) in {"LG", "RG", "G", "OG", "C"}
     )
-    all_blockers = tuple(sorted(blockers, key=lambda player: (_position(player), _player_id(player))))
+    all_blockers = tuple(
+        sorted(blockers, key=lambda player: (_position(player), _player_id(player)))
+    )
     usage: dict[str, int] = {_player_id(blocker): 0 for blocker in all_blockers}
     pairs: list[tuple[object, object]] = []
 
@@ -307,8 +350,12 @@ def exposure_weighted_mean(players: Iterable[object], attribute: str) -> float:
     rows = tuple(players)
     if not rows:
         return 1.0
-    weights = np.asarray([max(_snap_weight(player), 0.001) for player in rows], dtype=float)
-    values = np.asarray([float(getattr(player, attribute, 1.0)) for player in rows], dtype=float)
+    weights = np.asarray(
+        [max(_snap_weight(player), 0.001) for player in rows], dtype=float
+    )
+    values = np.asarray(
+        [float(getattr(player, attribute, 1.0)) for player in rows], dtype=float
+    )
     return float(np.average(values, weights=weights))
 
 
