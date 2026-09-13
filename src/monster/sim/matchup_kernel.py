@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import exp, log
+from math import exp, log, tanh
 
 import numpy as np
 
@@ -16,7 +16,7 @@ from monster.sim.rich_identity import (
 from monster.sim.snap_ecology_v4b import resolve_pass_snap, resolve_run_snap
 
 # 2025 regular-season FTN participation via nflverse, measured on qb_dropback plays.
-# Team/player matchup traits perturb these baselines rather than replacing the causal priors.
+# League priors anchor the center; explicit assigned player duels create the matchup spread.
 LEAGUE_PRESSURE_RATE = 0.297832
 LEAGUE_THROW_COMPLETION_RATE = 0.642661
 LEAGUE_THROW_INTERCEPTION_RATE = 0.021772
@@ -104,7 +104,7 @@ class RunMatchup:
 
 
 def _unit_strength(defenders: tuple[DefensiveIdentity, ...], attribute: str) -> float:
-    """Exposure-weighted 11-man context; no single defender represents the whole unit."""
+    """Exposure-weighted context around the actual assigned local interaction."""
     if not defenders:
         return 1.0
     weights = np.asarray(
@@ -141,7 +141,12 @@ def resolve_pass_matchup(
     quarterback_efficiency: float,
     responsibility_key: str = "static",
 ) -> PassMatchup:
-    """Resolve one receiver against the shared defensive world for the current snap."""
+    """Resolve one receiver against the shared defensive world for the current snap.
+
+    v6 makes the assigned receiver/defender and rusher/blocker duels primary.  Unit quality,
+    safety help and zone overlap remain real context, but they no longer average away the
+    skill difference between the players actually involved in the play.
+    """
     snap = resolve_pass_snap(
         target=target,
         defense=defense,
@@ -165,93 +170,103 @@ def resolve_pass_matchup(
     )
     local_rush = 1.0 if local_rusher is None else float(local_rusher.pass_rush)
 
-    effective_coverage = float(
+    help_context = float(
         np.clip(
-            0.42 * coverage_unit
-            + 0.34 * snap.coverage_strength
-            + 0.24 * local_coverage,
-            0.55,
-            1.55,
+            1.0
+            + 0.55 * snap.safety_help
+            + 0.75 * snap.bracket_factor
+            + 0.45 * snap.zone_overlap,
+            0.92,
+            1.42,
         )
     )
-    effective_ball_hawk = float(
-        np.clip(
-            0.60 * ball_hawk_unit
-            + 0.40 * local_ball_hawk
-            + 0.12 * snap.zone_overlap,
-            0.55,
-            1.50,
-        )
+    effective_coverage = _bounded_relative_product(
+        (local_coverage, 0.72),
+        (coverage_unit, 0.12),
+        (help_context, 0.55),
+        low=0.48,
+        high=1.70,
     )
-    effective_rush = float(np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55))
+    effective_ball_hawk = _bounded_relative_product(
+        (local_ball_hawk, 0.72),
+        (ball_hawk_unit, 0.14),
+        (1.0 + snap.zone_overlap, 0.28),
+        low=0.50,
+        high=1.62,
+    )
+    effective_rush = _bounded_relative_product(
+        (local_rush, 0.72),
+        (rush_unit, 0.12),
+        low=0.50,
+        high=1.68,
+    )
 
     pressure = float(
         np.clip(
-            0.70 * snap.pressure_probability
-            + 0.30
+            0.86 * snap.pressure_probability
+            + 0.14
             * defense.pressure_rate
             * effective_rush
-            / max(snap.pocket_integrity, 0.60),
-            0.07,
-            0.62,
+            / max(snap.pocket_integrity, 0.58),
+            0.05,
+            0.68,
         )
     )
 
-    route_signal = float(np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0))
     speed_signal = float(np.clip(getattr(target, "speed_skill", 0.0), -1.0, 1.0))
-    identity_separation = float(
-        np.clip(
-            snap.separation_edge + 0.32 * route_signal + 0.08 * speed_signal,
-            -1.0,
-            1.0,
-        )
-    )
-    separation_factor = float(np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14))
     target_catch = catch_skill(target)
     target_route = route_skill(target)
     target_open_field = open_field_skill(target)
 
+    # Direct route-runner vs assigned coverage defender duel.  The edge is intentionally
+    # bounded and neutral-centered; it changes mechanism probabilities instead of adding yards.
+    route_vs_cover = float(tanh((target_route - local_coverage) / 0.18))
+    identity_separation = float(
+        np.clip(0.82 * route_vs_cover + 0.18 * speed_signal, -1.0, 1.0)
+    )
+    separation_factor = float(np.clip(exp(0.18 * identity_separation), 0.82, 1.22))
+
     completion_relative = _bounded_relative_product(
-        (np.clip(snap.qb_read_quality, 0.65, 1.40), 0.40),
-        (np.clip(target_catch, 0.65, 1.40), 0.30),
-        (np.clip(target_route, 0.65, 1.40), 0.18),
-        (1.0 / max(effective_coverage, 0.60), 0.44),
+        (np.clip(snap.qb_read_quality, 0.62, 1.45), 0.46),
+        (np.clip(target_catch, 0.60, 1.48), 0.42),
+        (np.clip(target_route, 0.60, 1.48), 0.14),
+        (1.0 / max(effective_coverage, 0.52), 0.62),
         (separation_factor, 1.0),
-        low=0.70,
-        high=1.34,
+        low=0.62,
+        high=1.46,
     )
     completion = float(
         np.clip(
             LEAGUE_THROW_COMPLETION_RATE * completion_relative,
-            0.28,
-            0.90,
+            0.20,
+            0.92,
         )
     )
 
     interception_relative = _bounded_relative_product(
-        (effective_ball_hawk, 0.45),
-        (effective_coverage, 0.24),
-        (1.0 / max(snap.qb_read_quality, 0.55), 0.34),
-        (float(np.clip(1.0 - 0.09 * identity_separation, 0.82, 1.18)), 1.0),
-        low=0.55,
-        high=1.75,
+        (effective_ball_hawk, 0.62),
+        (effective_coverage, 0.30),
+        (1.0 / max(snap.qb_read_quality, 0.52), 0.42),
+        (float(np.clip(exp(-0.16 * identity_separation), 0.84, 1.18)), 1.0),
+        low=0.45,
+        high=2.05,
     )
     interception = float(
         np.clip(
             LEAGUE_THROW_INTERCEPTION_RATE * interception_relative,
-            0.004,
-            0.075,
+            0.003,
+            0.085,
         )
     )
 
     yards_multiplier = float(
         np.clip(
             target_open_field
-            / max(effective_coverage**0.34, 0.72)
-            * (1.0 + 0.13 * identity_separation)
-            * (1.0 - 0.10 * snap.safety_help - 0.14 * snap.bracket_factor),
-            0.52,
-            1.78,
+            / max(effective_coverage**0.28, 0.68)
+            * exp(0.22 * identity_separation)
+            * (1.0 - 0.10 * snap.safety_help - 0.16 * snap.bracket_factor),
+            0.44,
+            1.95,
         )
     )
     return PassMatchup(
@@ -302,14 +317,14 @@ def resolve_run_matchup(
 
     creation = rush_creation_skill(rusher)
     open_field = open_field_skill(rusher)
-    power = skill_multiplier(rusher, "runner_power", 0.14)
+    power = skill_multiplier(rusher, "runner_power", 0.20)
     runner_signal = float(np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0))
-    runner_edge = float(np.clip(snap.runner_edge + 0.28 * runner_signal, -1.0, 1.0))
+    runner_edge = float(np.clip(snap.runner_edge + 0.38 * runner_signal, -1.0, 1.0))
     stuff = float(
         np.clip(
-            snap.stuff_probability / max(power**0.38, 0.88),
-            0.03,
-            0.52,
+            snap.stuff_probability / max(power**0.48, 0.84),
+            0.025,
+            0.56,
         )
     )
     yards = float(
@@ -319,14 +334,14 @@ def resolve_run_matchup(
                 creation
                 / max(float(getattr(rusher, "efficiency", 1.0)), 0.55)
             )
-            ** 0.45
+            ** 0.62
             * (
                 open_field
                 / max(float(getattr(rusher, "explosive", 1.0)), 0.55)
             )
-            ** 0.18,
-            0.44,
-            1.85,
+            ** 0.30,
+            0.38,
+            2.05,
         )
     )
     return RunMatchup(
