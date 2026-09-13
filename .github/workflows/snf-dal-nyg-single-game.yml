@@ -92,11 +92,12 @@ jobs:
           uv run python - <<'PY'
           import polars as pl
           g = pl.read_csv('artifacts/snf-smoke/game_distributions.csv').row(0, named=True)
+          giveaways = float(g['interceptions_mean']) + float(g['fumbles_lost_mean'])
           assert g['game'] == 'DAL@NYG', g
           assert 105 <= g['scrimmage_plays_mean'] <= 145, g
           assert 20 <= g['total_mean'] <= 70, g
-          assert 0.5 <= g['turnovers_mean'] <= 5.0, g
-          print(g)
+          assert 0.5 <= giveaways <= 5.0, (giveaways, g)
+          print({'giveaways_mean': giveaways, **g})
           PY
 
       - name: Run 2,000 concentrated DAL-NYG worlds
@@ -137,7 +138,8 @@ jobs:
               'nyg_win_probability': float(game['home_win_probability']),
               'overtime_probability': float(game['overtime_probability']),
               'pass_attempts_mean': float(game['pass_attempts_mean']),
-              'rush_attempts_mean': float(game['designed_runs_mean'] + game['scrambles_mean']),
+              'rush_attempts_mean': float(game['rush_attempts_mean']),
+              'giveaways_mean': float(game['interceptions_mean'] + game['fumbles_lost_mean']),
               'completion_percentage': float(game['completion_percentage']),
               'sack_rate': float(game['sack_rate']),
               'interception_rate': float(game['interception_rate']),
