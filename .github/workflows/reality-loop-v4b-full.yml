@@ -1,0 +1,119 @@
+name: Reality Loop v4B full validation
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - .github/workflows/reality-loop-v4b-full.yml
+  workflow_dispatch:
+
+jobs:
+  v4b-full:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: V4B causal gates
+        run: |
+          uv run pytest -q \
+            tests/test_interaction_topology_v4b.py \
+            tests/test_interaction_topology_v4.py \
+            tests/test_matchup_interactions.py \
+            tests/test_snap_matchup_integration.py \
+            tests/test_full_field_read_and_fatigue.py \
+            tests/test_reality_loop_v2_identity_authority.py \
+            tests/test_reality_loop_v2_progressive_skill_tail.py \
+            tests/test_reality_loop_v2_opportunity_skill_tail.py
+
+      - name: Build current 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind historical priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build Week 1 health snapshot
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run 100-world v4B slate
+        run: >-
+          uv run python scripts/run_reality_loop_v2_smoke.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 100 --seed 2026091306 --progress-every 100
+          --first-out artifacts/reality-loop-v4b-full
+          --box-out artifacts/reality-loop-v4b-full-box
+
+      - name: Audit same-world score anatomy
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/reality-loop-v4b-full
+          --history 2025
+          --out artifacts/reality-loop-v4b-full
+
+      - name: Write full v4B scorecard
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          out = Path('artifacts/reality-loop-v4b-full')
+          games = pl.read_csv(out / 'game_distributions.csv')
+          score_anatomy = json.loads((out / 'score_anatomy.json').read_text())
+          manifest = json.loads((out / 'manifest.json').read_text())
+          model = score_anatomy['model']
+          historical = score_anatomy['historical']
+          totals = games['total_mean']
+          summary = {
+              'games': int(manifest['games']),
+              'worlds_per_game': int(manifest['worlds_per_game']),
+              'simulated_games': int(manifest['games'] * manifest['worlds_per_game']),
+              'points_per_game': model['points_per_game'],
+              'offensive_touchdowns_per_game': model['offensive_touchdowns_per_game'],
+              'punts_per_game': model['punts_per_game'],
+              'field_goal_attempts_per_game': model['fg_attempts_per_game'],
+              'turnovers_per_game': model['turnovers_per_game'],
+              'explosive_15_per_game': model['explosive_15_per_game'],
+              'explosive_20_per_game': model['explosive_20_per_game'],
+              'explosive_40_per_game': model['explosive_40_per_game'],
+              'scrimmage_plays_per_game': model['scrimmage_plays_per_game'],
+              'between_matchup_total_sd': float(totals.std(ddof=1)),
+              'historical': historical,
+              'gaps': score_anatomy['gaps'],
+          }
+          (out / 'v4b_full_scorecard.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload full v4B artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reality-loop-v4b-full-${{ github.run_id }}
+          path: |
+            artifacts/reality-loop-v4b-full/
+            artifacts/reality-loop-v4b-full-box/
+          retention-days: 14
