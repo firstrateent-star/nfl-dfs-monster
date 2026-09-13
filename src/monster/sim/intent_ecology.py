@@ -36,6 +36,8 @@ class PassDepthOutcome:
     gain_10plus_completion_rate: float = 0.0
     gain_15plus_completion_rate: float = 0.0
     gain_20plus_completion_rate: float = 0.0
+    gain_40plus_completion_rate: float = 0.0
+    yards_40plus_mean_completed: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,8 @@ class RunGeometryOutcome:
     yards_p50: float
     yards_p90: float
     yards_p99: float
+    explosive_40_rate: float = 0.0
+    yards_40plus_mean: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,8 @@ def build_pass_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, PassD
             gain_10plus_completion_rate=_float(row, "gain_10plus_completion_rate"),
             gain_15plus_completion_rate=_float(row, "gain_15plus_completion_rate"),
             gain_20plus_completion_rate=_float(row, "gain_20plus_completion_rate"),
+            gain_40plus_completion_rate=_float(row, "gain_40plus_completion_rate"),
+            yards_40plus_mean_completed=_float(row, "yards_40plus_mean_completed"),
         )
     return out
 
@@ -122,6 +128,8 @@ def build_run_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, RunGeo
             yards_p50=_float(row, "yards_p50"),
             yards_p90=_float(row, "yards_p90"),
             yards_p99=_float(row, "yards_p99"),
+            explosive_40_rate=_float(row, "explosive_40_rate"),
+            yards_40plus_mean=_float(row, "yards_40plus_mean"),
         )
     return out
 
