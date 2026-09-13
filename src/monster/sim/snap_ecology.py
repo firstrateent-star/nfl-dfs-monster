@@ -5,6 +5,15 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from monster.sim.interaction_topology_v4 import (
+    choose_coverage_participants,
+    choose_pass_rushers,
+    choose_protection_helper,
+    choose_run_participants,
+    exposure_weighted_mean,
+    pair_pass_rushers_to_blockers,
+)
+
 
 @dataclass(frozen=True)
 class BlockerProfile:
@@ -53,6 +62,8 @@ class CoverageAssignment:
     safety_help: float
     bracket_factor: float
     zone_overlap: float
+    safety_defender_id: str | None = None
+    bracket_defender_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,8 @@ class PassSnapResolution:
     primary_defender_id: str | None
     primary_rusher_id: str | None
     qb_read_quality: float
+    safety_defender_id: str | None = None
+    bracket_defender_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +93,7 @@ class RunSnapResolution:
     stuff_probability: float
     yards_multiplier: float
     primary_defender_id: str | None
+    pursuit_defender_id: str | None = None
 
 
 _TEAM_PROFILES: dict[str, TeamSnapProfile] = {}
@@ -111,9 +125,18 @@ def _signal(value: object, fallback: object = None) -> float:
 
 
 def _position_order(position: str) -> int:
-    return {"LT": 0, "LG": 1, "C": 2, "RG": 3, "RT": 4, "T": 5, "OT": 5, "G": 6, "OG": 6, "OL": 7}.get(
-        position.upper(), 99
-    )
+    return {
+        "LT": 0,
+        "LG": 1,
+        "C": 2,
+        "RG": 3,
+        "RT": 4,
+        "T": 5,
+        "OT": 5,
+        "G": 6,
+        "OG": 6,
+        "OL": 7,
+    }.get(position.upper(), 99)
 
 
 def register_team_units(team_id: str, players: Iterable[object]) -> TeamSnapProfile:
@@ -140,11 +163,19 @@ def register_team_units(team_id: str, players: Iterable[object]) -> TeamSnapProf
         BlockerProfile(
             player_id=str(getattr(row, "player_id", "")),
             position=str(getattr(row, "position", "OL")),
-            pass_block=_signal(getattr(row, "pass_block_signal", None), getattr(row, "madden_pass_block", None)),
-            run_block=_signal(getattr(row, "run_block_signal", None), getattr(row, "madden_run_block", None)),
+            pass_block=_signal(
+                getattr(row, "pass_block_signal", None),
+                getattr(row, "madden_pass_block", None),
+            ),
+            run_block=_signal(
+                getattr(row, "run_block_signal", None),
+                getattr(row, "madden_run_block", None),
+            ),
             awareness=_rating(getattr(row, "madden_awareness", None)),
             stamina=_rating(getattr(row, "madden_stamina", None), 82.0, 10.0),
-            snap_weight=float(np.clip(getattr(row, "offense_snap_share", 0.0) or 0.0, 0.0, 1.0)),
+            snap_weight=float(
+                np.clip(getattr(row, "offense_snap_share", 0.0) or 0.0, 0.0, 1.0)
+            ),
         )
         for row in ol[:5]
     )
@@ -169,7 +200,9 @@ def register_team_units(team_id: str, players: Iterable[object]) -> TeamSnapProf
                     ]
                 )
             ),
-            snap_weight=float(np.clip(getattr(row, "offense_snap_share", 0.0) or 0.0, 0.0, 1.0)),
+            snap_weight=float(
+                np.clip(getattr(row, "offense_snap_share", 0.0) or 0.0, 0.0, 1.0)
+            ),
         )
         for row in helpers
     )
@@ -196,19 +229,32 @@ def resolve_pass_protection(
 ) -> tuple[float, float, float, float, str | None, tuple[PassRushDuel, ...]]:
     profile = team_profile_for_player(target_id)
     if profile is None or not profile.offensive_line or not rushers:
-        pressure = float(np.clip(base_pressure_rate / max(fallback_pass_protection, 0.55), 0.08, 0.58))
-        return pressure, float(np.clip(2.65 - 1.9 * (pressure - 0.20), 1.35, 3.25)), fallback_pass_protection, 0.0, None, ()
+        pressure = float(
+            np.clip(base_pressure_rate / max(fallback_pass_protection, 0.55), 0.08, 0.58)
+        )
+        return (
+            pressure,
+            float(np.clip(2.65 - 1.9 * (pressure - 0.20), 1.35, 3.25)),
+            fallback_pass_protection,
+            0.0,
+            None,
+            (),
+        )
 
-    rush = sorted(
-        rushers,
-        key=lambda d: float(getattr(d, "pass_rush", 1.0)) * max(float(getattr(d, "snap_weight", 1.0)), 0.05),
-        reverse=True,
-    )[:5]
+    rush = choose_pass_rushers(rushers, count=5)
+    pairs = pair_pass_rushers_to_blockers(rush, profile.offensive_line)
     duels: list[PassRushDuel] = []
-    for i, rusher in enumerate(rush):
-        blocker = profile.offensive_line[min(i, len(profile.offensive_line) - 1)]
+    for rusher, blocker in pairs:
         rusher_strength = float(getattr(rusher, "pass_rush", 1.0))
-        blocker_strength = float(np.clip(0.70 * blocker.pass_block + 0.20 * blocker.awareness + 0.10 * blocker.stamina, 0.65, 1.35))
+        blocker_strength = float(
+            np.clip(
+                0.70 * blocker.pass_block
+                + 0.20 * blocker.awareness
+                + 0.10 * blocker.stamina,
+                0.65,
+                1.35,
+            )
+        )
         rush_edge = _edge(rusher_strength, blocker_strength)
         duels.append(
             PassRushDuel(
@@ -221,7 +267,10 @@ def resolve_pass_protection(
             )
         )
 
-    helper = max(profile.protectors, key=lambda p: p.pass_block * max(p.snap_weight, 0.05), default=None)
+    helper = choose_protection_helper(
+        profile.protectors,
+        responsibility_key=profile.team_id,
+    )
     help_strength = 0.0 if helper is None else max(helper.pass_block - 0.80, 0.0)
     if duels and help_strength > 0.0:
         idx = max(range(len(duels)), key=lambda i: duels[i].rush_edge)
@@ -238,38 +287,91 @@ def resolve_pass_protection(
 
     worst = max(d.rush_edge for d in duels)
     mean = float(np.mean([d.rush_edge for d in duels]))
-    pocket = float(np.clip(1.0 - 0.20 * worst - 0.09 * mean + 0.06 * help_strength, 0.68, 1.30))
-    pressure = float(np.clip(base_pressure_rate * (1.0 + 0.34 * worst + 0.18 * mean) / max(pocket, 0.65), 0.07, 0.62))
+    pocket = float(
+        np.clip(
+            1.0 - 0.20 * worst - 0.09 * mean + 0.06 * help_strength,
+            0.68,
+            1.30,
+        )
+    )
+    pressure = float(
+        np.clip(
+            base_pressure_rate
+            * (1.0 + 0.34 * worst + 0.18 * mean)
+            / max(pocket, 0.65),
+            0.07,
+            0.62,
+        )
+    )
     fastest = min(duels, key=lambda d: d.time_to_pressure)
-    return pressure, fastest.time_to_pressure, pocket, help_strength, fastest.rusher_id, tuple(duels)
+    return (
+        pressure,
+        fastest.time_to_pressure,
+        pocket,
+        help_strength,
+        fastest.rusher_id,
+        tuple(duels),
+    )
 
 
-def resolve_coverage_assignment(*, target: object, defenders: tuple[object, ...]) -> CoverageAssignment:
+def _defender_by_id(defenders: tuple[object, ...], player_id: str | None) -> object | None:
+    if player_id is None:
+        return None
+    return next(
+        (
+            defender
+            for defender in defenders
+            if str(getattr(defender, "player_id", "")) == player_id
+        ),
+        None,
+    )
+
+
+def resolve_coverage_assignment(
+    *,
+    target: object,
+    defenders: tuple[object, ...],
+) -> CoverageAssignment:
     target_id = str(getattr(target, "player_id", ""))
     if not defenders:
         return CoverageAssignment(None, target_id, 1.0, 0.0, 0.0, 0.0, 0.0)
-    ranked = sorted(
-        defenders,
-        key=lambda d: float(getattr(d, "coverage", 1.0)) * max(float(getattr(d, "snap_weight", 1.0)), 0.05),
-        reverse=True,
-    )
-    primary = ranked[0]
-    local = float(getattr(primary, "coverage", 1.0))
+
+    participants = choose_coverage_participants(target=target, defenders=defenders)
+    primary = _defender_by_id(defenders, participants.primary_defender_id)
+    safety = _defender_by_id(defenders, participants.safety_defender_id)
+    bracket = _defender_by_id(defenders, participants.bracket_defender_id)
+
+    local = 1.0 if primary is None else float(getattr(primary, "coverage", 1.0))
     separation = _edge(float(getattr(target, "efficiency", 1.0)), local)
-    safeties = [d for d in ranked[1:] if str(getattr(d, "position", "")).upper() in {"S", "FS", "SS", "DB"}]
-    safety_help = 0.0 if not safeties else float(np.clip(max(float(getattr(d, "coverage", 1.0)) for d in safeties) - 0.82, 0.0, 0.40))
-    explosive = float(getattr(target, "explosive", 1.0))
-    second = ranked[1] if len(ranked) > 1 else None
-    bracket = 0.0 if second is None or explosive <= 1.02 else float(np.clip((float(getattr(second, "coverage", 1.0)) - 0.85) * 0.45, 0.0, 0.22))
-    zone_overlap = float(np.clip(np.mean([float(getattr(d, "coverage", 1.0)) for d in ranked[:4]]) - 0.92, 0.0, 0.22))
+    safety_help = (
+        0.0
+        if safety is None
+        else float(np.clip(float(getattr(safety, "coverage", 1.0)) - 0.82, 0.0, 0.40))
+    )
+    bracket_factor = (
+        0.0
+        if bracket is None
+        else float(
+            np.clip(
+                (float(getattr(bracket, "coverage", 1.0)) - 0.85) * 0.45,
+                0.0,
+                0.22,
+            )
+        )
+    )
+    zone_overlap = float(
+        np.clip(exposure_weighted_mean(defenders, "coverage") - 0.92, 0.0, 0.22)
+    )
     return CoverageAssignment(
-        str(getattr(primary, "player_id", "")) or None,
+        participants.primary_defender_id,
         target_id,
         local,
         separation,
         safety_help,
-        bracket,
+        bracket_factor,
         zone_overlap,
+        participants.safety_defender_id,
+        participants.bracket_defender_id,
     )
 
 
@@ -284,13 +386,27 @@ def resolve_qb_read(
 ) -> float:
     time_signal = float(np.tanh((time_to_pressure - 2.45) / 0.55))
     coverage_penalty = 0.32 * safety_help + 0.42 * bracket_factor + 0.30 * zone_overlap
-    return float(np.clip(questionable := quarterback_efficiency * (1.0 + 0.08 * separation_edge + 0.06 * time_signal - coverage_penalty), 0.55, 1.45))
+    return float(
+        np.clip(
+            quarterback_efficiency
+            * (1.0 + 0.08 * separation_edge + 0.06 * time_signal - coverage_penalty),
+            0.55,
+            1.45,
+        )
+    )
 
 
 def resolve_pass_snap(
-    *, target: object, defense: object, pass_protection: float, quarterback_efficiency: float
+    *,
+    target: object,
+    defense: object,
+    pass_protection: float,
+    quarterback_efficiency: float,
 ) -> PassSnapResolution:
-    coverage = resolve_coverage_assignment(target=target, defenders=tuple(getattr(defense, "coverage", ())))
+    coverage = resolve_coverage_assignment(
+        target=target,
+        defenders=tuple(getattr(defense, "coverage", ())),
+    )
     pressure, ttp, pocket, help_strength, rusher_id, _ = resolve_pass_protection(
         target_id=str(getattr(target, "player_id", "")),
         rushers=tuple(getattr(defense, "front", ())),
@@ -307,7 +423,10 @@ def resolve_pass_snap(
     )
     effective_coverage = float(
         np.clip(
-            coverage.local_coverage + 0.50 * coverage.safety_help + 0.70 * coverage.bracket_factor + 0.45 * coverage.zone_overlap,
+            coverage.local_coverage
+            + 0.50 * coverage.safety_help
+            + 0.70 * coverage.bracket_factor
+            + 0.45 * coverage.zone_overlap,
             0.55,
             1.60,
         )
@@ -325,27 +444,76 @@ def resolve_pass_snap(
         coverage.defender_id,
         rusher_id,
         qb_read,
+        coverage.safety_defender_id,
+        coverage.bracket_defender_id,
     )
 
 
-def resolve_run_snap(*, rusher: object, defense: object, run_blocking: float) -> RunSnapResolution:
+def resolve_run_snap(
+    *,
+    rusher: object,
+    defense: object,
+    run_blocking: float,
+) -> RunSnapResolution:
     profile = team_profile_for_player(str(getattr(rusher, "player_id", "")))
     blockers = () if profile is None else profile.offensive_line
-    lane_blocking = float(np.mean([b.run_block for b in blockers])) if blockers else run_blocking
+    if blockers:
+        weights = np.asarray([max(blocker.snap_weight, 0.001) for blocker in blockers], dtype=float)
+        lane_blocking = float(
+            np.average(
+                np.asarray([blocker.run_block for blocker in blockers], dtype=float),
+                weights=weights,
+            )
+        )
+    else:
+        lane_blocking = run_blocking
+
     front = tuple(getattr(defense, "front", ()))
     coverage = tuple(getattr(defense, "coverage", ()))
-    if front:
-        ranked = sorted(front, key=lambda d: float(getattr(d, "run_defense", 1.0)), reverse=True)
-        front_fit = float(np.mean([float(getattr(d, "run_defense", 1.0)) for d in ranked[:4]]))
-        primary = ranked[0]
-    else:
-        front_fit, primary = 1.0, None
-    second_pool = coverage if coverage else front
-    second_level = float(np.mean([float(getattr(d, "tackling", 1.0)) for d in second_pool[:4]])) if second_pool else 1.0
+    participants = choose_run_participants(rusher=rusher, front=front, coverage=coverage)
+    primary = _defender_by_id(front, participants.box_defender_id)
+    pursuit_pool = coverage if coverage else front
+    pursuit = _defender_by_id(pursuit_pool, participants.pursuit_defender_id)
+
+    unit_front_fit = exposure_weighted_mean(front, "run_defense") if front else 1.0
+    local_front_fit = (
+        1.0 if primary is None else float(getattr(primary, "run_defense", 1.0))
+    )
+    front_fit = float(np.clip(0.72 * unit_front_fit + 0.28 * local_front_fit, 0.55, 1.55))
+
+    unit_second_level = (
+        exposure_weighted_mean(pursuit_pool, "tackling") if pursuit_pool else 1.0
+    )
+    local_second_level = (
+        1.0 if pursuit is None else float(getattr(pursuit, "tackling", 1.0))
+    )
+    second_level = float(
+        np.clip(0.58 * unit_second_level + 0.42 * local_second_level, 0.55, 1.55)
+    )
+
     runner_skill = float(getattr(rusher, "efficiency", 1.0))
     runner_edge = _edge(runner_skill * lane_blocking, front_fit)
-    stuff = float(np.clip(float(getattr(defense, "run_stuff_rate", 0.18)) * front_fit / max(lane_blocking, 0.55) * (1.0 - 0.14 * runner_edge), 0.04, 0.50))
-    yards = float(np.clip(runner_skill * lane_blocking / max(front_fit, 0.60) * (1.0 + 0.10 * runner_edge) / max(second_level**0.16, 0.90), 0.46, 1.78))
+    stuff = float(
+        np.clip(
+            float(getattr(defense, "run_stuff_rate", 0.18))
+            * front_fit
+            / max(lane_blocking, 0.55)
+            * (1.0 - 0.14 * runner_edge),
+            0.04,
+            0.50,
+        )
+    )
+    yards = float(
+        np.clip(
+            runner_skill
+            * lane_blocking
+            / max(front_fit, 0.60)
+            * (1.0 + 0.10 * runner_edge)
+            / max(second_level**0.16, 0.90),
+            0.46,
+            1.78,
+        )
+    )
     return RunSnapResolution(
         lane_blocking,
         front_fit,
@@ -353,5 +521,6 @@ def resolve_run_snap(*, rusher: object, defense: object, run_blocking: float) ->
         runner_edge,
         stuff,
         yards,
-        None if primary is None else str(getattr(primary, "player_id", "")) or None,
+        participants.box_defender_id,
+        participants.pursuit_defender_id,
     )
