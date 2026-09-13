@@ -9,6 +9,7 @@ on:
       - src/monster/sim/pass_resolution_bands_v2.py
       - src/monster/sim/resolution_bands_v2.py
       - src/monster/sim/progressive_skill_tail_v2.py
+      - src/monster/sim/opportunity_skill_tail_v3.py
       - src/monster/sim/player_skill_telemetry_v2.py
       - src/monster/sim/snap_ecology_v2.py
       - src/monster/sim/clock_ecology_v2.py
@@ -19,6 +20,7 @@ on:
       - tests/test_reality_loop_v2_distribution_bands.py
       - tests/test_reality_loop_v2_pass_resolution_bands.py
       - tests/test_reality_loop_v2_progressive_skill_tail.py
+      - tests/test_reality_loop_v2_opportunity_skill_tail.py
       - .github/workflows/simulate-slate.yml
   workflow_dispatch:
     inputs:
@@ -83,8 +85,9 @@ jobs:
           tests/test_reality_loop_v2_distribution_bands.py
           tests/test_reality_loop_v2_pass_resolution_bands.py
           tests/test_reality_loop_v2_progressive_skill_tail.py
+          tests/test_reality_loop_v2_opportunity_skill_tail.py
 
-      - name: Progressive skill tail 300-game smoke
+      - name: Opportunity skill matchup 300-game smoke
         run: >-
           uv run python scripts/run_reality_loop_v2_smoke.py
           --policy artifacts/continuity-policy/team_policy.parquet
@@ -169,6 +172,7 @@ jobs:
               'football_is_source_of_truth': True,
               'fanduel_scoring_downstream_only': True,
               'progressive_player_skill_tail_active': True,
+              'opportunity_skill_matchup_tail_active': True,
               'outputs': {
                   'games': 'game_distributions.csv',
                   'projected_scores': 'projected_scores_and_outcomes.csv',
@@ -182,6 +186,7 @@ jobs:
                   'player_explosives': 'same_world_player_explosive_summary.csv',
                   'player_skill_snapshot': 'player_skill_snapshot.csv',
                   'defender_skill_snapshot': 'defender_skill_snapshot.csv',
+                  'opportunity_skill_tail': 'opportunity_skill_tail_snapshot.csv',
                   'score_anatomy': 'score_anatomy.json',
               },
           }
@@ -195,8 +200,8 @@ jobs:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           MONSTER_PARENT_RUN_ID: rlv2_2026091301_1200
-          MONSTER_MODEL_VERSION: Reality Loop v2 progressive player-skill tail
-          MONSTER_RUN_PURPOSE: player_skill_tail_calibration
+          MONSTER_MODEL_VERSION: Reality Loop v2 opportunity-skill-matchup tail
+          MONSTER_RUN_PURPOSE: opportunity_skill_matchup_calibration
           MONSTER_PROMOTION_STATUS: shadow
         run: >-
           uv run python scripts/persist_simulation_run.py
