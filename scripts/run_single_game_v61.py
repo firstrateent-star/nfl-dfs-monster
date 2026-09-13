@@ -8,17 +8,20 @@ import run_reality_loop_v2_smoke as reality
 import run_week1_v13_integrated as integrated
 
 
-def _arg(flag: str, default: str) -> str:
-    if flag in sys.argv:
-        idx = sys.argv.index(flag)
-        if idx + 1 < len(sys.argv):
-            return sys.argv[idx + 1]
-    return default
+def _pop_arg(flag: str, default: str) -> str:
+    """Consume one wrapper-only CLI flag before delegating to the integrated runner."""
+    if flag not in sys.argv:
+        return default
+    idx = sys.argv.index(flag)
+    sys.argv.pop(idx)
+    if idx >= len(sys.argv):
+        return default
+    return sys.argv.pop(idx)
 
 
 def main() -> None:
-    away = _arg("--away", "DAL").upper()
-    home = _arg("--home", "NYG").upper()
+    away = _pop_arg("--away", "DAL").upper()
+    home = _pop_arg("--home", "NYG").upper()
 
     # The integrated runner imports MATCHUPS by value, so patch that production binding
     # before Reality Loop v6.1 config delegates into it. This preserves the exact same
