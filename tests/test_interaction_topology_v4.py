@@ -248,12 +248,16 @@ def test_run_responsibility_is_skill_independent_but_skill_changes_result() -> N
 
 def test_coverage_topology_uses_multiple_effective_defenders() -> None:
     defenders = _coverage_unit()
-    targets = tuple(
-        PlayerIdentity(f"wr{i}", f"WR{i}", "WR", efficiency=1.0, explosive=1.0)
-        for i in range(1, 9)
-    ) + (
-        PlayerIdentity("te1", "TE1", "TE", efficiency=1.0),
-        PlayerIdentity("rb1", "RB1", "RB", efficiency=1.0),
+    targets = (
+        PlayerIdentity("wr1", "WR1", "WR", usage_weight=0.35, efficiency=1.0),
+        PlayerIdentity("wr2", "WR2", "WR", usage_weight=0.27, efficiency=1.0),
+        PlayerIdentity("wr3", "WR3", "WR", usage_weight=0.18, efficiency=1.0),
+        PlayerIdentity("wr4", "WR4", "WR", usage_weight=0.10, efficiency=1.0),
+        PlayerIdentity("wr5", "WR5", "WR", usage_weight=0.05, efficiency=1.0),
+        PlayerIdentity("te1", "TE1", "TE", usage_weight=0.20, efficiency=1.0),
+        PlayerIdentity("te2", "TE2", "TE", usage_weight=0.09, efficiency=1.0),
+        PlayerIdentity("rb1", "RB1", "RB", usage_weight=0.16, efficiency=1.0),
+        PlayerIdentity("rb2", "RB2", "RB", usage_weight=0.07, efficiency=1.0),
     )
     assignments = [
         choose_coverage_participants(target=target, defenders=defenders).primary_defender_id
