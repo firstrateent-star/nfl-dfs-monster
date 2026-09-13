@@ -65,6 +65,8 @@ class PassMatchup:
     zone_overlap: float = 0.0
     qb_read_quality: float = 1.0
     primary_rusher_id: str | None = None
+    safety_defender_id: str | None = None
+    bracket_defender_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,27 +79,29 @@ class RunMatchup:
     runner_edge: float = 0.0
     lane_blocking: float = 1.0
     front_fit: float = 1.0
+    pursuit_defender_id: str | None = None
 
 
 def _unit_strength(defenders: tuple[DefensiveIdentity, ...], attribute: str) -> float:
     """Exposure-weighted 11-man context; no single defender represents the whole unit."""
     if not defenders:
         return 1.0
-    weights = np.asarray([max(defender.snap_weight, 0.001) for defender in defenders], dtype=float)
-    values = np.asarray([float(getattr(defender, attribute)) for defender in defenders], dtype=float)
+    weights = np.asarray(
+        [max(defender.snap_weight, 0.001) for defender in defenders], dtype=float
+    )
+    values = np.asarray(
+        [float(getattr(defender, attribute)) for defender in defenders], dtype=float
+    )
     return float(np.average(values, weights=weights))
 
 
 def _representative_defender(
-    defenders: tuple[DefensiveIdentity, ...], attribute: str
+    defenders: tuple[DefensiveIdentity, ...],
 ) -> DefensiveIdentity | None:
+    """Fallback participation proxy based on exposure only, never player skill."""
     if not defenders:
         return None
-    return max(
-        defenders,
-        key=lambda defender: max(defender.snap_weight, 0.001)
-        * max(float(getattr(defender, attribute)), 0.001),
-    )
+    return max(defenders, key=lambda defender: (defender.snap_weight, defender.player_id))
 
 
 def _bounded_relative_product(*terms: tuple[float, float], low: float, high: float) -> float:
@@ -141,13 +145,13 @@ def resolve_pass_matchup(
 
     cover = next(
         (d for d in defense.coverage if d.player_id == snap.primary_defender_id),
-        _representative_defender(defense.coverage, "coverage"),
+        _representative_defender(defense.coverage),
     )
     local_coverage = 1.0 if cover is None else float(cover.coverage)
     local_ball_hawk = 1.0 if cover is None else float(cover.ball_hawk)
     local_rusher = next(
         (d for d in defense.front if d.player_id == snap.primary_rusher_id),
-        _representative_defender(defense.front, "pass_rush"),
+        _representative_defender(defense.front),
     )
     local_rush = 1.0 if local_rusher is None else float(local_rusher.pass_rush)
 
@@ -162,30 +166,43 @@ def resolve_pass_matchup(
     )
     effective_ball_hawk = float(
         np.clip(
-            0.60 * ball_hawk_unit + 0.40 * local_ball_hawk + 0.12 * snap.zone_overlap,
+            0.60 * ball_hawk_unit
+            + 0.40 * local_ball_hawk
+            + 0.12 * snap.zone_overlap,
             0.55,
             1.50,
         )
     )
-    effective_rush = float(np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55))
+    effective_rush = float(
+        np.clip(0.52 * rush_unit + 0.48 * local_rush, 0.55, 1.55)
+    )
 
     pressure = float(
         np.clip(
             0.70 * snap.pressure_probability
-            + 0.30 * defense.pressure_rate * effective_rush / max(snap.pocket_integrity, 0.60),
+            + 0.30
+            * defense.pressure_rate
+            * effective_rush
+            / max(snap.pocket_integrity, 0.60),
             0.07,
             0.62,
         )
     )
 
-    # The underlying snap ecology already contains the compatibility aggregate. Add only the
-    # residual mechanism-specific identity signal here so Madden/NFL capability is not lost.
-    route_signal = float(np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0))
+    route_signal = float(
+        np.clip(getattr(target, "route_separation_skill", 0.0), -1.0, 1.0)
+    )
     speed_signal = float(np.clip(getattr(target, "speed_skill", 0.0), -1.0, 1.0))
     identity_separation = float(
-        np.clip(snap.separation_edge + 0.32 * route_signal + 0.08 * speed_signal, -1.0, 1.0)
+        np.clip(
+            snap.separation_edge + 0.32 * route_signal + 0.08 * speed_signal,
+            -1.0,
+            1.0,
+        )
     )
-    separation_factor = float(np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14))
+    separation_factor = float(
+        np.clip(1.0 + 0.075 * identity_separation, 0.86, 1.14)
+    )
     target_catch = catch_skill(target)
     target_route = route_skill(target)
     target_open_field = open_field_skill(target)
@@ -252,6 +269,8 @@ def resolve_pass_matchup(
         zone_overlap=snap.zone_overlap,
         qb_read_quality=snap.qb_read_quality,
         primary_rusher_id=snap.primary_rusher_id,
+        safety_defender_id=snap.safety_defender_id,
+        bracket_defender_id=snap.bracket_defender_id,
     )
 
 
@@ -269,14 +288,16 @@ def resolve_run_matchup(
     )
     primary = next(
         (d for d in defense.front if d.player_id == snap.primary_defender_id),
-        _representative_defender(defense.front, "run_defense"),
+        _representative_defender(defense.front),
     )
     local_run_defense = 1.0 if primary is None else float(primary.run_defense)
 
     creation = rush_creation_skill(rusher)
     open_field = open_field_skill(rusher)
     power = skill_multiplier(rusher, "runner_power", 0.14)
-    runner_signal = float(np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0))
+    runner_signal = float(
+        np.clip(getattr(rusher, "rush_creation_skill", 0.0), -1.0, 1.0)
+    )
     runner_edge = float(np.clip(snap.runner_edge + 0.28 * runner_signal, -1.0, 1.0))
     stuff = float(
         np.clip(
@@ -288,8 +309,16 @@ def resolve_run_matchup(
     yards = float(
         np.clip(
             snap.yards_multiplier
-            * (creation / max(float(getattr(rusher, "efficiency", 1.0)), 0.55)) ** 0.45
-            * (open_field / max(float(getattr(rusher, "explosive", 1.0)), 0.55)) ** 0.18,
+            * (
+                creation
+                / max(float(getattr(rusher, "efficiency", 1.0)), 0.55)
+            )
+            ** 0.45
+            * (
+                open_field
+                / max(float(getattr(rusher, "explosive", 1.0)), 0.55)
+            )
+            ** 0.18,
             0.44,
             1.85,
         )
@@ -303,4 +332,5 @@ def resolve_run_matchup(
         runner_edge=runner_edge,
         lane_blocking=snap.lane_blocking,
         front_fit=snap.front_fit,
+        pursuit_defender_id=snap.pursuit_defender_id,
     )
