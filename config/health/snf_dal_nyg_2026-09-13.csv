@@ -1,0 +1,4 @@
+team_id,display_name,health_availability_probability,health_effectiveness_if_active,health_uncertainty,health_state,health_evidence,health_injury,source_url,as_of_date,notes
+DAL,Tyler Smith,0.0,0.50,0.01,out_ir,official_team,thumb surgery,https://www.dallascowboys.com/news/tyler-smith-expected-to-miss-4-6-weeks-with-injury,2026-09-13,Placed on IR designated to return; unavailable vs NYG
+DAL,Malik Davis,0.0,0.50,0.01,out_ir,official_team,hip surgery,https://www.dallascowboys.com/news/malik-davis-out-with-pretty-serious-injury,2026-09-13,Placed on injured reserve; unavailable vs NYG
+NYG,Malik Nabers,0.95,0.97,0.08,questionable_full_practice,official_team,knee,https://www.giants.com/news/injury-report-statuses-giants-vs-cowboys-sunday-night-football-week-1-malik-nabers,2026-09-13,Questionable but full participant Wed Thu Fri; model near-active with residual uncertainty pending inactive list
