@@ -1,0 +1,187 @@
+name: SNF DAL-NYG v6.1 single-game
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - scripts/run_single_game_v61.py
+      - config/health/snf_dal_nyg_2026-09-13.csv
+      - .github/workflows/snf-dal-nyg-single-game.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Monte Carlo worlds for DAL@NYG
+        required: true
+        default: '2000'
+      seed:
+        description: Base deterministic seed
+        required: true
+        default: '2026091320'
+
+permissions:
+  contents: read
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Validate Monster configuration
+        run: uv run monster validate-config
+
+      - name: Build current 2026 personnel
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Apply game-night DAL-NYG health
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/snf_dal_nyg_2026-09-13.csv
+          --season 2026 --out artifacts/snf-health
+
+      - name: Compile continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/snf-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: V6.1 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_loop_v2_identity_authority.py
+          tests/test_reality_loop_v2_play_topology.py
+          tests/test_reality_loop_v2_snap_centering.py
+          tests/test_reality_loop_v2_clock_ecology.py
+          tests/test_reality_loop_v2_distribution_bands.py
+          tests/test_reality_loop_v2_pass_resolution_bands.py
+          tests/test_reality_loop_v2_progressive_skill_tail.py
+          tests/test_reality_loop_v2_opportunity_skill_tail.py
+          tests/test_player_duel_authority_v6.py
+
+      - name: DAL-NYG 100-world smoke
+        run: >-
+          uv run python scripts/run_single_game_v61.py
+          --away DAL --home NYG
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/snf-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 100
+          --seed ${{ github.event.inputs.seed || '2026091320' }}
+          --progress-every 50
+          --first-out artifacts/snf-smoke
+          --box-out artifacts/snf-smoke-box
+
+      - name: Smoke guard
+        run: |
+          uv run python - <<'PY'
+          import polars as pl
+          g = pl.read_csv('artifacts/snf-smoke/game_distributions.csv').row(0, named=True)
+          assert g['game'] == 'DAL@NYG', g
+          assert 105 <= g['scrimmage_plays_mean'] <= 145, g
+          assert 20 <= g['total_mean'] <= 70, g
+          assert 0.5 <= g['turnovers_mean'] <= 5.0, g
+          print(g)
+          PY
+
+      - name: Run 2,000 concentrated DAL-NYG worlds
+        run: >-
+          uv run python scripts/run_single_game_v61.py
+          --away DAL --home NYG
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/snf-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '2000' }}
+          --seed ${{ github.event.inputs.seed || '2026091320' }}
+          --progress-every 100
+          --first-out artifacts/snf-simulation
+          --box-out artifacts/snf-box-scores
+
+      - name: Build single-game DFS telemetry summary
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import numpy as np
+          import polars as pl
+
+          out = Path('artifacts/snf-simulation')
+          games = pl.read_csv(out / 'game_distributions.csv')
+          players = pl.read_csv(out / 'player_distributions.csv')
+          worlds = pl.read_csv(out / 'player_world_fanduel.csv')
+          game = games.row(0, named=True)
+
+          summary = {
+              'matchup': 'DAL@NYG',
+              'worlds': int(game['worlds']),
+              'projected_score': game['projected_score'],
+              'total_mean': float(game['total_mean']),
+              'margin_mean_dal_minus_nyg': float(game['margin_mean']),
+              'dal_win_probability': float(game['away_win_probability']),
+              'nyg_win_probability': float(game['home_win_probability']),
+              'overtime_probability': float(game['overtime_probability']),
+              'pass_attempts_mean': float(game['pass_attempts_mean']),
+              'rush_attempts_mean': float(game['designed_runs_mean'] + game['scrambles_mean']),
+              'completion_percentage': float(game['completion_percentage']),
+              'sack_rate': float(game['sack_rate']),
+              'interception_rate': float(game['interception_rate']),
+          }
+          (out / 'single_game_summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+
+          top = players.sort('fanduel_mean', descending=True).head(30)
+          top.write_csv(out / 'single_game_top_players.csv')
+
+          # Same-world correlations among the 20 highest-mean offensive fantasy players.
+          names = top.select(['player_id', 'player']).head(20).to_dicts()
+          ids = [r['player_id'] for r in names]
+          labels = {r['player_id']: r['player'] for r in names}
+          piv = (
+              worlds.filter(pl.col('player_id').is_in(ids))
+              .select(['world', 'player_id', 'fanduel_points'])
+              .pivot(index='world', on='player_id', values='fanduel_points')
+              .sort('world')
+          )
+          corr_rows = []
+          for i, a in enumerate(ids):
+              if a not in piv.columns:
+                  continue
+              xa = piv[a].fill_null(0).to_numpy()
+              for b in ids[i+1:]:
+                  if b not in piv.columns:
+                      continue
+                  xb = piv[b].fill_null(0).to_numpy()
+                  corr = float(np.corrcoef(xa, xb)[0, 1]) if xa.std() > 0 and xb.std() > 0 else 0.0
+                  corr_rows.append({'player_a': labels[a], 'player_b': labels[b], 'correlation': corr})
+          pl.DataFrame(corr_rows).sort('correlation', descending=True).write_csv(
+              out / 'single_game_player_correlations.csv'
+          )
+          print(json.dumps(summary, indent=2))
+          print(top.select(['player','position','fanduel_mean','fanduel_p90','fanduel_p95','fanduel_p99']).head(20))
+          PY
+
+      - name: Upload DAL-NYG single-game artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v61-dal-nyg-single-game-${{ github.run_id }}
+          path: |
+            artifacts/snf-simulation/
+            artifacts/snf-box-scores/
+            artifacts/snf-smoke/game_distributions.csv
+          retention-days: 7
