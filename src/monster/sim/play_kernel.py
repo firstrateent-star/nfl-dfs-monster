@@ -14,6 +14,7 @@ from monster.sim.decision_policy import (
 from monster.sim.football_state import FootballState
 from monster.sim.game_flow import derive_game_flow_state
 from monster.sim.game_flow_brain import decide_game_flow
+from monster.sim.interaction_topology_v4b import snap_responsibility_key
 from monster.sim.play_anatomy import (
     CatchpointResult,
     ContactResult,
@@ -115,8 +116,6 @@ class PlayEvent:
     fatigue_factor: float = 1.0
 
 
-# A numpy Generator is created once per simulated game world. Its object identity therefore
-# gives the play kernel a world-local fatigue namespace without leaking fatigue between worlds.
 _FATIGUE_BY_RNG: dict[int, dict[str, float]] = {}
 
 
@@ -261,8 +260,9 @@ def _field_read_target(
     *,
     preferred: PlayerIdentity | None = None,
     fatigue: dict[str, float],
+    responsibility_key: str = "static",
 ) -> tuple[PlayerIdentity, PassMatchup]:
-    """Evaluate the full eligible receiver field before choosing the QB's throw."""
+    """Evaluate the full eligible receiver field against one shared defensive snap."""
     from monster.sim.matchup_kernel import resolve_pass_matchup
 
     candidates: list[tuple[PlayerIdentity, PassMatchup, float]] = []
@@ -271,8 +271,10 @@ def _field_read_target(
         matchup = resolve_pass_matchup(
             receiver,
             defense,
-            pass_protection=offense.pass_protection * _fatigue_factor(fatigue, f"line:{offense.team_id}"),
+            pass_protection=offense.pass_protection
+            * _fatigue_factor(fatigue, f"line:{offense.team_id}"),
             quarterback_efficiency=offense.quarterback.efficiency * qb_fatigue,
+            responsibility_key=responsibility_key,
         )
         receiver_fatigue = _fatigue_factor(fatigue, receiver.player_id)
         expected_gain = (
@@ -311,6 +313,17 @@ def simulate_scrimmage_play(
     line_fatigue = _fatigue_factor(fatigue, f"line:{offense.team_id}")
     _add_load(fatigue, offense.quarterback.player_id, 0.004)
     _add_load(fatigue, f"line:{offense.team_id}", 0.006)
+    responsibility_key = snap_responsibility_key(
+        offense_team_id=state.possession,
+        defense_team_id=state.defense,
+        quarter=state.quarter,
+        seconds_remaining=state.seconds_remaining,
+        down=state.down,
+        distance=state.distance,
+        yardline_100=state.yardline_100,
+        offense_score=state.away_score,
+        defense_score=state.home_score,
+    )
 
     if play_type == PlayType.PUNT:
         return PlayEvent(play_type=play_type, elapsed_seconds=8, fatigue_factor=line_fatigue)
@@ -335,7 +348,10 @@ def simulate_scrimmage_play(
                 else (RunLane.INSIDE if rng.random() < 0.62 else RunLane.OUTSIDE)
             )
         else:
-            from monster.sim.intent_ecology import choose_rusher_for_geometry, sample_run_geometry_intent
+            from monster.sim.intent_ecology import (
+                choose_rusher_for_geometry,
+                sample_run_geometry_intent,
+            )
 
             flow = derive_game_flow_state(state)
             geometry = sample_run_geometry_intent(offense.intent_ecology, flow, rng=rng)
@@ -376,6 +392,8 @@ def simulate_scrimmage_play(
                 rusher,
                 defense,
                 run_blocking=effective_run_blocking,
+                responsibility_key=responsibility_key,
+                run_geometry=geometry,
             )
             primary_defender_id = matchup.primary_defender_id
             penetration_p = matchup.stuff_probability
@@ -481,6 +499,7 @@ def simulate_scrimmage_play(
             rng,
             preferred=preferred_target,
             fatigue=fatigue,
+            responsibility_key=responsibility_key,
         )
     else:
         target = preferred_target
@@ -513,7 +532,9 @@ def simulate_scrimmage_play(
     else:
         pressure = float(
             np.clip(
-                0.297832 * defense_strength / max(offense.pass_protection * line_fatigue, 0.55),
+                0.297832
+                * defense_strength
+                / max(offense.pass_protection * line_fatigue, 0.55),
                 0.12,
                 0.50,
             )
