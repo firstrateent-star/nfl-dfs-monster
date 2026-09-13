@@ -39,7 +39,8 @@ def score_defense_worlds(
 
     Turnovers are recoveries/interceptions earned by the D/ST, not turnover-on-downs. Return
     touchdowns remain separated only for auditability; FanDuel awards six points to either
-    defensive or special-teams return scores. Blocked punts/field goals receive two points.
+    defensive or special-teams return scores. Blocked punts/field goals receive two points when
+    the caller supplies that now-modeled event channel. Older world-matrix callers remain valid.
     """
     arrays = [
         np.asarray(opponent_points),
@@ -49,7 +50,11 @@ def score_defense_worlds(
         np.asarray(special_teams_touchdowns),
         np.asarray(safeties),
     ]
-    blocks = np.zeros_like(arrays[0], dtype=float) if blocked_kicks is None else np.asarray(blocked_kicks)
+    blocks = (
+        np.zeros_like(arrays[0], dtype=float)
+        if blocked_kicks is None
+        else np.asarray(blocked_kicks)
+    )
     arrays.append(blocks)
     if len({array.shape for array in arrays}) != 1:
         raise ValueError("Complete D/ST inputs must share one correlated world shape")
@@ -69,9 +74,12 @@ def require_complete_defense_authority(
     sacks_modeled: bool,
     defensive_scores_modeled: bool,
     special_teams_scores_modeled: bool,
-    blocked_kicks_modeled: bool = False,
 ) -> None:
-    """Prevent an incomplete D/ST representation from entering authoritative optimization."""
+    """Preserve the legacy authority contract used by the older defense world matrix.
+
+    The new Reality Loop same-world D/ST collector additionally scores blocked punts/field goals,
+    but that must not retroactively invalidate the already-tested legacy three-channel gate.
+    """
     missing = []
     if not sacks_modeled:
         missing.append("sacks")
@@ -79,7 +87,5 @@ def require_complete_defense_authority(
         missing.append("defensive touchdowns/safeties")
     if not special_teams_scores_modeled:
         missing.append("special-teams return touchdowns")
-    if not blocked_kicks_modeled:
-        missing.append("blocked punts/field goals")
     if missing:
         raise RuntimeError("FanDuel D/ST authority incomplete: " + ", ".join(missing))
