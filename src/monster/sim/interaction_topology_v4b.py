@@ -79,7 +79,11 @@ def _choose_by_exposure(
     ordered = tuple(sorted(players, key=lambda player: (_player_id(player), _position(player))))
     weights = []
     for player in ordered:
-        role_weight = 1.0 if position_weights is None else float(position_weights.get(_position(player), 0.10))
+        role_weight = (
+            1.0
+            if position_weights is None
+            else float(position_weights.get(_position(player), 0.10))
+        )
         weights.append(max(_snap_weight(player), 0.001) * max(role_weight, 0.001))
     return ordered[_weighted_index(np.asarray(weights, dtype=float), key=key)]
 
@@ -93,7 +97,11 @@ def _weighted_without_replacement(
 ) -> tuple[object, ...]:
     ranked: list[tuple[float, str, object]] = []
     for player in players:
-        role_weight = 1.0 if position_weights is None else float(position_weights.get(_position(player), 0.10))
+        role_weight = (
+            1.0
+            if position_weights is None
+            else float(position_weights.get(_position(player), 0.10))
+        )
         weight = max(_snap_weight(player), 0.001) * max(role_weight, 0.001)
         u = max(stable_unit_interval(f"{key}:{_player_id(player)}"), 1e-12)
         ranked.append((-log(u) / weight, _player_id(player), player))
@@ -104,13 +112,47 @@ def _weighted_without_replacement(
 def _coverage_role_weights(target_position: str) -> dict[str, float]:
     position = target_position.upper()
     if position == "TE":
-        return {"CB": 0.55, "DB": 0.85, "S": 1.25, "FS": 1.15, "SS": 1.25, "LB": 1.20, "ILB": 1.20, "MLB": 1.20, "OLB": 1.05}
+        return {
+            "CB": 0.55,
+            "DB": 0.85,
+            "S": 1.25,
+            "FS": 1.15,
+            "SS": 1.25,
+            "LB": 1.20,
+            "ILB": 1.20,
+            "MLB": 1.20,
+            "OLB": 1.05,
+        }
     if position in {"RB", "FB"}:
-        return {"CB": 0.45, "DB": 0.80, "S": 1.15, "FS": 1.05, "SS": 1.15, "LB": 1.30, "ILB": 1.30, "MLB": 1.30, "OLB": 1.20}
-    return {"CB": 1.35, "DB": 1.15, "S": 0.85, "FS": 0.80, "SS": 0.80, "LB": 0.38, "ILB": 0.30, "MLB": 0.30, "OLB": 0.42}
+        return {
+            "CB": 0.45,
+            "DB": 0.80,
+            "S": 1.15,
+            "FS": 1.05,
+            "SS": 1.15,
+            "LB": 1.30,
+            "ILB": 1.30,
+            "MLB": 1.30,
+            "OLB": 1.20,
+        }
+    return {
+        "CB": 1.35,
+        "DB": 1.15,
+        "S": 0.85,
+        "FS": 0.80,
+        "SS": 0.80,
+        "LB": 0.38,
+        "ILB": 0.30,
+        "MLB": 0.30,
+        "OLB": 0.42,
+    }
 
 
-def _coverage_exposure_order(defenders: tuple[object, ...], *, target_position: str) -> tuple[object, ...]:
+def _coverage_exposure_order(
+    defenders: tuple[object, ...],
+    *,
+    target_position: str,
+) -> tuple[object, ...]:
     role_weights = _coverage_role_weights(target_position)
     return tuple(
         sorted(
@@ -139,7 +181,10 @@ def _usage_responsibility_slot(target: object, available: int) -> int:
         return 0
     if position in {"RB", "FB"} and usage >= 0.14:
         return 0
-    return min(int(stable_unit_interval(f"coverage-slot:{_player_id(target)}") * available), available - 1)
+    return min(
+        int(stable_unit_interval(f"coverage-slot:{_player_id(target)}") * available),
+        available - 1,
+    )
 
 
 def choose_coverage_participants(
@@ -160,7 +205,7 @@ def choose_coverage_participants(
             [
                 max(_snap_weight(defender), 0.001)
                 * role_weights.get(_position(defender), 0.10)
-                * exp(-0.95 * abs(index - base_slot))
+                * exp(-0.65 * abs(index - base_slot))
                 for index, defender in enumerate(ordered)
             ],
             dtype=float,
@@ -174,8 +219,13 @@ def choose_coverage_participants(
     primary_id = None if primary is None else _player_id(primary)
 
     remaining = tuple(player for player in defenders if _player_id(player) != primary_id)
-    safety_pool = tuple(player for player in remaining if _position(player) in {"S", "FS", "SS", "DB"})
-    safety = _choose_by_exposure(safety_pool, key=f"safety:{responsibility_key}:{target_id}")
+    safety_pool = tuple(
+        player for player in remaining if _position(player) in {"S", "FS", "SS", "DB"}
+    )
+    safety = _choose_by_exposure(
+        safety_pool,
+        key=f"safety:{responsibility_key}:{target_id}",
+    )
     safety_id = None if safety is None else _player_id(safety)
 
     bracket_pool = tuple(player for player in remaining if _player_id(player) != safety_id)
@@ -199,7 +249,17 @@ def choose_pass_rushers(
     count: int,
     responsibility_key: str,
 ) -> tuple[object, ...]:
-    role_priority = {"EDGE": 1.20, "DE": 1.15, "DT": 1.10, "DL": 1.05, "NT": 0.95, "OLB": 0.82, "LB": 0.62, "ILB": 0.52, "MLB": 0.52}
+    role_priority = {
+        "EDGE": 1.20,
+        "DE": 1.15,
+        "DT": 1.10,
+        "DL": 1.05,
+        "NT": 0.95,
+        "OLB": 0.82,
+        "LB": 0.62,
+        "ILB": 0.52,
+        "MLB": 0.52,
+    }
     return _weighted_without_replacement(
         rushers,
         count=count,
@@ -208,25 +268,104 @@ def choose_pass_rushers(
     )
 
 
-def choose_protection_helper(protectors: tuple[object, ...], *, responsibility_key: str) -> object | None:
+def choose_protection_helper(
+    protectors: tuple[object, ...],
+    *,
+    responsibility_key: str,
+) -> object | None:
     return _choose_by_exposure(protectors, key=f"protection:{responsibility_key}")
 
 
-def _run_front_role_weights(rusher_position: str, run_geometry: str | None) -> dict[str, float]:
+def _run_front_role_weights(
+    rusher_position: str,
+    run_geometry: str | None,
+) -> dict[str, float]:
     if rusher_position.upper() == "QB":
-        return {"EDGE": 1.05, "DE": 1.00, "DT": 0.90, "DL": 0.90, "NT": 0.85, "LB": 1.25, "ILB": 1.20, "MLB": 1.20, "OLB": 1.25}
+        return {
+            "EDGE": 1.05,
+            "DE": 1.00,
+            "DT": 0.90,
+            "DL": 0.90,
+            "NT": 0.85,
+            "LB": 1.25,
+            "ILB": 1.20,
+            "MLB": 1.20,
+            "OLB": 1.25,
+        }
     if run_geometry == "interior":
-        return {"EDGE": 0.55, "DE": 0.75, "DT": 1.35, "DL": 1.20, "NT": 1.40, "LB": 1.25, "ILB": 1.35, "MLB": 1.35, "OLB": 0.85}
+        return {
+            "EDGE": 0.55,
+            "DE": 0.75,
+            "DT": 1.35,
+            "DL": 1.20,
+            "NT": 1.40,
+            "LB": 1.25,
+            "ILB": 1.35,
+            "MLB": 1.35,
+            "OLB": 0.85,
+        }
     if run_geometry in {"left_edge", "right_edge", "left_offtackle", "right_offtackle"}:
-        return {"EDGE": 1.35, "DE": 1.25, "DT": 0.75, "DL": 0.90, "NT": 0.55, "LB": 1.10, "ILB": 0.95, "MLB": 0.95, "OLB": 1.35}
-    return {"EDGE": 0.95, "DE": 1.00, "DT": 1.12, "DL": 1.08, "NT": 1.12, "LB": 1.20, "ILB": 1.25, "MLB": 1.25, "OLB": 1.10}
+        return {
+            "EDGE": 1.35,
+            "DE": 1.25,
+            "DT": 0.75,
+            "DL": 0.90,
+            "NT": 0.55,
+            "LB": 1.10,
+            "ILB": 0.95,
+            "MLB": 0.95,
+            "OLB": 1.35,
+        }
+    return {
+        "EDGE": 0.95,
+        "DE": 1.00,
+        "DT": 1.12,
+        "DL": 1.08,
+        "NT": 1.12,
+        "LB": 1.20,
+        "ILB": 1.25,
+        "MLB": 1.25,
+        "OLB": 1.10,
+    }
 
 
-def _pursuit_role_weights(rusher_position: str, run_geometry: str | None) -> dict[str, float]:
+def _pursuit_role_weights(
+    rusher_position: str,
+    run_geometry: str | None,
+) -> dict[str, float]:
     if rusher_position.upper() == "QB":
-        return {"CB": 0.85, "DB": 1.00, "S": 1.20, "FS": 1.15, "SS": 1.20, "LB": 1.20, "ILB": 1.10, "MLB": 1.10, "OLB": 1.30, "EDGE": 0.85}
-    edge_bonus = 1.15 if run_geometry in {"left_edge", "right_edge", "left_offtackle", "right_offtackle"} else 1.0
-    return {"CB": 0.75 * edge_bonus, "DB": 1.00 * edge_bonus, "S": 1.30, "FS": 1.25, "SS": 1.30, "LB": 1.20, "ILB": 1.12, "MLB": 1.12, "OLB": 1.20 * edge_bonus, "EDGE": 0.55, "DE": 0.45, "DT": 0.20, "DL": 0.25}
+        return {
+            "CB": 0.85,
+            "DB": 1.00,
+            "S": 1.20,
+            "FS": 1.15,
+            "SS": 1.20,
+            "LB": 1.20,
+            "ILB": 1.10,
+            "MLB": 1.10,
+            "OLB": 1.30,
+            "EDGE": 0.85,
+        }
+    edge_bonus = (
+        1.15
+        if run_geometry in {"left_edge", "right_edge", "left_offtackle", "right_offtackle"}
+        else 1.0
+    )
+    return {
+        "CB": 0.75 * edge_bonus,
+        "DB": 1.00 * edge_bonus,
+        "S": 1.30,
+        "FS": 1.25,
+        "SS": 1.30,
+        "LB": 1.20,
+        "ILB": 1.12,
+        "MLB": 1.12,
+        "OLB": 1.20 * edge_bonus,
+        "EDGE": 0.55,
+        "DE": 0.45,
+        "DT": 0.20,
+        "DL": 0.25,
+    }
 
 
 def choose_run_participants(
@@ -282,7 +421,11 @@ def choose_run_blockers(
         selected = list(blockers)
 
     if run_geometry in {"left_edge", "right_edge", "left_offtackle", "right_offtackle"}:
-        selected.extend(protector for protector in protectors if _position(protector) in {"TE", "FB"})
+        selected.extend(
+            protector
+            for protector in protectors
+            if _position(protector) in {"TE", "FB"}
+        )
     if not selected:
         selected = list(blockers)
     return tuple(selected)
@@ -292,6 +435,12 @@ def exposure_weighted_mean(players: Iterable[object], attribute: str) -> float:
     rows = tuple(players)
     if not rows:
         return 1.0
-    weights = np.asarray([max(_snap_weight(player), 0.001) for player in rows], dtype=float)
-    values = np.asarray([float(getattr(player, attribute, 1.0)) for player in rows], dtype=float)
+    weights = np.asarray(
+        [max(_snap_weight(player), 0.001) for player in rows],
+        dtype=float,
+    )
+    values = np.asarray(
+        [float(getattr(player, attribute, 1.0)) for player in rows],
+        dtype=float,
+    )
     return float(np.average(values, weights=weights))
