@@ -59,7 +59,7 @@ jobs:
       - name: Print core outputs
         if: always()
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           from pathlib import Path
           import polars as pl
 
