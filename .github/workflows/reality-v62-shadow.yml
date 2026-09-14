@@ -109,50 +109,67 @@ jobs:
               root = Path(root)
               games = pl.read_csv(root / 'game_distributions.csv')
               players = pl.read_csv(root / 'player_distributions.csv')
+              skills = pl.read_csv(root / 'player_skill_snapshot.csv').select(
+                  pl.col('player_id'), pl.col('team')
+              ).unique('player_id')
+              players = players.join(skills, on='player_id', how='left')
+              worlds = pl.read_csv(root / 'football_weirdness_worlds.csv').with_columns(
+                  (pl.col('away_points') + pl.col('home_points')).alias('total_points')
+              )
               anatomy = json.loads((root / 'score_anatomy.json').read_text())['model']
-              return games, players, anatomy
+              return games, players, worlds, anatomy
 
-          g61, p61, a61 = load('artifacts/v61-paired')
-          g62, p62, a62 = load('artifacts/v62-paired')
+          g61, p61, w61, a61 = load('artifacts/v61-paired')
+          g62, p62, w62, a62 = load('artifacts/v62-paired')
 
           def top_target_concentration(players):
               receiving = players.filter(pl.col('position').is_in(['RB','WR','TE']))
-              if 'targets_mean' not in receiving.columns:
-                  return None
-              totals = receiving.group_by('game').agg(pl.col('targets_mean').sum().alias('teamish'))
-              tops = receiving.group_by('game').agg(pl.col('targets_mean').max().alias('top'))
-              joined = tops.join(totals, on='game')
-              return float((joined['top'] / joined['teamish'].clip(lower_bound=1e-9)).mean())
+              grouped = receiving.group_by(['game', 'team']).agg(
+                  pl.col('targets_mean').sum().alias('team_targets'),
+                  pl.col('targets_mean').max().alias('top_targets'),
+              ).filter(pl.col('team_targets') > 0)
+              return float(
+                  (grouped['top_targets'] / grouped['team_targets']).mean()
+              )
+
+          def mean_within_game_total_sd(worlds):
+              per_game = worlds.group_by('game').agg(
+                  pl.col('total_points').std(ddof=1).alias('total_sd')
+              )
+              return float(per_game['total_sd'].mean())
 
           comparison = {
               'paired_worlds_per_game': int(g62['worlds'][0]),
               'v61': {
                   'game_total_mean': float(g61['total_mean'].mean()),
                   'between_matchup_total_sd': float(g61['total_mean'].std(ddof=1)),
-                  'mean_within_game_total_sd': float(g61['total_sd'].mean()),
+                  'mean_within_game_total_sd': mean_within_game_total_sd(w61),
                   'points_per_game': float(a61['points_per_game']),
                   'turnovers_per_game': float(a61['turnovers_per_game']),
-                  'defensive_tds_per_game': float(a61.get('defensive_tds_per_game', 0.0)),
-                  'special_teams_tds_per_game': float(a61.get('special_teams_tds_per_game', 0.0)),
-                  'top_target_concentration_proxy': top_target_concentration(p61),
+                  'defensive_tds_per_game': float(a61.get('defensive_touchdowns_per_game', 0.0)),
+                  'special_teams_tds_per_game': float(a61.get('special_teams_touchdowns_per_game', 0.0)),
+                  'top_target_concentration': top_target_concentration(p61),
               },
               'v62': {
                   'game_total_mean': float(g62['total_mean'].mean()),
                   'between_matchup_total_sd': float(g62['total_mean'].std(ddof=1)),
-                  'mean_within_game_total_sd': float(g62['total_sd'].mean()),
+                  'mean_within_game_total_sd': mean_within_game_total_sd(w62),
                   'points_per_game': float(a62['points_per_game']),
                   'turnovers_per_game': float(a62['turnovers_per_game']),
-                  'defensive_tds_per_game': float(a62.get('defensive_tds_per_game', 0.0)),
-                  'special_teams_tds_per_game': float(a62.get('special_teams_tds_per_game', 0.0)),
-                  'top_target_concentration_proxy': top_target_concentration(p62),
+                  'defensive_tds_per_game': float(a62.get('defensive_touchdowns_per_game', 0.0)),
+                  'special_teams_tds_per_game': float(a62.get('special_teams_touchdowns_per_game', 0.0)),
+                  'top_target_concentration': top_target_concentration(p62),
               },
           }
-          Path('artifacts/v62-paired/v62_paired_comparison.json').write_text(json.dumps(comparison, indent=2) + '\n')
+          Path('artifacts/v62-paired/v62_paired_comparison.json').write_text(
+              json.dumps(comparison, indent=2) + '\n'
+          )
           print(json.dumps(comparison, indent=2))
 
-          # Architecture guard: widen worlds without simply shifting the scoring center wildly.
+          # Architecture guards: preserve the calibrated center while avoiding a narrower world.
           assert comparison['v62']['mean_within_game_total_sd'] >= comparison['v61']['mean_within_game_total_sd'] * 0.95
           assert abs(comparison['v62']['game_total_mean'] - comparison['v61']['game_total_mean']) <= 6.0
+          assert comparison['v62']['top_target_concentration'] < comparison['v61']['top_target_concentration']
           PY
 
       - name: Upload paired calibration
