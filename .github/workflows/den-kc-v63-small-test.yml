@@ -1,0 +1,84 @@
+name: DEN-KC v6.3 small test
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - .github/workflows/den-kc-v63-small-test.yml
+      - scripts/run_single_game_v63.py
+      - config/health/week1_2026_2026-09-14_den_kc.csv
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Build fresh 2026 personnel baseline
+        run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build market-blind 2025 football priors
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025
+          --out artifacts/league-policy
+
+      - name: Build kickoff-health snapshot for DEN-KC
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-14_den_kc.csv
+          --season 2026
+          --out artifacts/den-kc-health
+
+      - name: Run protected v6.3 DEN at KC 100-world test
+        run: >-
+          uv run python scripts/run_single_game_v63.py
+          --policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/den-kc-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 100
+          --seed 2026091401
+          --first-out artifacts/den-kc-v63
+          --box-out artifacts/den-kc-v63-box
+          --progress-every 25
+
+      - name: Print core outputs
+        if: always()
+        run: |
+          echo '--- game summary ---'
+          test -f artifacts/den-kc-v63/game_summary.csv && cat artifacts/den-kc-v63/game_summary.csv || true
+          echo '--- top offensive player distributions ---'
+          if test -f artifacts/den-kc-v63-box/offensive_player_distributions.csv; then
+            python - <<'PY'
+          import polars as pl
+          p=pl.read_csv('artifacts/den-kc-v63-box/offensive_player_distributions.csv')
+          cols=[c for c in ['team','player','position','fanduel_mean','pass_attempts_mean','passing_yards_mean','rush_attempts_mean','rushing_yards_mean','targets_mean','receptions_mean','receiving_yards_mean'] if c in p.columns]
+          sort='fanduel_mean' if 'fanduel_mean' in p.columns else cols[-1]
+          print(p.select(cols).sort(sort, descending=True).head(24))
+          PY
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: den-kc-v63-small-test-${{ github.run_id }}
+          path: |
+            artifacts/den-kc-v63/
+            artifacts/den-kc-v63-box/
+            artifacts/den-kc-health/manifest.json
+            artifacts/league-baseline/manifest.json
+            artifacts/league-policy/manifest.json
+          retention-days: 14
