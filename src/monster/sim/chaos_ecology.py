@@ -32,23 +32,39 @@ class ChaosEcology:
     create the turnover/kick, determine where the ball changes hands, and earn any return TD by
     physically traversing the remaining field. Historical play-by-play can replace the defaults
     through ``from_policy_row`` without changing the runtime contract.
+
+    The 20/40/60/80+ survivor rates preserve the *distance capability* of NFL returns. They do
+    not encode touchdown rates: whether a return scores still depends on how much field remains
+    after the change of possession.
     """
 
     interception_zero_return_rate: float = 0.22
     interception_return_mean: float = 11.5
     interception_return_sd: float = 12.0
+    interception_20_plus_rate: float = 0.18
     interception_40_plus_rate: float = 0.045
+    interception_60_plus_rate: float = 0.014
+    interception_80_plus_rate: float = 0.004
     fumble_zero_return_rate: float = 0.50
     fumble_return_mean: float = 7.0
     fumble_return_sd: float = 9.0
+    fumble_20_plus_rate: float = 0.08
     fumble_40_plus_rate: float = 0.020
+    fumble_60_plus_rate: float = 0.006
+    fumble_80_plus_rate: float = 0.002
     punt_zero_return_rate: float = 0.46
     punt_return_mean: float = 8.8
     punt_return_sd: float = 10.0
+    punt_20_plus_rate: float = 0.08
     punt_40_plus_rate: float = 0.018
+    punt_60_plus_rate: float = 0.005
+    punt_80_plus_rate: float = 0.0015
     kickoff_return_mean: float = 24.5
     kickoff_return_sd: float = 10.5
+    kickoff_20_plus_rate: float = 0.68
     kickoff_40_plus_rate: float = 0.028
+    kickoff_60_plus_rate: float = 0.007
+    kickoff_80_plus_rate: float = 0.002
     punt_muff_rate: float = 0.012
     punt_muff_kicking_recovery_rate: float = 0.48
     kickoff_muff_rate: float = 0.004
@@ -73,35 +89,162 @@ def _number(row: Mapping[str, object], key: str, default: float) -> float:
     return default if not np.isfinite(out) else out
 
 
+def _survivor_rates(
+    row: Mapping[str, object],
+    prefix: str,
+    defaults: tuple[float, float, float, float],
+    caps: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    p20 = float(np.clip(_number(row, f"{prefix}_20_plus_rate", defaults[0]), 0.0, caps[0]))
+    p40 = float(
+        np.clip(_number(row, f"{prefix}_40_plus_rate", defaults[1]), 0.0, min(caps[1], p20))
+    )
+    p60 = float(
+        np.clip(_number(row, f"{prefix}_60_plus_rate", defaults[2]), 0.0, min(caps[2], p40))
+    )
+    p80 = float(
+        np.clip(_number(row, f"{prefix}_80_plus_rate", defaults[3]), 0.0, min(caps[3], p60))
+    )
+    return p20, p40, p60, p80
+
+
 def from_policy_row(row: Mapping[str, object] | None) -> ChaosEcology:
     """Build runtime priors from a compiled historical row, preserving safe defaults."""
     if not row:
         return DEFAULT_CHAOS_ECOLOGY
     d = DEFAULT_CHAOS_ECOLOGY
+    int20, int40, int60, int80 = _survivor_rates(
+        row,
+        "interception",
+        (
+            d.interception_20_plus_rate,
+            d.interception_40_plus_rate,
+            d.interception_60_plus_rate,
+            d.interception_80_plus_rate,
+        ),
+        (0.70, 0.30, 0.18, 0.10),
+    )
+    fum20, fum40, fum60, fum80 = _survivor_rates(
+        row,
+        "fumble",
+        (
+            d.fumble_20_plus_rate,
+            d.fumble_40_plus_rate,
+            d.fumble_60_plus_rate,
+            d.fumble_80_plus_rate,
+        ),
+        (0.60, 0.25, 0.15, 0.08),
+    )
+    punt20, punt40, punt60, punt80 = _survivor_rates(
+        row,
+        "punt",
+        (
+            d.punt_20_plus_rate,
+            d.punt_40_plus_rate,
+            d.punt_60_plus_rate,
+            d.punt_80_plus_rate,
+        ),
+        (0.55, 0.20, 0.12, 0.06),
+    )
+    kick20, kick40, kick60, kick80 = _survivor_rates(
+        row,
+        "kickoff",
+        (
+            d.kickoff_20_plus_rate,
+            d.kickoff_40_plus_rate,
+            d.kickoff_60_plus_rate,
+            d.kickoff_80_plus_rate,
+        ),
+        (0.98, 0.30, 0.18, 0.10),
+    )
     return ChaosEcology(
-        interception_zero_return_rate=float(np.clip(_number(row, "interception_zero_return_rate", d.interception_zero_return_rate), 0.0, 0.90)),
-        interception_return_mean=float(np.clip(_number(row, "interception_return_mean", d.interception_return_mean), 1.0, 40.0)),
-        interception_return_sd=float(np.clip(_number(row, "interception_return_sd", d.interception_return_sd), 1.0, 40.0)),
-        interception_40_plus_rate=float(np.clip(_number(row, "interception_40_plus_rate", d.interception_40_plus_rate), 0.0, 0.25)),
-        fumble_zero_return_rate=float(np.clip(_number(row, "fumble_zero_return_rate", d.fumble_zero_return_rate), 0.0, 0.95)),
-        fumble_return_mean=float(np.clip(_number(row, "fumble_return_mean", d.fumble_return_mean), 1.0, 35.0)),
-        fumble_return_sd=float(np.clip(_number(row, "fumble_return_sd", d.fumble_return_sd), 1.0, 35.0)),
-        fumble_40_plus_rate=float(np.clip(_number(row, "fumble_40_plus_rate", d.fumble_40_plus_rate), 0.0, 0.20)),
-        punt_zero_return_rate=float(np.clip(_number(row, "punt_zero_return_rate", d.punt_zero_return_rate), 0.0, 0.95)),
+        interception_zero_return_rate=float(
+            np.clip(
+                _number(row, "interception_zero_return_rate", d.interception_zero_return_rate),
+                0.0,
+                0.90,
+            )
+        ),
+        interception_return_mean=float(
+            np.clip(_number(row, "interception_return_mean", d.interception_return_mean), 1.0, 40.0)
+        ),
+        interception_return_sd=float(
+            np.clip(_number(row, "interception_return_sd", d.interception_return_sd), 1.0, 40.0)
+        ),
+        interception_20_plus_rate=int20,
+        interception_40_plus_rate=int40,
+        interception_60_plus_rate=int60,
+        interception_80_plus_rate=int80,
+        fumble_zero_return_rate=float(
+            np.clip(_number(row, "fumble_zero_return_rate", d.fumble_zero_return_rate), 0.0, 0.95)
+        ),
+        fumble_return_mean=float(
+            np.clip(_number(row, "fumble_return_mean", d.fumble_return_mean), 1.0, 35.0)
+        ),
+        fumble_return_sd=float(
+            np.clip(_number(row, "fumble_return_sd", d.fumble_return_sd), 1.0, 35.0)
+        ),
+        fumble_20_plus_rate=fum20,
+        fumble_40_plus_rate=fum40,
+        fumble_60_plus_rate=fum60,
+        fumble_80_plus_rate=fum80,
+        punt_zero_return_rate=float(
+            np.clip(_number(row, "punt_zero_return_rate", d.punt_zero_return_rate), 0.0, 0.95)
+        ),
         punt_return_mean=float(np.clip(_number(row, "punt_return_mean", d.punt_return_mean), 1.0, 30.0)),
         punt_return_sd=float(np.clip(_number(row, "punt_return_sd", d.punt_return_sd), 1.0, 35.0)),
-        punt_40_plus_rate=float(np.clip(_number(row, "punt_40_plus_rate", d.punt_40_plus_rate), 0.0, 0.20)),
-        kickoff_return_mean=float(np.clip(_number(row, "kickoff_return_mean", d.kickoff_return_mean), 8.0, 45.0)),
-        kickoff_return_sd=float(np.clip(_number(row, "kickoff_return_sd", d.kickoff_return_sd), 2.0, 35.0)),
-        kickoff_40_plus_rate=float(np.clip(_number(row, "kickoff_40_plus_rate", d.kickoff_40_plus_rate), 0.0, 0.20)),
+        punt_20_plus_rate=punt20,
+        punt_40_plus_rate=punt40,
+        punt_60_plus_rate=punt60,
+        punt_80_plus_rate=punt80,
+        kickoff_return_mean=float(
+            np.clip(_number(row, "kickoff_return_mean", d.kickoff_return_mean), 8.0, 45.0)
+        ),
+        kickoff_return_sd=float(
+            np.clip(_number(row, "kickoff_return_sd", d.kickoff_return_sd), 2.0, 35.0)
+        ),
+        kickoff_20_plus_rate=kick20,
+        kickoff_40_plus_rate=kick40,
+        kickoff_60_plus_rate=kick60,
+        kickoff_80_plus_rate=kick80,
         punt_muff_rate=float(np.clip(_number(row, "punt_muff_rate", d.punt_muff_rate), 0.0, 0.08)),
-        punt_muff_kicking_recovery_rate=float(np.clip(_number(row, "punt_muff_kicking_recovery_rate", d.punt_muff_kicking_recovery_rate), 0.0, 1.0)),
-        kickoff_muff_rate=float(np.clip(_number(row, "kickoff_muff_rate", d.kickoff_muff_rate), 0.0, 0.05)),
-        kickoff_muff_kicking_recovery_rate=float(np.clip(_number(row, "kickoff_muff_kicking_recovery_rate", d.kickoff_muff_kicking_recovery_rate), 0.0, 1.0)),
-        blocked_punt_rate=float(np.clip(_number(row, "blocked_punt_rate", d.blocked_punt_rate), 0.0, 0.08)),
-        blocked_field_goal_rate=float(np.clip(_number(row, "blocked_field_goal_rate", d.blocked_field_goal_rate), 0.0, 0.08)),
-        kickoff_touchback_rate=float(np.clip(_number(row, "kickoff_touchback_rate", d.kickoff_touchback_rate), 0.05, 0.95)),
-        kickoff_touchback_yardline=float(np.clip(_number(row, "kickoff_touchback_yardline", d.kickoff_touchback_yardline), 20.0, 40.0)),
+        punt_muff_kicking_recovery_rate=float(
+            np.clip(
+                _number(row, "punt_muff_kicking_recovery_rate", d.punt_muff_kicking_recovery_rate),
+                0.0,
+                1.0,
+            )
+        ),
+        kickoff_muff_rate=float(
+            np.clip(_number(row, "kickoff_muff_rate", d.kickoff_muff_rate), 0.0, 0.05)
+        ),
+        kickoff_muff_kicking_recovery_rate=float(
+            np.clip(
+                _number(
+                    row,
+                    "kickoff_muff_kicking_recovery_rate",
+                    d.kickoff_muff_kicking_recovery_rate,
+                ),
+                0.0,
+                1.0,
+            )
+        ),
+        blocked_punt_rate=float(
+            np.clip(_number(row, "blocked_punt_rate", d.blocked_punt_rate), 0.0, 0.08)
+        ),
+        blocked_field_goal_rate=float(
+            np.clip(_number(row, "blocked_field_goal_rate", d.blocked_field_goal_rate), 0.0, 0.08)
+        ),
+        kickoff_touchback_rate=float(
+            np.clip(_number(row, "kickoff_touchback_rate", d.kickoff_touchback_rate), 0.05, 0.95)
+        ),
+        kickoff_touchback_yardline=float(
+            np.clip(
+                _number(row, "kickoff_touchback_yardline", d.kickoff_touchback_yardline),
+                20.0,
+                40.0,
+            )
+        ),
     )
 
 
@@ -129,13 +272,17 @@ def sample_return_yards(
     return_skill: float,
     rng: np.random.Generator,
     maximum: float = 100.0,
+    twenty_plus_rate: float | None = None,
+    sixty_plus_rate: float | None = None,
+    eighty_plus_rate: float | None = None,
 ) -> float:
     """Sample ordinary and breakaway return branches without directly sampling a TD.
 
-    A return touchdown occurs only when the sampled return covers the geometric distance to
-    the goal line. The 40+ branch preserves the rare heavy tail that a single normal draw
-    tends to erase.
+    The optional extra survivor rates are accepted by the stable runtime contract so newer
+    shadow architectures can use richer historical tails. The stable sampler intentionally
+    preserves the pre-v6.3 40+ behavior; v6.3 supplies the multi-band implementation.
     """
+    del twenty_plus_rate, sixty_plus_rate, eighty_plus_rate
     if rng.random() < float(np.clip(zero_rate, 0.0, 0.98)):
         return 0.0
     skill = float(np.clip(return_skill, 0.72, 1.32))
@@ -181,7 +328,6 @@ def resolve_turnover_return(
     kind = ReturnKind.INTERCEPTION if interception else ReturnKind.FUMBLE
     if interception:
         raw_spot = before.yardline_100 + float(event.air_yards)
-        # A defender who secures a pass in the end zone can simply take the touchback.
         if raw_spot >= 100.0:
             return ReturnEvent(
                 kind=kind,
