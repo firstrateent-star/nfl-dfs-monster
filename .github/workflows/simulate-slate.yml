@@ -15,11 +15,13 @@ on:
       - src/monster/sim/snap_ecology_v4b.py
       - src/monster/sim/interaction_topology_v4b.py
       - src/monster/sim/reality_snap_v5.py
+      - src/monster/sim/reality_v62.py
       - src/monster/sim/matchup_kernel.py
       - src/monster/sim/clock_ecology_v2.py
       - src/monster/sim/full_world_telemetry_v2.py
       - src/monster/sim/full_world_telemetry_v5.py
       - scripts/run_reality_loop_v2_smoke.py
+      - scripts/run_reality_loop_v62.py
       - scripts/persist_simulation_run.py
       - scripts/audit_reality_loop_v2_score_anatomy.py
       - tests/test_reality_loop_v2_distribution_bands.py
@@ -27,6 +29,7 @@ on:
       - tests/test_reality_loop_v2_progressive_skill_tail.py
       - tests/test_reality_loop_v2_opportunity_skill_tail.py
       - tests/test_player_duel_authority_v6.py
+      - tests/test_reality_v62_role_authority.py
       - .github/workflows/simulate-slate.yml
   workflow_dispatch:
     inputs:
@@ -81,7 +84,7 @@ jobs:
           --personnel artifacts/week1-health/health_personnel.parquet
           --out artifacts/continuity-policy
 
-      - name: Reality Loop v6 causal gates
+      - name: Reality Loop v6.2 causal gates
         run: >-
           uv run pytest -q
           tests/test_reality_loop_v2_identity_authority.py
@@ -93,10 +96,11 @@ jobs:
           tests/test_reality_loop_v2_progressive_skill_tail.py
           tests/test_reality_loop_v2_opportunity_skill_tail.py
           tests/test_player_duel_authority_v6.py
+          tests/test_reality_v62_role_authority.py
 
-      - name: V6 player-duel 300-game smoke
+      - name: V6.2 role-reality 300-game smoke
         run: >-
-          uv run python scripts/run_reality_loop_v2_smoke.py
+          uv run python scripts/run_reality_loop_v62.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
@@ -127,9 +131,9 @@ jobs:
           print(json.dumps(score, indent=2))
           PY
 
-      - name: Simulate football worlds
+      - name: Simulate v6.2 football worlds
         run: >-
-          uv run python scripts/run_reality_loop_v2_smoke.py
+          uv run python scripts/run_reality_loop_v62.py
           --policy artifacts/continuity-policy/team_policy.parquet
           --personnel artifacts/week1-health/health_personnel.parquet
           --player-usage artifacts/league-policy/player_usage.parquet
@@ -163,7 +167,7 @@ jobs:
           base = json.loads((out / 'manifest.json').read_text())
 
           manifest = {
-              'artifact': 'MONSTER Reality Loop v6 Player-Duel Validation',
+              'artifact': 'MONSTER Reality Loop v6.2 Roster Role Reality Validation',
               'generated_at_utc': datetime.now(UTC).isoformat(),
               'season': base['season'],
               'week': base['week'],
@@ -182,6 +186,8 @@ jobs:
               'opportunity_skill_matchup_tail_active': True,
               'snap_world_v5_active': True,
               'player_duel_v6_active': True,
+              'role_reality_v62_active': True,
+              'persistent_game_environment_v62_active': True,
               'snap_matchup_authority_pass': 0.78,
               'snap_matchup_authority_run': 0.82,
               'outputs': {
@@ -210,9 +216,9 @@ jobs:
           SUPABASE_URL: https://nuyvuwqvsgopapjbnndu.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          MONSTER_PARENT_RUN_ID: rlv6_2026091301_1200
-          MONSTER_MODEL_VERSION: Reality Loop v6 player-duel authority
-          MONSTER_RUN_PURPOSE: v6_player_duel_dispersion_validation
+          MONSTER_PARENT_RUN_ID: rlv62_2026091301_1200
+          MONSTER_MODEL_VERSION: Reality Loop v6.2 roster-role reality
+          MONSTER_RUN_PURPOSE: v62_role_reality_paired_week1_validation
           MONSTER_PROMOTION_STATUS: shadow
         run: >-
           uv run python scripts/persist_simulation_run.py
@@ -226,7 +232,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-simulator-${{ github.run_id }}
+          name: monster-v62-simulator-${{ github.run_id }}
           path: |
             artifacts/monster-simulation/
             artifacts/monster-box-scores/
