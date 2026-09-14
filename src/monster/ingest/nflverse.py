@@ -9,6 +9,7 @@ import requests
 
 PBP_COLUMNS = [
     "game_id",
+    "play_id",
     "season",
     "season_type",
     "week",
@@ -48,6 +49,7 @@ PBP_COLUMNS = [
     "air_yards",
     "yards_after_catch",
     "yards_gained",
+    "kick_distance",
     "return_yards",
     "return_team",
     "touchdown",
@@ -126,97 +128,31 @@ def _load_current_snap_counts(current_season: int) -> pl.DataFrame:
 
 
 def _supplement_player_ids(players: pl.DataFrame, ff_ids: pl.DataFrame) -> pl.DataFrame:
-    """Fill missing cross-provider IDs from the GSIS-keyed ffverse identity table.
-
-    `load_players()` remains the canonical player table. The ffverse table is used only
-    as a deterministic fallback where the canonical row is missing a PFR/PFF/ESPN ID.
-    This is especially important for offensive linemen because PFR snap counts are keyed
-    by `pfr_player_id` while GSIS remains our roster primary key.
-    """
-    if not ff_ids.height or "gsis_id" not in players.columns or "gsis_id" not in ff_ids.columns:
+    """Fill missing cross-provider IDs from the GSIS-keyed ffverse identity table."""
+    if players.is_empty() or ff_ids.is_empty() or "gsis_id" not in players.columns:
         return players
 
-    candidates = [c for c in ("pfr_id", "pff_id", "espn_id") if c in ff_ids.columns]
-    if not candidates:
+    mapping_columns = [
+        column
+        for column in ["gsis_id", "espn_id", "yahoo_id", "sleeper_id", "pfr_id"]
+        if column in ff_ids.columns
+    ]
+    if len(mapping_columns) <= 1:
         return players
 
-    fallback = (
-        ff_ids.select(["gsis_id", *candidates])
-        .drop_nulls(["gsis_id"])
-        .unique(subset=["gsis_id"], keep="last")
-        .rename({c: f"{c}_ff" for c in candidates})
-    )
-    out = players.join(fallback, on="gsis_id", how="left")
-    replacements = []
-    drops = []
-    for column in candidates:
-        fallback_col = f"{column}_ff"
-        drops.append(fallback_col)
-        if column in out.columns:
-            replacements.append(pl.coalesce([pl.col(column), pl.col(fallback_col)]).alias(column))
+    mapping = ff_ids.select(mapping_columns).unique(subset=["gsis_id"], keep="first")
+    renamed = mapping.rename({column: f"ff_{column}" for column in mapping_columns if column != "gsis_id"})
+    enriched = players.join(renamed, on="gsis_id", how="left")
+    expressions = []
+    for column in ["espn_id", "yahoo_id", "sleeper_id", "pfr_id"]:
+        ff_column = f"ff_{column}"
+        if ff_column not in enriched.columns:
+            continue
+        if column in enriched.columns:
+            expressions.append(pl.coalesce([pl.col(column), pl.col(ff_column)]).alias(column))
         else:
-            replacements.append(pl.col(fallback_col).alias(column))
-    return out.with_columns(*replacements).drop(drops)
-
-
-def load_league_personnel_inputs(
-    history_seasons: list[int], current_season: int, cache_dir: Path
-) -> dict:
-    """Load the reusable all-32-team personnel/capability layer without PBP.
-
-    Historical player stats are small enough to belong here and provide free tackling,
-    coverage and pressure evidence for defenders. The expensive play-by-play table stays
-    in the separate heavy football-history path.
-    """
-    configure_cache(cache_dir)
-    players = nfl.load_players()
-    try:
-        ff_ids = nfl.load_ff_playerids()
-    except (OSError, RuntimeError, ValueError, requests.RequestException):
-        ff_ids = pl.DataFrame()
-    players = _supplement_player_ids(players, ff_ids)
-    return {
-        "players": players,
-        "ff_playerids": ff_ids,
-        "teams": nfl.load_teams(),
-        "current_rosters": _load_weekly_rosters(current_season),
-        "injuries": _load_optional_current(nfl.load_injuries, current_season),
-        "historical_snap_counts": nfl.load_snap_counts(history_seasons),
-        "current_snap_counts": _load_current_snap_counts(current_season),
-        "player_stats_history": nfl.load_player_stats(history_seasons),
-        "combine": nfl.load_combine(),
-        "depth_charts": _load_optional_current(nfl.load_depth_charts, current_season),
-        "pfr_defense_weekly": nfl.load_pfr_advstats(
-            history_seasons,
-            stat_type="def",
-            summary_level="week",
-        ),
-    }
-
-
-def load_reference_inputs(
-    history_seasons: list[int], current_season: int, cache_dir: Path
-) -> dict:
-    """Load heavy football-history inputs plus the reusable league personnel layer."""
-    personnel = load_league_personnel_inputs(history_seasons, current_season, cache_dir)
-    pbp = nfl.load_pbp(history_seasons)
-    pbp = pbp.select([c for c in PBP_COLUMNS if c in pbp.columns])
-    return {
-        **personnel,
-        "pbp": pbp,
-        "player_stats": personnel["player_stats_history"],
-        "team_stats": nfl.load_team_stats(history_seasons),
-        "schedules": nfl.load_schedules(sorted(set(history_seasons + [current_season]))),
-        "historical_rosters": nfl.load_rosters_weekly(history_seasons),
-    }
-
-
-def load_week_inputs(season: int, cache_dir: Path) -> dict:
-    """Load current-week inputs that can update independently of heavy history."""
-    configure_cache(cache_dir)
-    return {
-        "schedules": nfl.load_schedules([season]),
-        "rosters": _load_weekly_rosters(season),
-        "injuries": _load_optional_current(nfl.load_injuries, season),
-        "depth_charts": _load_optional_current(nfl.load_depth_charts, season),
-    }
+            expressions.append(pl.col(ff_column).alias(column))
+    if expressions:
+        enriched = enriched.with_columns(expressions)
+    drop_columns = [column for column in enriched.columns if column.startswith("ff_")]
+    return enriched.drop(drop_columns) if drop_columns else enriched
