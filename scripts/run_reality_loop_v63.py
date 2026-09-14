@@ -18,14 +18,16 @@ from monster.sim import (
     special_teams_v13,
 )
 from monster.sim.reality_v63 import (
-    apply_chaos_environment_v63,
     apply_game_environment_v63,
     cadence_seconds_v63,
     explosive_environment_multiplier,
-    resolve_turnover_return_v63,
     role_aware_offense_skill_players,
     sample_game_environment_v63,
-    sample_return_yards_v63,
+)
+from monster.sim.return_tail_v631 import (
+    apply_chaos_environment_v631,
+    resolve_turnover_return_v631,
+    sample_return_yards_v631,
 )
 
 _NATIVE_SAMPLE_ROLE_WORLD = v62.sample_role_world_plan
@@ -91,20 +93,22 @@ def _sample_role_world_v63(pool, *, rng, **kwargs):
 
 
 def configure_reality_loop_v63() -> None:
-    """Activate v6.3 role/snap authority, return geometry and persistent game tails."""
+    """Activate v6.3 role/snap authority, historical return geometry and persistent tails."""
 
     v62.sample_game_environment = sample_game_environment_v63
     v62.apply_game_environment = apply_game_environment_v63
-    v62.apply_chaos_environment = apply_chaos_environment_v63
+    v62.apply_chaos_environment = apply_chaos_environment_v631
     v62.sample_role_world_plan = _sample_role_world_v63
     v62.configure_reality_loop_v62()
 
     reality_snap_v5._offense_skill_players = role_aware_offense_skill_players
 
-    chaos_ecology.sample_return_yards = sample_return_yards_v63
-    game_loop_v13.sample_return_yards = sample_return_yards_v63
-    game_loop_v13.resolve_turnover_return = resolve_turnover_return_v63
-    special_teams_v13.sample_return_yards = sample_return_yards_v63
+    # Keep v6.2 as a clean control: the stable chaos sampler accepts the richer prior columns but
+    # ignores them. Only the v6.3 shadow swaps in the empirical 20/40/60/80-yard survivor sampler.
+    chaos_ecology.sample_return_yards = sample_return_yards_v631
+    game_loop_v13.sample_return_yards = sample_return_yards_v631
+    game_loop_v13.resolve_turnover_return = resolve_turnover_return_v631
+    special_teams_v13.sample_return_yards = sample_return_yards_v631
 
     native_pass_interaction = progressive_skill_tail_v2._pass_interaction
     native_run_skill_edge = progressive_skill_tail_v2._run_skill_edge
@@ -146,16 +150,20 @@ def _record_v63_manifest(out: Path) -> None:
             "dual_role_player_snap_weight_bug_fixed": True,
             "target_role_plan_telemetry_v63_active": True,
             "role_snap_opportunity_audit_v63_expected": True,
+            "historical_return_survivor_bands_v631_active": True,
+            "historical_return_survivor_thresholds_yards": [20, 40, 60, 80],
             "turnover_return_continuation_tail_v63_active": True,
             "field_leverage_return_geometry_v63_active": True,
+            "return_touchdown_probability_sampled_directly": False,
             "persistent_explosive_environment_v63_active": True,
             "persistent_tempo_environment_v63_active": True,
             "direct_score_tail_sampling": False,
             "v63_principle": (
                 "Current role controls snap presence before historical geometry can shape the "
-                "specific opportunity. Rare defensive/special-teams scores must be earned through "
-                "live-ball field geometry. Game tails emerge from persistent execution, tempo, "
-                "open-field and chaos states rather than score or fantasy targets."
+                "specific opportunity. Return distance is sampled from historical 20/40/60/80+ "
+                "survivor geometry, while the live field decides whether that distance scores. "
+                "Game tails emerge from persistent execution, tempo, open-field and chaos states "
+                "rather than score or fantasy targets."
             ),
         }
     )
