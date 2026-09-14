@@ -14,6 +14,10 @@ from monster.sim.reality_v63 import (
     set_active_game_environment,
     snap_presence_weights,
 )
+from monster.sim.return_tail_v631 import (
+    apply_chaos_environment_v631,
+    sample_return_yards_v631,
+)
 
 
 def _dual_role_offense() -> TeamIdentity:
@@ -131,3 +135,86 @@ def test_breakaway_return_branch_has_more_far_continuation_than_v62_shape():
     )
     assert np.mean(candidate >= 60.0) > np.mean(base >= 60.0) * 1.15
     assert np.quantile(candidate, 0.50) < 15.0
+
+
+def test_v631_return_sampler_recovers_historical_survivor_bands():
+    set_active_game_environment(None)
+    rng = np.random.default_rng(63101)
+    values = np.asarray(
+        [
+            sample_return_yards_v631(
+                mean=11.5,
+                sd=12.0,
+                zero_rate=0.22,
+                twenty_plus_rate=0.18,
+                forty_plus_rate=0.045,
+                sixty_plus_rate=0.014,
+                eighty_plus_rate=0.004,
+                return_skill=1.0,
+                rng=rng,
+                maximum=100.0,
+            )
+            for _ in range(30000)
+        ]
+    )
+    assert abs(float(np.mean(values >= 20.0)) - 0.18) < 0.012
+    assert abs(float(np.mean(values >= 40.0)) - 0.045) < 0.007
+    assert abs(float(np.mean(values >= 60.0)) - 0.014) < 0.004
+    assert abs(float(np.mean(values >= 80.0)) - 0.004) < 0.0025
+
+
+def test_v631_short_field_scores_emerge_from_return_distance_not_td_probability():
+    set_active_game_environment(None)
+    base_rng = np.random.default_rng(63102)
+    rich_rng = np.random.default_rng(63102)
+    base = np.asarray(
+        [
+            sample_return_yards(
+                mean=11.5,
+                sd=12.0,
+                zero_rate=0.22,
+                forty_plus_rate=0.045,
+                return_skill=1.0,
+                rng=base_rng,
+                maximum=25.0,
+            )
+            for _ in range(25000)
+        ]
+    )
+    rich = np.asarray(
+        [
+            sample_return_yards_v631(
+                mean=11.5,
+                sd=12.0,
+                zero_rate=0.22,
+                twenty_plus_rate=0.18,
+                forty_plus_rate=0.045,
+                sixty_plus_rate=0.014,
+                eighty_plus_rate=0.004,
+                return_skill=1.0,
+                rng=rich_rng,
+                maximum=25.0,
+            )
+            for _ in range(25000)
+        ]
+    )
+    base_goal_line_rate = float(np.mean(base >= 25.0 - 1e-9))
+    rich_goal_line_rate = float(np.mean(rich >= 25.0 - 1e-9))
+    assert rich_goal_line_rate > 0.10
+    assert rich_goal_line_rate > base_goal_line_rate * 1.25
+
+
+def test_v631_chaos_scales_far_tail_more_than_near_tail_and_stays_monotone():
+    high = GameEnvironmentV63(1.0, 1.0, 1.0, 0.07, 1.80, 1.10, 1.0)
+    low = GameEnvironmentV63(1.0, 1.0, 1.0, 0.07, 0.60, 0.90, 1.0)
+    hi = apply_chaos_environment_v631(DEFAULT_CHAOS_ECOLOGY, high)
+    lo = apply_chaos_environment_v631(DEFAULT_CHAOS_ECOLOGY, low)
+    assert hi.interception_20_plus_rate > lo.interception_20_plus_rate
+    assert hi.interception_80_plus_rate > lo.interception_80_plus_rate
+    assert (
+        hi.interception_20_plus_rate
+        >= hi.interception_40_plus_rate
+        >= hi.interception_60_plus_rate
+        >= hi.interception_80_plus_rate
+    )
+    assert not hasattr(hi, "touchdown_rate")
