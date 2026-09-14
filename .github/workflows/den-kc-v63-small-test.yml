@@ -7,6 +7,7 @@ on:
       - .github/workflows/den-kc-v63-small-test.yml
       - scripts/run_single_game_v63.py
       - config/health/week1_2026_2026-09-14_den_kc.csv
+      - src/monster/ingest/nflverse.py
   workflow_dispatch:
 
 permissions:
