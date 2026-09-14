@@ -21,6 +21,7 @@ def _profile(frame: pl.DataFrame, required: str, returned: str, td: str = "retur
         return {"rows": 0}
     req = rows.get_column(required)
     ret = rows.get_column(returned)
+    upper = rows.filter(pl.col(returned) >= 80.0)
     payload = {
         "rows": rows.height,
         "required_mean": float(req.mean()),
@@ -29,6 +30,11 @@ def _profile(frame: pl.DataFrame, required: str, returned: str, td: str = "retur
         "required_p75": float(req.quantile(0.75)),
         "return_mean": float(ret.mean()),
         "geometry_cover_rate": float((ret >= req - 0.5).mean()),
+        "upper_80_rows": upper.height,
+        "upper_80_mean": float(upper.get_column(returned).mean()) if upper.height else None,
+        "upper_80_p50": float(upper.get_column(returned).quantile(0.50)) if upper.height else None,
+        "upper_80_p90": float(upper.get_column(returned).quantile(0.90)) if upper.height else None,
+        "upper_80_max": float(upper.get_column(returned).max()) if upper.height else None,
     }
     if td in rows.columns:
         payload["actual_td_rate"] = float(
@@ -54,6 +60,11 @@ def _profile(frame: pl.DataFrame, required: str, returned: str, td: str = "retur
             "rows": group.height,
             "required_mean": float(group.get_column(required).mean()),
             "return_mean": float(group.get_column(returned).mean()),
+            "zero_rate": float((group.get_column(returned) <= 0.0).mean()),
+            "p20": float((group.get_column(returned) >= 20.0).mean()),
+            "p40": float((group.get_column(returned) >= 40.0).mean()),
+            "p60": float((group.get_column(returned) >= 60.0).mean()),
+            "p80": float((group.get_column(returned) >= 80.0).mean()),
             "cover_rate": float(
                 (group.get_column(returned) >= group.get_column(required) - 0.5).mean()
             ),
@@ -67,6 +78,25 @@ def _profile(frame: pl.DataFrame, required: str, returned: str, td: str = "retur
     return payload
 
 
+def _drive_starts(pbp: pl.DataFrame) -> pl.DataFrame:
+    scrimmage = _flag(pbp, "pass_attempt") | _flag(pbp, "rush_attempt") | _flag(pbp, "sack")
+    sort_cols = [column for column in ["game_id", "fixed_drive", "play_id"] if column in pbp.columns]
+    return (
+        pbp.filter(
+            pl.col("game_id").is_not_null()
+            & pl.col("fixed_drive").is_not_null()
+            & pl.col("yardline_100").is_not_null()
+            & scrimmage
+        )
+        .sort(sort_cols)
+        .group_by(["game_id", "fixed_drive"], maintain_order=True)
+        .agg(pl.col("yardline_100").first().alias("first_scrimmage_yardline_100"))
+        .with_columns(
+            (100.0 - pl.col("first_scrimmage_yardline_100")).alias("drive_start_from_own_goal")
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=2025)
@@ -76,10 +106,8 @@ def main() -> None:
         pbp = pbp.filter(pl.col("season_type") == "REG")
 
     payload: dict[str, object] = {"season": args.season}
+    drive_starts = _drive_starts(pbp)
 
-    # For kicks, nflverse yardline_100 is distance from the kicking team to its target goal.
-    # Gross kick distance moves toward that goal, so the receiving team's own-yardline landing
-    # coordinate is yardline_100 - kick_distance. The returner must cover 100 - landing to score.
     if {"kick_distance", "yardline_100", "return_yards"}.issubset(pbp.columns):
         punts = pbp.filter(
             _flag(pbp, "punt_attempt")
@@ -102,19 +130,29 @@ def main() -> None:
             "resulting_start_mean": float(live_punts.get_column("resulting_start").mean()) if live_punts.height else None,
         }
 
-        kicks = pbp.filter(
-            _flag(pbp, "kickoff_attempt")
-            & ~_flag(pbp, "touchback")
-            & pl.col("return_yards").is_not_null()
-            & (pl.col("return_yards") >= 0.0)
-        ).with_columns(
-            (pl.col("yardline_100") - pl.col("kick_distance"))
-            .cast(pl.Float64)
-            .clip(0.0, 100.0)
-            .alias("landing_from_receiving_goal")
-        ).with_columns(
-            (100.0 - pl.col("landing_from_receiving_goal")).alias("required_return_distance"),
-            (pl.col("landing_from_receiving_goal") + pl.col("return_yards")).alias("resulting_start"),
+        # nflverse's 2025 dynamic-kickoff kick_distance does not map cleanly to the receiving
+        # landing coordinate. Reconstruct the receiving drive's first scrimmage position and infer
+        # the physical return start from final position - return yards instead.
+        kicks = (
+            pbp.filter(
+                _flag(pbp, "kickoff_attempt")
+                & ~_flag(pbp, "touchback")
+                & pl.col("return_yards").is_not_null()
+                & pl.col("game_id").is_not_null()
+                & pl.col("fixed_drive").is_not_null()
+            )
+            .join(drive_starts, on=["game_id", "fixed_drive"], how="inner")
+            .with_columns(
+                (
+                    pl.col("drive_start_from_own_goal")
+                    - pl.col("return_yards").cast(pl.Float64)
+                )
+                .clip(0.0, 20.0)
+                .alias("landing_from_receiving_goal")
+            )
+            .with_columns(
+                (100.0 - pl.col("landing_from_receiving_goal")).alias("required_return_distance")
+            )
         )
         live_kicks = kicks.filter(pl.col("return_yards") > 0.0)
         payload["kickoff_live_return"] = {
@@ -123,14 +161,11 @@ def main() -> None:
             "landing_p25": float(live_kicks.get_column("landing_from_receiving_goal").quantile(0.25)) if live_kicks.height else None,
             "landing_p50": float(live_kicks.get_column("landing_from_receiving_goal").quantile(0.50)) if live_kicks.height else None,
             "landing_p75": float(live_kicks.get_column("landing_from_receiving_goal").quantile(0.75)) if live_kicks.height else None,
-            "resulting_start_mean": float(live_kicks.get_column("resulting_start").mean()) if live_kicks.height else None,
+            "drive_start_mean": float(live_kicks.get_column("drive_start_from_own_goal").mean()) if live_kicks.height else None,
         }
     else:
         payload["kick_geometry_error"] = "kick_distance column unavailable"
 
-    # A lost fumble at the offense's own coordinate x requires the recovering defense to cover x
-    # yards to reach that offense's goal line. Approximate the live-ball spot with start coordinate
-    # plus scrimmage yards, then verify the formula against actual recovery touchdowns.
     if {"yardline_100", "yards_gained", "fumble_recovery_1_yards"}.issubset(pbp.columns):
         fumbles = pbp.filter(
             _flag(pbp, "fumble_lost")
