@@ -1,0 +1,147 @@
+name: Reality v6.3 shadow calibration
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - src/monster/sim/reality_v63.py
+      - scripts/run_reality_loop_v63.py
+      - scripts/audit_role_snap_opportunity_v63.py
+      - scripts/compare_reality_v62_v63.py
+      - tests/test_reality_v63_causal_repairs.py
+      - .github/workflows/reality-v63-shadow-calibration.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Paired worlds per game
+        required: true
+        default: '50'
+      seed:
+        description: Deterministic paired seed
+        required: true
+        default: '2026091301'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-shadow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: V6.3 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_v62_role_authority.py
+          tests/test_reality_v63_causal_repairs.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_chaos_ecology.py
+
+      - name: Build current personnel reality
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build health and availability
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: V6.2 paired baseline
+        run: >-
+          uv run python scripts/run_reality_loop_v62.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '50' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v62
+          --box-out artifacts/v62-box
+
+      - name: Audit v6.2 anatomy
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/v62 --history 2025 --out artifacts/v62
+
+      - name: V6.3 paired candidate
+        run: >-
+          uv run python scripts/run_reality_loop_v63.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '50' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v63
+          --box-out artifacts/v63-box
+
+      - name: Audit v6.3 anatomy
+        run: >-
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py
+          --simulation artifacts/v63 --history 2025 --out artifacts/v63
+
+      - name: Audit role to snap opportunity
+        run: >-
+          uv run python scripts/audit_role_snap_opportunity_v63.py
+          --simulation artifacts/v63
+          --out artifacts/v63/role_snap_opportunity_v63.csv
+          --summary artifacts/v63/role_snap_opportunity_v63.json
+
+      - name: Compare v6.2 to v6.3
+        run: >-
+          uv run python scripts/compare_reality_v62_v63.py
+          --baseline artifacts/v62
+          --candidate artifacts/v63
+          --role-summary artifacts/v63/role_snap_opportunity_v63.json
+          --out artifacts/v63/v62_v63_comparison.json
+
+      - name: Candidate safety guard
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('artifacts/v63/v62_v63_comparison.json').read_text())
+          candidate = data['candidate']
+          assert 38.0 <= candidate['points_per_game'] <= 52.0, candidate
+          assert 112.0 <= candidate['scrimmage_plays_per_game'] <= 135.0, candidate
+          assert 1.2 <= candidate['turnovers_per_game'] <= 3.5, candidate
+          role = data.get('role_snap_opportunity', {})
+          if role.get('core_rb_rows', 0) >= 4:
+              assert role['core_rb_rush_plan_actual_mae'] <= 0.20, role
+          print(json.dumps(data, indent=2))
+          PY
+
+      - name: Upload paired v6.3 calibration
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v63-paired-${{ github.run_id }}
+          path: |
+            artifacts/v62/
+            artifacts/v63/
+            artifacts/v63-box/
+          retention-days: 14
