@@ -59,18 +59,44 @@ jobs:
       - name: Print core outputs
         if: always()
         run: |
-          echo '--- game summary ---'
-          test -f artifacts/den-kc-v63/game_summary.csv && cat artifacts/den-kc-v63/game_summary.csv || true
-          echo '--- top offensive player distributions ---'
-          if test -f artifacts/den-kc-v63-box/offensive_player_distributions.csv; then
-            python - <<'PY'
+          python - <<'PY'
+          from pathlib import Path
           import polars as pl
-          p=pl.read_csv('artifacts/den-kc-v63-box/offensive_player_distributions.csv')
-          cols=[c for c in ['team','player','position','fanduel_mean','pass_attempts_mean','passing_yards_mean','rush_attempts_mean','rushing_yards_mean','targets_mean','receptions_mean','receiving_yards_mean'] if c in p.columns]
-          sort='fanduel_mean' if 'fanduel_mean' in p.columns else cols[-1]
-          print(p.select(cols).sort(sort, descending=True).head(24))
+
+          root=Path('artifacts/den-kc-v63')
+          print('\n--- PROJECTED SCORE + OUTCOME ---')
+          path=root/'projected_scores_and_outcomes.csv'
+          if path.exists(): print(pl.read_csv(path))
+
+          print('\n--- FOOTBALL ANATOMY ---')
+          path=root/'football_anatomy.csv'
+          if path.exists(): print(pl.read_csv(path))
+
+          print('\n--- TOP PLAYER DISTRIBUTIONS ---')
+          path=root/'player_distributions.csv'
+          if path.exists():
+              p=pl.read_csv(path)
+              cols=[c for c in ['player','position','fanduel_mean','fanduel_p50','fanduel_p90','fanduel_p95','pass_attempts_mean','passing_yards_mean','passing_tds_mean','interceptions_mean','rush_attempts_mean','rushing_yards_mean','rushing_tds_mean','targets_mean','receptions_mean','receiving_yards_mean','receiving_tds_mean'] if c in p.columns]
+              print(p.select(cols).sort('fanduel_mean', descending=True).head(30))
+
+          print('\n--- TARGET ROLE WORLDS ---')
+          path=root/'target_role_plan_audit_v63.csv'
+          if path.exists():
+              r=pl.read_csv(path)
+              cols=[c for c in ['team','player','position','base_target_share','active_probability','role_uncertainty','target_plan_share_mean','target_plan_share_p50','target_plan_share_p90','target_plan_participation_probability'] if c in r.columns]
+              print(r.filter(pl.col('team').is_in(['DEN','KC'])).select(cols).sort(['team','target_plan_share_mean'],descending=[False,True]))
+
+          print('\n--- RUSHING ROLE WORLDS ---')
+          path=root/'rushing_role_plan_audit.csv'
+          if path.exists():
+              r=pl.read_csv(path)
+              cols=[c for c in ['team','player','position','base_rush_share','rush_role_probability','active_probability','role_uncertainty','plan_share_mean','plan_share_p50','plan_share_p90','plan_participation_probability'] if c in r.columns]
+              print(r.filter(pl.col('team').is_in(['DEN','KC'])).select(cols).sort(['team','plan_share_mean'],descending=[False,True]))
+
+          print('\n--- TEAM BOX DISTRIBUTIONS ---')
+          path=Path('artifacts/den-kc-v63-box/team_box_score_distributions.csv')
+          if path.exists(): print(pl.read_csv(path))
           PY
-          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
