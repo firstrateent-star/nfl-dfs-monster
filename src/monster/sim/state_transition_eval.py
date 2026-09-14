@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 
-
 ABSORB_CONVERTED = "ABSORB_CONVERTED"
 ABSORB_TOUCHDOWN = "ABSORB_TOUCHDOWN"
 ABSORB_FAILED = "ABSORB_FAILED"

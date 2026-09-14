@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import blake2b
-from typing import Iterable
 
 import numpy as np
 

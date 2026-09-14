@@ -8,6 +8,8 @@ from monster.sim.intent_ecology import RunGeometryOutcome
 from monster.sim.play_anatomy import (
     ContactResult,
     RunAnatomy,
+)
+from monster.sim.play_anatomy import (
     resolve_run_contact as _base_resolve_run_contact,
 )
 from monster.sim.resolution_ecology import resolve_run_ecology as _base_resolve_run_ecology

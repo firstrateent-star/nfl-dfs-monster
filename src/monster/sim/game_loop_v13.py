@@ -25,8 +25,8 @@ from monster.sim.football_state import (
     PossessionTerminal,
     apply_scrimmage_yards,
     change_possession,
-    missed_field_goal_transition,
     mirror_field,
+    missed_field_goal_transition,
     next_series_distance,
     turnover_on_downs,
 )

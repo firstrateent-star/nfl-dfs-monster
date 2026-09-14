@@ -7,7 +7,7 @@ from monster.sim.event_ledger import assert_event_conservation, summarize_game
 from monster.sim.football_state import FootballState
 from monster.sim.game_loop_v13 import simulate_game
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
-from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, PlayerIdentity, TeamIdentity
+from monster.sim.play_kernel import PassResult, PlayerIdentity, PlayEvent, PlayType, TeamIdentity
 from monster.sim.special_teams_v13 import simulate_kickoff, simulate_punt
 
 

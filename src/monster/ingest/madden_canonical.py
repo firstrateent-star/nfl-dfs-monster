@@ -4,7 +4,6 @@ import polars as pl
 
 from monster.ingest.madden_schema import normalize_madden_name
 
-
 # The public extraction mirrors EA's player-detail attributes but uses the historical
 # column names consumed by the older adapters.  Convert those columns once at the source
 # boundary so every downstream mechanism sees one canonical madden_* vocabulary.

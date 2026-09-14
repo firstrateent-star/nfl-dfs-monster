@@ -25,7 +25,11 @@ from monster.sim.snap_ecology import (
 )
 from monster.sim.snap_ecology_v4b import (
     resolve_coverage_assignment as resolve_coverage_assignment_v4b,
+)
+from monster.sim.snap_ecology_v4b import (
     resolve_pass_protection as resolve_pass_protection_v4b,
+)
+from monster.sim.snap_ecology_v4b import (
     resolve_run_snap as resolve_run_snap_v4b,
 )
 

@@ -10,15 +10,18 @@ from monster.sim.pass_resolution_bands_v2 import (
     _sample_between,
     _twenty_to_forty_mean,
 )
-from monster.sim.play_anatomy import ContactResult, RunAnatomy, resolve_run_contact as _base_run_contact
+from monster.sim.play_anatomy import RunAnatomy
+from monster.sim.play_anatomy import resolve_run_contact as _base_run_contact
 from monster.sim.resolution_bands_v2 import (
     _anatomy_from_yards,
-    _resolve_other_run_v2,
     _reshape_run_20plus_tail,
+    _resolve_other_run_v2,
     _sample_routine_run_band_v2,
 )
 from monster.sim.resolution_ecology import (
     resolve_run_ecology as _historical_run_ecology,
+)
+from monster.sim.resolution_ecology import (
     sample_yac as _historical_sample_yac,
 )
 

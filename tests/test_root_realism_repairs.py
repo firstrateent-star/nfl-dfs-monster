@@ -8,8 +8,8 @@ from monster.sim.football_state import FootballState
 from monster.sim.intent_ecology import RunGeometryOutcome
 from monster.sim.matchup_kernel import DefensiveUnit
 from monster.sim.play_kernel import (
-    PlayType,
     PlayerIdentity,
+    PlayType,
     TeamIdentity,
     _field_read_target,
     choose_play_type,
