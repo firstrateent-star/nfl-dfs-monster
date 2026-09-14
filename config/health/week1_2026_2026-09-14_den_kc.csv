@@ -1,0 +1,5 @@
+team_id,display_name,health_availability_probability,health_effectiveness_if_active,health_uncertainty,health_state,health_evidence,health_injury,source_url,as_of_date,notes
+DEN,Bo Nix,1.00,0.98,0.05,cleared_ready,official_injury_report,ankle recovery,https://www.nfl.com/news/nfl-week-1-injury-report-2026-season,2026-09-14,No Week 1 injury designation; cleared to start
+KC,Patrick Mahomes,1.00,0.96,0.10,cleared_return_from_acl_lcl,verified_news,ACL/LCL recovery,https://www.nfl.com/news/chiefs-qb-patrick-mahomes-knee-has-no-injury-status-cleared-for-comeback-monday-night-vs-broncos,2026-09-14,No injury designation and confirmed starter; preserve modest effectiveness uncertainty after multi-ligament recovery
+KC,Josh Simmons,0.00,0.50,0.01,out_week1,official_injury_report,back,https://www.nfl.com/news/nfl-week-1-injury-report-2026-season,2026-09-14,Officially out Week 1
+KC,Chamarri Conner,0.00,0.50,0.01,out_week1,official_injury_report,knee,https://www.nfl.com/news/nfl-week-1-injury-report-2026-season,2026-09-14,Officially out Week 1
