@@ -1,0 +1,166 @@
+name: Reality v6.2 shadow calibration
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - src/monster/sim/reality_v62.py
+      - scripts/run_reality_loop_v62.py
+      - tests/test_reality_v62_role_authority.py
+      - .github/workflows/reality-v62-shadow.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Paired worlds per game
+        required: true
+        default: '50'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091301'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-shadow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: V6.2 focused gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_v62_role_authority.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_reality_loop_v2_play_topology.py
+          tests/test_reality_loop_v2_distribution_bands.py
+          tests/test_reality_loop_v2_pass_resolution_bands.py
+
+      - name: Build current personnel reality
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build health and availability
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: V6.1 paired baseline
+        run: >-
+          uv run python scripts/run_reality_loop_v2_smoke.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '50' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v61-paired
+          --box-out artifacts/v61-paired-box
+
+      - name: V6.2 paired candidate
+        run: >-
+          uv run python scripts/run_reality_loop_v62.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '50' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v62-paired
+          --box-out artifacts/v62-paired-box
+
+      - name: Audit paired score anatomy
+        run: |
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v61-paired --history 2025 --out artifacts/v61-paired
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v62-paired --history 2025 --out artifacts/v62-paired
+
+      - name: Compare v6.1 to v6.2
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          def load(root):
+              root = Path(root)
+              games = pl.read_csv(root / 'game_distributions.csv')
+              players = pl.read_csv(root / 'player_distributions.csv')
+              anatomy = json.loads((root / 'score_anatomy.json').read_text())['model']
+              return games, players, anatomy
+
+          g61, p61, a61 = load('artifacts/v61-paired')
+          g62, p62, a62 = load('artifacts/v62-paired')
+
+          def top_target_concentration(players):
+              receiving = players.filter(pl.col('position').is_in(['RB','WR','TE']))
+              if 'targets_mean' not in receiving.columns:
+                  return None
+              totals = receiving.group_by('game').agg(pl.col('targets_mean').sum().alias('teamish'))
+              tops = receiving.group_by('game').agg(pl.col('targets_mean').max().alias('top'))
+              joined = tops.join(totals, on='game')
+              return float((joined['top'] / joined['teamish'].clip(lower_bound=1e-9)).mean())
+
+          comparison = {
+              'paired_worlds_per_game': int(g62['worlds'][0]),
+              'v61': {
+                  'game_total_mean': float(g61['total_mean'].mean()),
+                  'between_matchup_total_sd': float(g61['total_mean'].std(ddof=1)),
+                  'mean_within_game_total_sd': float(g61['total_sd'].mean()),
+                  'points_per_game': float(a61['points_per_game']),
+                  'turnovers_per_game': float(a61['turnovers_per_game']),
+                  'defensive_tds_per_game': float(a61.get('defensive_tds_per_game', 0.0)),
+                  'special_teams_tds_per_game': float(a61.get('special_teams_tds_per_game', 0.0)),
+                  'top_target_concentration_proxy': top_target_concentration(p61),
+              },
+              'v62': {
+                  'game_total_mean': float(g62['total_mean'].mean()),
+                  'between_matchup_total_sd': float(g62['total_mean'].std(ddof=1)),
+                  'mean_within_game_total_sd': float(g62['total_sd'].mean()),
+                  'points_per_game': float(a62['points_per_game']),
+                  'turnovers_per_game': float(a62['turnovers_per_game']),
+                  'defensive_tds_per_game': float(a62.get('defensive_tds_per_game', 0.0)),
+                  'special_teams_tds_per_game': float(a62.get('special_teams_tds_per_game', 0.0)),
+                  'top_target_concentration_proxy': top_target_concentration(p62),
+              },
+          }
+          Path('artifacts/v62-paired/v62_paired_comparison.json').write_text(json.dumps(comparison, indent=2) + '\n')
+          print(json.dumps(comparison, indent=2))
+
+          # Architecture guard: widen worlds without simply shifting the scoring center wildly.
+          assert comparison['v62']['mean_within_game_total_sd'] >= comparison['v61']['mean_within_game_total_sd'] * 0.95
+          assert abs(comparison['v62']['game_total_mean'] - comparison['v61']['game_total_mean']) <= 6.0
+          PY
+
+      - name: Upload paired calibration
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v62-paired-${{ github.run_id }}
+          path: |
+            artifacts/v61-paired/
+            artifacts/v62-paired/
+          retention-days: 14
