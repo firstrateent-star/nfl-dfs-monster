@@ -1,0 +1,193 @@
+name: Reality v6.3 core fixes
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - src/monster/sim/reality_v63.py
+      - scripts/run_reality_loop_v63.py
+      - scripts/audit_role_snap_opportunity_v63.py
+      - tests/test_reality_v63_core_fixes.py
+      - .github/workflows/reality-v63-core-fixes.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Paired worlds per game
+        required: true
+        default: '25'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091301'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-core-fixes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: V6.3 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_v63_core_fixes.py
+          tests/test_reality_v62_role_authority.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_reality_loop_v2_play_topology.py
+          tests/test_reality_loop_v2_distribution_bands.py
+          tests/test_reality_loop_v2_pass_resolution_bands.py
+
+      - name: Build current personnel reality
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build health and availability
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: V6.2 paired control
+        run: >-
+          uv run python scripts/run_reality_loop_v62.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '25' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v62-control
+          --box-out artifacts/v62-control-box
+
+      - name: V6.3 paired candidate
+        run: >-
+          uv run python scripts/run_reality_loop_v63.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '25' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v63-candidate
+          --box-out artifacts/v63-candidate-box
+
+      - name: Audit role to snap to opportunity
+        run: |
+          uv run python scripts/audit_role_snap_opportunity_v63.py --simulation artifacts/v62-control
+          uv run python scripts/audit_role_snap_opportunity_v63.py --simulation artifacts/v63-candidate
+
+      - name: Audit score anatomy
+        run: |
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v62-control --history 2025 --out artifacts/v62-control
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v63-candidate --history 2025 --out artifacts/v63-candidate
+
+      - name: Compare all three core problems
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          def load(root):
+              root = Path(root)
+              games = pl.read_csv(root / 'game_distributions.csv')
+              worlds = pl.read_csv(root / 'football_weirdness_worlds.csv').with_columns(
+                  (pl.col('away_points') + pl.col('home_points')).alias('total_points')
+              )
+              anatomy = json.loads((root / 'score_anatomy.json').read_text())['model']
+              role = json.loads((root / 'role_snap_opportunity_summary_v63.json').read_text())
+              return games, worlds, anatomy, role
+
+          g62, w62, a62, r62 = load('artifacts/v62-control')
+          g63, w63, a63, r63 = load('artifacts/v63-candidate')
+
+          def tail_metrics(worlds):
+              totals = worlds.get_column('total_points')
+              per_game = worlds.group_by('game').agg(
+                  pl.col('total_points').std(ddof=1).alias('total_sd')
+              )
+              return {
+                  'overall_sd': float(totals.std(ddof=1)),
+                  'mean_within_game_sd': float(per_game['total_sd'].mean()),
+                  'p90': float(totals.quantile(0.90)),
+                  'p95': float(totals.quantile(0.95)),
+                  'p99': float(totals.quantile(0.99)),
+                  'max': float(totals.max()),
+                  '70_plus_rate': float((totals >= 70).mean()),
+                  '80_plus_rate': float((totals >= 80).mean()),
+                  '30_or_less_rate': float((totals <= 30).mean()),
+              }
+
+          def view(games, worlds, anatomy, role):
+              return {
+                  'game_total_mean': float(games['total_mean'].mean()),
+                  'between_matchup_total_sd': float(games['total_mean'].std(ddof=1)),
+                  'points_per_game': float(anatomy['points_per_game']),
+                  'turnovers_per_game': float(anatomy['turnovers_per_game']),
+                  'defensive_tds_per_game': float(anatomy.get('defensive_touchdowns_per_game', 0.0)),
+                  'special_teams_tds_per_game': float(anatomy.get('special_teams_touchdowns_per_game', 0.0)),
+                  'non_offensive_tds_per_game': float(anatomy.get('non_offensive_touchdowns_per_game', 0.0)),
+                  'explosive_40_per_game': float(anatomy.get('explosive_40_per_game', 0.0)),
+                  'core_rb_rush_plan_actual_mae': float(role['core_rb_rush_plan_actual_mae']),
+                  'core_rb_run_snap_participation_mean': float(role['core_rb_run_snap_participation_mean']),
+                  'core_rb_carry_given_present_mean': float(role['core_rb_carry_given_present_mean']),
+                  **tail_metrics(worlds),
+              }
+
+          comparison = {
+              'paired_worlds_per_game': int(g63['worlds'][0]),
+              'seed': '${{ github.event.inputs.seed || '2026091301' }}',
+              'v62': view(g62, w62, a62, r62),
+              'v63': view(g63, w63, a63, r63),
+          }
+          comparison['change'] = {
+              'core_rb_mae_ratio': comparison['v63']['core_rb_rush_plan_actual_mae'] / max(comparison['v62']['core_rb_rush_plan_actual_mae'], 1e-9),
+              'within_game_sd_ratio': comparison['v63']['mean_within_game_sd'] / max(comparison['v62']['mean_within_game_sd'], 1e-9),
+              'non_off_td_ratio': comparison['v63']['non_offensive_tds_per_game'] / max(comparison['v62']['non_offensive_tds_per_game'], 1e-9),
+              '70_plus_rate_delta': comparison['v63']['70_plus_rate'] - comparison['v62']['70_plus_rate'],
+              'score_center_delta': comparison['v63']['game_total_mean'] - comparison['v62']['game_total_mean'],
+          }
+          Path('artifacts/v63-candidate/v63_core_comparison.json').write_text(
+              json.dumps(comparison, indent=2) + '\n'
+          )
+          print(json.dumps(comparison, indent=2))
+
+          # Safety guards only. Promotion requires reading all three mechanisms together.
+          assert abs(comparison['change']['score_center_delta']) <= 8.0
+          assert comparison['change']['core_rb_mae_ratio'] <= 1.05
+          assert comparison['change']['within_game_sd_ratio'] >= 0.85
+          PY
+
+      - name: Upload v6.3 paired evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v63-core-fixes-${{ github.run_id }}
+          path: |
+            artifacts/v62-control/
+            artifacts/v63-candidate/
+          retention-days: 14
