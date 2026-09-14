@@ -42,28 +42,44 @@ def _return_stats(
     mean_default: float,
     sd_default: float,
     zero_default: float,
+    twenty_default: float,
     forty_default: float,
-) -> tuple[float, float, float, float, int]:
+    sixty_default: float,
+    eighty_default: float,
+) -> tuple[float, float, float, float, float, float, float, int]:
+    defaults = (
+        mean_default,
+        sd_default,
+        zero_default,
+        twenty_default,
+        forty_default,
+        sixty_default,
+        eighty_default,
+        0,
+    )
     if not frame.height or "return_yards" not in frame.columns:
-        return mean_default, sd_default, zero_default, forty_default, 0
+        return defaults
     yards = frame.filter(pl.col("return_yards").is_not_null())
     if not yards.height:
-        return mean_default, sd_default, zero_default, forty_default, 0
+        return defaults
     return (
         _mean(yards, "return_yards", mean_default),
         _sd(yards, "return_yards", sd_default),
         _rate(yards, pl.col("return_yards") <= 0.0, zero_default),
+        _rate(yards, pl.col("return_yards") >= 20.0, twenty_default),
         _rate(yards, pl.col("return_yards") >= 40.0, forty_default),
+        _rate(yards, pl.col("return_yards") >= 60.0, sixty_default),
+        _rate(yards, pl.col("return_yards") >= 80.0, eighty_default),
         yards.height,
     )
 
 
 def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
-    """Compile league-level rare-event and return priors from historical NFL play-by-play.
+    """Compile rare-event and return-distance priors from historical NFL play-by-play.
 
-    The compiler is deliberately tolerant of provider-column drift. Missing optional fields
-    leave the corresponding runtime default intact rather than manufacturing a zero. That
-    keeps the model usable while preserving a clean seam for richer return/recovery evidence.
+    Return tails are represented as 20+/40+/60+/80+ yard survivor rates rather than touchdown
+    rates. Runtime still has to place the turnover/return on the field and physically cover the
+    remaining distance to score. Missing provider fields retain safe runtime defaults.
     """
     d = DEFAULT_CHAOS_ECOLOGY
     interception = (
@@ -87,33 +103,45 @@ def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
         else pl.DataFrame()
     )
 
-    int_mean, int_sd, int_zero, int_40, int_rows = _return_stats(
+    int_mean, int_sd, int_zero, int_20, int_40, int_60, int_80, int_rows = _return_stats(
         interception,
         mean_default=d.interception_return_mean,
         sd_default=d.interception_return_sd,
         zero_default=d.interception_zero_return_rate,
+        twenty_default=d.interception_20_plus_rate,
         forty_default=d.interception_40_plus_rate,
+        sixty_default=d.interception_60_plus_rate,
+        eighty_default=d.interception_80_plus_rate,
     )
-    fum_mean, fum_sd, fum_zero, fum_40, fum_rows = _return_stats(
+    fum_mean, fum_sd, fum_zero, fum_20, fum_40, fum_60, fum_80, fum_rows = _return_stats(
         fumble,
         mean_default=d.fumble_return_mean,
         sd_default=d.fumble_return_sd,
         zero_default=d.fumble_zero_return_rate,
+        twenty_default=d.fumble_20_plus_rate,
         forty_default=d.fumble_40_plus_rate,
+        sixty_default=d.fumble_60_plus_rate,
+        eighty_default=d.fumble_80_plus_rate,
     )
-    punt_mean, punt_sd, punt_zero, punt_40, punt_rows = _return_stats(
+    punt_mean, punt_sd, punt_zero, punt_20, punt_40, punt_60, punt_80, punt_rows = _return_stats(
         punt,
         mean_default=d.punt_return_mean,
         sd_default=d.punt_return_sd,
         zero_default=d.punt_zero_return_rate,
+        twenty_default=d.punt_20_plus_rate,
         forty_default=d.punt_40_plus_rate,
+        sixty_default=d.punt_60_plus_rate,
+        eighty_default=d.punt_80_plus_rate,
     )
-    kick_mean, kick_sd, _, kick_40, kick_rows = _return_stats(
+    kick_mean, kick_sd, _, kick_20, kick_40, kick_60, kick_80, kick_rows = _return_stats(
         kickoff,
         mean_default=d.kickoff_return_mean,
         sd_default=d.kickoff_return_sd,
         zero_default=0.0,
+        twenty_default=d.kickoff_20_plus_rate,
         forty_default=d.kickoff_40_plus_rate,
+        sixty_default=d.kickoff_60_plus_rate,
+        eighty_default=d.kickoff_80_plus_rate,
     )
 
     punt_blocked = d.blocked_punt_rate
@@ -133,8 +161,6 @@ def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
             fg_blocked,
         )
 
-    # A return_yards null/zero kickoff is only a loose proxy for a touchback because provider
-    # conventions differ; use it only when explicit kickoff rows provide enough evidence.
     touchback = d.kickoff_touchback_rate
     if kickoff.height and "return_yards" in kickoff.columns:
         returned = kickoff.get_column("return_yards").is_not_null()
@@ -146,21 +172,33 @@ def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
                 "interception_zero_return_rate": int_zero,
                 "interception_return_mean": int_mean,
                 "interception_return_sd": int_sd,
+                "interception_20_plus_rate": int_20,
                 "interception_40_plus_rate": int_40,
+                "interception_60_plus_rate": int_60,
+                "interception_80_plus_rate": int_80,
                 "interception_return_rows": int_rows,
                 "fumble_zero_return_rate": fum_zero,
                 "fumble_return_mean": fum_mean,
                 "fumble_return_sd": fum_sd,
+                "fumble_20_plus_rate": fum_20,
                 "fumble_40_plus_rate": fum_40,
+                "fumble_60_plus_rate": fum_60,
+                "fumble_80_plus_rate": fum_80,
                 "fumble_return_rows": fum_rows,
                 "punt_zero_return_rate": punt_zero,
                 "punt_return_mean": punt_mean,
                 "punt_return_sd": punt_sd,
+                "punt_20_plus_rate": punt_20,
                 "punt_40_plus_rate": punt_40,
+                "punt_60_plus_rate": punt_60,
+                "punt_80_plus_rate": punt_80,
                 "punt_return_rows": punt_rows,
                 "kickoff_return_mean": kick_mean,
                 "kickoff_return_sd": kick_sd,
+                "kickoff_20_plus_rate": kick_20,
                 "kickoff_40_plus_rate": kick_40,
+                "kickoff_60_plus_rate": kick_60,
+                "kickoff_80_plus_rate": kick_80,
                 "kickoff_return_rows": kick_rows,
                 "punt_muff_rate": d.punt_muff_rate,
                 "punt_muff_kicking_recovery_rate": d.punt_muff_kicking_recovery_rate,
