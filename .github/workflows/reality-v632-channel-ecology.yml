@@ -1,0 +1,179 @@
+name: Reality v6.3.2 channel ecology
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - src/monster/sim/return_channels_v632.py
+      - src/monster/feature_compile/chaos_priors.py
+      - src/monster/ingest/nflverse.py
+      - scripts/run_reality_loop_v632.py
+      - tests/test_return_channels_v632.py
+      - .github/workflows/reality-v632-channel-ecology.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Paired worlds per game
+        required: true
+        default: '25'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091301'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-channel-ecology:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: V6.3.2 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_return_channels_v632.py
+          tests/test_reality_v63_core_fixes.py
+          tests/test_reality_v62_role_authority.py
+          tests/test_player_duel_authority_v6.py
+
+      - name: Build current personnel reality
+        run: >-
+          uv run python scripts/build_league_baseline_enriched.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+
+      - name: Build historical football priors
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build health and availability
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Protected V6.3 control
+        run: >-
+          uv run python scripts/run_reality_loop_v63.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '25' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v63-control
+          --box-out artifacts/v63-control-box
+
+      - name: V6.3.2 channel candidate
+        run: >-
+          uv run python scripts/run_reality_loop_v632.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds ${{ github.event.inputs.worlds || '25' }}
+          --seed ${{ github.event.inputs.seed || '2026091301' }}
+          --progress-every 100
+          --first-out artifacts/v632-candidate
+          --box-out artifacts/v632-candidate-box
+
+      - name: Audit score anatomy
+        run: |
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v63-control --history 2025 --out artifacts/v63-control
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/v632-candidate --history 2025 --out artifacts/v632-candidate
+
+      - name: Compare channel ecology
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import polars as pl
+
+          HIST_NON_OFF = 0.27205882352941174
+
+          def load(root):
+              root = Path(root)
+              games = pl.read_csv(root / 'game_distributions.csv')
+              worlds = pl.read_csv(root / 'football_weirdness_worlds.csv').with_columns(
+                  (pl.col('away_points') + pl.col('home_points')).alias('total_points')
+              )
+              anatomy = json.loads((root / 'score_anatomy.json').read_text())['model']
+              channel_path = root / 'return_channel_telemetry_v632.json'
+              channel = json.loads(channel_path.read_text()) if channel_path.exists() else None
+              return games, worlds, anatomy, channel
+
+          def view(games, worlds, anatomy, channel):
+              totals = worlds['total_points']
+              per_game = worlds.group_by('game').agg(pl.col('total_points').std(ddof=1).alias('sd'))
+              non_off = float(anatomy['non_offensive_touchdowns_per_game'])
+              return {
+                  'game_total_mean': float(games['total_mean'].mean()),
+                  'within_game_sd': float(per_game['sd'].mean()),
+                  'p95': float(totals.quantile(0.95)),
+                  'p99': float(totals.quantile(0.99)),
+                  '70_plus_rate': float((totals >= 70).mean()),
+                  'turnovers_per_game': float(anatomy['turnovers_per_game']),
+                  'offensive_tds_per_game': float(anatomy['offensive_touchdowns_per_game']),
+                  'defensive_tds_per_game': float(anatomy['defensive_touchdowns_per_game']),
+                  'special_teams_tds_per_game': float(anatomy['special_teams_touchdowns_per_game']),
+                  'non_offensive_tds_per_game': non_off,
+                  'non_offensive_td_abs_error': abs(non_off - HIST_NON_OFF),
+                  'channel_telemetry': channel,
+              }
+
+          g63, w63, a63, c63 = load('artifacts/v63-control')
+          g632, w632, a632, c632 = load('artifacts/v632-candidate')
+          control = view(g63, w63, a63, c63)
+          candidate = view(g632, w632, a632, c632)
+          comparison = {
+              'worlds_per_game': int(g632['worlds'][0]),
+              'seed': '${{ github.event.inputs.seed || '2026091301' }}',
+              'historical_non_offensive_tds_per_game': HIST_NON_OFF,
+              'v63': control,
+              'v632': candidate,
+              'change': {
+                  'non_offensive_td_delta': candidate['non_offensive_tds_per_game'] - control['non_offensive_tds_per_game'],
+                  'non_offensive_abs_error_delta': candidate['non_offensive_td_abs_error'] - control['non_offensive_td_abs_error'],
+                  'score_center_delta': candidate['game_total_mean'] - control['game_total_mean'],
+                  'within_game_sd_ratio': candidate['within_game_sd'] / max(control['within_game_sd'], 1e-9),
+                  'turnover_delta': candidate['turnovers_per_game'] - control['turnovers_per_game'],
+              },
+          }
+          Path('artifacts/v632-candidate/v632_channel_comparison.json').write_text(
+              json.dumps(comparison, indent=2) + '\n'
+          )
+          print(json.dumps(comparison, indent=2))
+
+          # Safety gates. Promotion still requires reading the football anatomy, not just passing asserts.
+          assert abs(comparison['change']['score_center_delta']) <= 5.0
+          assert comparison['change']['within_game_sd_ratio'] >= 0.85
+          assert abs(comparison['change']['turnover_delta']) <= 0.50
+          PY
+
+      - name: Upload v6.3.2 paired evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v632-channel-ecology-${{ github.run_id }}
+          path: |
+            artifacts/v63-control/
+            artifacts/v632-candidate/
+            artifacts/league-policy/chaos_ecology.parquet
+          retention-days: 14
