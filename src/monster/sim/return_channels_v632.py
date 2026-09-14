@@ -72,7 +72,10 @@ def _number(row: Mapping[str, object], key: str, default: float) -> float:
 def _profile_from_row(
     row: Mapping[str, object], prefix: str, default: ReturnDistanceProfileV632
 ) -> ReturnDistanceProfileV632:
-    zero = float(np.clip(_number(row, f"{prefix}_zero_return_rate", default.zero_rate), 0.0, 0.995))
+    zero_key = f"{prefix}_zero_return_rate"
+    if zero_key not in row:
+        zero_key = f"{prefix}_return_zero_rate"
+    zero = float(np.clip(_number(row, zero_key, default.zero_rate), 0.0, 0.995))
     p20 = float(np.clip(_number(row, f"{prefix}_20_plus_rate", default.p20), 0.0, 1.0 - zero))
     p40 = float(np.clip(_number(row, f"{prefix}_40_plus_rate", default.p40), 0.0, p20))
     p60 = float(np.clip(_number(row, f"{prefix}_60_plus_rate", default.p60), 0.0, p40))
