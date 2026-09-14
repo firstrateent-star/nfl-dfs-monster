@@ -15,6 +15,7 @@ from monster.feature_compile.play_intent import (
     compile_run_intent_policy,
 )
 from monster.feature_compile.player import compile_player_usage
+from monster.feature_compile.return_geometry_v633 import compile_return_geometry_v633
 from monster.feature_compile.situation import compile_situational_pass_context
 from monster.feature_compile.team import compile_team_policy
 from monster.ingest.nflverse import PBP_COLUMNS, configure_cache
@@ -59,6 +60,8 @@ def main() -> None:
     ol_outcomes = compile_historical_ol_outcomes(pbp)
     player_usage = compile_player_usage(pbp)
     chaos_ecology = compile_chaos_ecology(pbp)
+    return_geometry = compile_return_geometry_v633(pbp)
+    chaos_ecology = pl.concat([chaos_ecology, return_geometry], how="horizontal")
     canonical = pl.DataFrame({"team_id": list(NFL_TEAMS)})
     policy = canonical.join(policy, on="team_id", how="left").sort("team_id")
     ol_outcomes = canonical.join(ol_outcomes, on="team_id", how="left").sort("team_id")
@@ -116,6 +119,12 @@ def main() -> None:
         "chaos_fumble_return_rows": chaos_row["fumble_return_rows"],
         "chaos_punt_return_rows": chaos_row["punt_return_rows"],
         "chaos_kickoff_return_rows": chaos_row["kickoff_return_rows"],
+        "v633_return_geometry_compiled": True,
+        "v633_kickoff_landing_rows": chaos_row.get("v633_kickoff_landing_rows", 0),
+        "v633_kickoff_landing_mean": chaos_row.get("v633_kickoff_landing_mean"),
+        "v633_kickoff_returned_drive_start_mean": chaos_row.get(
+            "v633_kickoff_returned_drive_start_mean"
+        ),
         "teams_missing_observed_games": missing,
         "teams_missing_ol_outcome_prior": ol_missing,
         "market_blind": True,
