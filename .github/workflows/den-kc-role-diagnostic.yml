@@ -1,0 +1,75 @@
+name: DEN-KC role diagnostic
+
+on:
+  push:
+    branches: [work/reality-loop-v2-test]
+    paths:
+      - .github/workflows/den-kc-role-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - run: >-
+          uv run python scripts/build_league_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/league-baseline
+      - run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025
+          --out artifacts/league-policy
+      - run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/league-baseline/league_personnel.parquet
+          --injuries artifacts/league-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-14_den_kc.csv
+          --season 2026
+          --out artifacts/den-kc-health
+      - name: Print role construction
+        run: |
+          uv run python - <<'PY'
+          import numpy as np
+          import polars as pl
+          from monster.feature_compile.skill_pools import compile_current_skill_pools
+          from monster.sim.reality_v62 import receiver_candidate_ids, sample_target_share_plan
+
+          personnel=pl.read_parquet('artifacts/den-kc-health/health_personnel.parquet')
+          usage=pl.read_parquet('artifacts/league-policy/player_usage.parquet')
+          policy=pl.read_parquet('artifacts/league-policy/team_policy.parquet')
+
+          cols=[c for c in [
+              'team_id','display_name','position','status','depth_rank','depth_role','snap_games_observed',
+              'offense_snap_share','conditional_offense_snap_share','projected_offense_snap_share',
+              'changed_team_since_snap_history','game_day_active_probability','participation_uncertainty',
+              'participation_evidence'] if c in personnel.columns]
+          print('\n--- CURRENT DEN/KC SKILL PERSONNEL ---')
+          print(personnel.filter(pl.col('team_id').is_in(['DEN','KC']) & pl.col('position').is_in(['QB','RB','WR','TE'])).select(cols).sort(['team_id','position','depth_rank','display_name']))
+
+          pools=compile_current_skill_pools(personnel, usage, policy=policy)
+          for team in ['DEN','KC']:
+              pool=pools[team]
+              print(f'\n--- {team} PLAYER POOL ---')
+              for p in sorted(pool.players, key=lambda x:(x.position,-x.target_share,x.display_name)):
+                  print(p.display_name, p.position, 'id=',p.player_id,'target_share=',round(p.target_share,5),'active=',round(p.active_probability,4),'unc=',round(p.role_uncertainty,4))
+              ids=set(receiver_candidate_ids(pool))
+              print('candidate_ids=',ids)
+              print('candidates=',[(p.display_name,round(p.target_share,5)) for p in pool.players if p.player_id in ids])
+              rng=np.random.default_rng(9917)
+              accum={p.player_id:[] for p in pool.players}
+              for _ in range(2000):
+                  plan=sample_target_share_plan(pool,rng=rng)
+                  for p in pool.players:
+                      accum[p.player_id].append(plan.get(p.player_id,0.0))
+              print('role_worlds=')
+              for p in sorted(pool.players,key=lambda x:-np.mean(accum[x.player_id])):
+                  a=np.asarray(accum[p.player_id])
+                  print(p.display_name,'mean=',round(float(a.mean()),5),'participation=',round(float((a>0).mean()),4))
+          PY
