@@ -73,3 +73,52 @@ def test_game_audit_distribution_metrics(tmp_path: Path) -> None:
     assert summary["game_total_mae"] == 0.0
     assert summary["team_points_mae"] == 0.0
     assert summary["mean_within_game_total_sd"] > 0
+
+
+def test_role_audit_uses_full_reality_denominator_and_penalizes_omissions(tmp_path: Path) -> None:
+    sim = tmp_path / "sim"
+    sim.mkdir()
+    plans = [{
+        "game": "A@B",
+        "team": "A",
+        "player_id": "p1",
+        "player": "Modeled Back",
+        "position": "RB",
+        "base_rush_share": 1.0,
+        "active_probability": 1.0,
+        "plan_share_mean": 1.0,
+    }]
+    with (sim / "rushing_role_plan_audit.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=plans[0].keys())
+        w.writeheader()
+        w.writerows(plans)
+
+    truth_path = tmp_path / "truth.csv"
+    truth_rows = [
+        {
+            "game": "A@B", "team": "A", "player_id": "p1",
+            "player_name": "Modeled Back", "position": "RB",
+            "carries": 6, "targets": 0,
+        },
+        {
+            "game": "A@B", "team": "A", "player_id": "p2",
+            "player_name": "Unexpected Back", "position": "RB",
+            "carries": 4, "targets": 0,
+        },
+    ]
+    with truth_path.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=truth_rows[0].keys())
+        w.writeheader()
+        w.writerows(truth_rows)
+
+    rows, summary = audit._role_audit(sim, truth_path)
+    rush = {r["player_id"]: r for r in rows if r["role_type"] == "rush"}
+
+    assert rush["p1"]["actual_share"] == 0.6
+    assert rush["p2"]["actual_share"] == 0.4
+    assert rush["p2"]["plan_share_mean"] == 0.0
+    assert rush["p2"]["modeled"] is False
+    assert abs(summary["rush_active_player_share_mae"] - 0.4) < 1e-12
+    assert summary["rush_unmodeled_actual_players"] == 1
+    assert summary["rush_unmodeled_actual_opportunities"] == 4.0
+    assert abs(summary["rush_team_share_tvd_mean"] - 0.4) < 1e-12
