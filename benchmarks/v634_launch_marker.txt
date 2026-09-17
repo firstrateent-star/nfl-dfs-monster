@@ -1,0 +1,7 @@
+v6.3.4 Matchup Identity Authority paired Week 1 shadow
+control=5fd1e5b9cc664046efe5f6cf40231a14dc64e5ff
+challenger=work/v634-matchup-identity-authority
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+truth_consumed_after_simulation_only=true
+promotion=forbidden_without_review
