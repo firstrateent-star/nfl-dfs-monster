@@ -1,0 +1,252 @@
+name: Week 1 v6.3 Reality Benchmark
+
+on:
+  push:
+    branches: [work/week1-reality-benchmark-v1]
+    paths:
+      - benchmarks/**
+      - scripts/build_week1_2026_player_truth.py
+      - scripts/build_week1_2026_pregame_baseline.py
+      - scripts/audit_week1_reality_benchmark.py
+      - tests/test_week1_reality_benchmark.py
+      - .github/workflows/week1-v63-reality-benchmark.yml
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Worlds per game for protected v6.3 replay
+        required: true
+        default: '1200'
+      seed:
+        description: Deterministic benchmark seed
+        required: true
+        default: '2026091301'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-frozen-v63-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@v4
+
+      - name: Download frozen validated v6.3 evidence
+        run: >-
+          gh run download 34895913569
+          --name monster-v63-core-fixes-34895913569
+          --dir artifacts/frozen-v63
+
+      - name: Download finalized Week-1 player truth
+        run: >-
+          curl --fail --location --retry 3
+          --output artifacts/stats_player_regpost_2026.csv
+          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_regpost_2026.csv
+
+      - name: Normalize Week-1 player truth
+        run: >-
+          python scripts/build_week1_2026_player_truth.py
+          --stats artifacts/stats_player_regpost_2026.csv
+          --games benchmarks/week1_2026_sunday_games.csv
+          --out artifacts/truth
+
+      - name: Grade frozen 25-world validated v6.3 evidence
+        run: >-
+          python scripts/audit_week1_reality_benchmark.py
+          --simulation artifacts/frozen-v63/v63-candidate
+          --games benchmarks/week1_2026_sunday_games.csv
+          --player-truth artifacts/truth/week1_2026_player_truth.csv
+          --out artifacts/frozen-v63-reality
+          --label frozen-v63-validation-evidence-25-worlds
+
+      - name: Mark evidence class
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/frozen-v63-reality/evidence_classification.json")
+          p.write_text(json.dumps({
+              "classification": "A1_frozen_postgame_validation_evidence_not_prelock_prediction",
+              "source_run": 34895913569,
+              "source_sha": "5fd1e5b9cc664046efe5f6cf40231a14dc64e5ff",
+              "worlds_per_game": 25,
+              "purpose": "Harness verification and preserved architectural evidence; not a Monte Carlo-stable final replay."
+          }, indent=2) + "\n")
+          PY
+
+      - name: Upload frozen-evidence audit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-week1-frozen-v63-audit-${{ github.run_id }}
+          path: |
+            artifacts/truth/
+            artifacts/frozen-v63-reality/
+          retention-days: 30
+
+  protected-v63-week1-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      BASELINE_SHA: 5fd1e5b9cc664046efe5f6cf40231a14dc64e5ff
+      WORLDS: ${{ github.event.inputs.worlds || '1200' }}
+      SEED: ${{ github.event.inputs.seed || '2026091301' }}
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@v4
+        with:
+          path: benchmark
+
+      - name: Checkout protected v6.3 code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: baseline
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install protected baseline dependencies
+        working-directory: baseline
+        run: uv sync --extra dev
+
+      - name: Benchmark math and anti-regression tests
+        working-directory: baseline
+        run: uv run pytest -q ../benchmark/tests/test_week1_reality_benchmark.py
+
+      - name: Protected v6.3 causal gates
+        working-directory: baseline
+        run: >-
+          uv run pytest -q
+          tests/test_reality_v63_core_fixes.py
+          tests/test_reality_v62_role_authority.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_reality_loop_v2_play_topology.py
+          tests/test_reality_loop_v2_distribution_bands.py
+          tests/test_reality_loop_v2_pass_resolution_bands.py
+
+      - name: Build pre-Week-1 personnel freeze
+        working-directory: baseline
+        run: >-
+          uv run python ../benchmark/scripts/build_week1_2026_pregame_baseline.py
+          --season 2026 --history 2025 --recent-games 6
+          --out artifacts/week1-pregame-baseline
+
+      - name: Build historical football priors
+        working-directory: baseline
+        run: |
+          uv run python scripts/build_league_policy.py --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py --history 2024 --out artifacts/league-policy-2024
+
+      - name: Build Week-1 health and availability
+        working-directory: baseline
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week1-pregame-baseline/league_personnel.parquet
+          --injuries artifacts/week1-pregame-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026 --out artifacts/week1-health
+
+      - name: Compile continuity-conditioned team policy
+        working-directory: baseline
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/league-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --out artifacts/continuity-policy
+
+      - name: Run protected v6.3 Week-1 replay
+        working-directory: baseline
+        run: >-
+          uv run python scripts/run_reality_loop_v63.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 100
+          --first-out artifacts/week1-v63-replay
+          --box-out artifacts/week1-v63-replay-box
+
+      - name: Audit role-snap-opportunity and score anatomy
+        working-directory: baseline
+        run: |
+          uv run python scripts/audit_role_snap_opportunity_v63.py --simulation artifacts/week1-v63-replay
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py --simulation artifacts/week1-v63-replay --history 2025 --out artifacts/week1-v63-replay
+
+      - name: Download finalized Week-1 player truth
+        working-directory: benchmark
+        run: >-
+          curl --fail --location --retry 3
+          --output artifacts/stats_player_regpost_2026.csv
+          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_regpost_2026.csv
+
+      - name: Normalize and freeze Week-1 player truth in artifact
+        working-directory: benchmark
+        run: >-
+          python scripts/build_week1_2026_player_truth.py
+          --stats artifacts/stats_player_regpost_2026.csv
+          --games benchmarks/week1_2026_sunday_games.csv
+          --out artifacts/truth
+
+      - name: Grade protected v6.3 against reality
+        working-directory: benchmark
+        run: >-
+          python scripts/audit_week1_reality_benchmark.py
+          --simulation ../baseline/artifacts/week1-v63-replay
+          --games benchmarks/week1_2026_sunday_games.csv
+          --player-truth artifacts/truth/week1_2026_player_truth.csv
+          --out artifacts/week1-v63-reality
+          --label protected-v63-week1-replay
+
+      - name: Preserve protected-code and input provenance
+        working-directory: benchmark
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = {
+              "protected_v63_sha": os.environ["BASELINE_SHA"],
+              "benchmark_harness_sha": os.environ.get("GITHUB_SHA"),
+              "worlds_per_game_requested": int(os.environ["WORLDS"]),
+              "seed": int(os.environ["SEED"]),
+              "classification": "A1_retrospective_architecture_replay_not_prelock_prediction",
+              "anti_leakage": {
+                  "2026_regular_season_snap_counts": "forced_empty",
+                  "rosters": "week<=1",
+                  "depth_chart": "date<=2026-09-13",
+                  "injuries": "week<=1 and date<=2026-09-13 when available",
+                  "madden_mirror_commit": "ad0350f3b47b5559f2b2580dab9d9403acd4f4d0",
+                  "truth_read_stage": "post-simulation audit only"
+              }
+          }
+          p = Path("artifacts/week1-v63-reality/replay_provenance.json")
+          p.write_text(json.dumps(payload, indent=2) + "\n")
+          print(json.dumps(payload, indent=2))
+          PY
+
+      - name: Upload permanent Week-1 benchmark evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-week1-v63-reality-${{ github.run_id }}
+          path: |
+            benchmark/artifacts/truth/
+            benchmark/artifacts/week1-v63-reality/
+            baseline/artifacts/week1-pregame-baseline/manifest.json
+            baseline/artifacts/week1-health/manifest.json
+            baseline/artifacts/week1-v63-replay/manifest.json
+            baseline/artifacts/week1-v63-replay/game_distributions.csv
+            baseline/artifacts/week1-v63-replay/player_distributions.csv
+            baseline/artifacts/week1-v63-replay/player_world_fanduel.csv
+            baseline/artifacts/week1-v63-replay/football_weirdness_worlds.csv
+            baseline/artifacts/week1-v63-replay/rushing_role_plan_audit.csv
+            baseline/artifacts/week1-v63-replay/target_role_plan_audit_v63.csv
+            baseline/artifacts/week1-v63-replay/role_snap_opportunity_audit_v63.csv
+            baseline/artifacts/week1-v63-replay/score_anatomy.json
+          retention-days: 30
