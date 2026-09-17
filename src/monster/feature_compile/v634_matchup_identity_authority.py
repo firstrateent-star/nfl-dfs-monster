@@ -48,6 +48,8 @@ class MatchupIdentityTraceV634:
     mean_receiver_efficiency: float
     mean_receiver_route_skill: float
     neutral_pass_rate: float
+    situational_pass_rate_sd: float
+    situational_pass_rate_range: float
     rich_players: int
     players_with_capability_evidence: int
 
@@ -201,6 +203,19 @@ def apply_matchup_identity_authority_v634(
             else 0.0
         ),
         neutral_pass_rate=float(identity.neutral_pass_rate),
+        situational_pass_rate_sd=(
+            float(np.std(np.asarray(identity.situational_pass_rates, dtype=float), ddof=0))
+            if identity.situational_pass_rates
+            else 0.0
+        ),
+        situational_pass_rate_range=(
+            float(
+                max(identity.situational_pass_rates)
+                - min(identity.situational_pass_rates)
+            )
+            if identity.situational_pass_rates
+            else 0.0
+        ),
         rich_players=len(compiled),
         players_with_capability_evidence=evidence_count,
     )
