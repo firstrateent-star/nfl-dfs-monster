@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 from monster.feature_compile.mechanisms import PlayerMechanismInputs
 from monster.feature_compile.units import UnitPlayerInputs
 from monster.feature_compile.v634_matchup_identity_authority import (
