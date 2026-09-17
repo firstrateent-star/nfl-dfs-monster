@@ -116,6 +116,21 @@ def _record_v634_manifest(out: Path) -> None:
             "direct_fantasy_adjustment": False,
             "market_inputs_used_for_football": False,
             "promotion_status": "SHADOW_NOT_PROMOTED",
+            "runtime_authority_map_v634": {
+                "availability_and_current_starter_truth": "current_role_guard_v63",
+                "historical_opportunity_hierarchy": "reality_v62 role world",
+                "player_capability_compile": "v13_identity_bridge + v634_matchup_identity_authority",
+                "offensive_team_identity": "v634_matchup_identity_authority",
+                "personnel_and_snap_world": "reality_snap_v5",
+                "pass_protection_1v1": "snap_ecology_v4b",
+                "receiver_coverage_1v1": "snap_ecology_v4b + matchup_kernel",
+                "qb_read": "snap_ecology resolve_qb_read",
+                "run_lane_and_front_fit": "snap_ecology_v4b + matchup_kernel",
+                "coaching_and_play_intent": "intent_ecology + game_flow_policy",
+                "persistent_game_environment": "reality_v63",
+                "scoreboard": "game_loop_v13 event-derived only",
+                "fantasy_scoring": "downstream same-world accounting only",
+            },
             "v634_principle": (
                 "Randomness chooses among plausible football worlds; current player, unit, "
                 "scheme and matchup identity determine which worlds are plausible. Current "
