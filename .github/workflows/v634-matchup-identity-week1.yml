@@ -1,0 +1,230 @@
+name: v6.3.4 Matchup Identity Paired Week 1
+
+on:
+  push:
+    branches: [work/v634-matchup-identity-authority]
+    paths:
+      - benchmarks/v634_launch_marker.txt
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Worlds per game for each paired arm
+        required: true
+        default: '300'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091701'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  mechanism-sensitivity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout v6.3.4 shadow
+        uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run identity and role authority gates
+        run: >-
+          uv run pytest -q
+          tests/test_matchup_identity_authority_v634.py
+          tests/test_current_role_guard_v63.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_reality_loop_v2_identity_authority.py
+          tests/test_v13_identity_authority.py
+
+      - name: Run controlled response-curve lab
+        run: >-
+          uv run python scripts/audit_matchup_identity_sensitivity_v634.py
+          --out artifacts/v634-sensitivity
+
+      - name: Require monotonic mechanism response
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/v634-sensitivity/matchup_identity_sensitivity_v634.json")
+          report = json.loads(p.read_text())
+          if not report["all_monotonicity_checks_pass"]:
+              raise SystemExit(f"non-monotonic authority response: {report['monotonicity']}")
+          spans = report["spans"]
+          if spans["qb_pass_efficiency_relative_span"] < 0.08:
+              raise SystemExit(f"QB authority too weak: {spans}")
+          if spans["wr_cb_completion_absolute_span"] < 0.10:
+              raise SystemExit(f"WR/CB authority too weak: {spans}")
+          if spans["ol_edge_pressure_absolute_span"] < 0.04:
+              raise SystemExit(f"OL/EDGE authority too weak: {spans}")
+          PY
+
+      - name: Upload sensitivity evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: monster-v634-sensitivity-${{ github.run_id }}
+          path: artifacts/v634-sensitivity/
+          retention-days: 30
+
+  paired-week1-replay:
+    needs: mechanism-sensitivity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    env:
+      BASELINE_SHA: 5fd1e5b9cc664046efe5f6cf40231a14dc64e5ff
+      WORLDS: ${{ github.event.inputs.worlds || '300' }}
+      SEED: ${{ github.event.inputs.seed || '2026091701' }}
+    steps:
+      - name: Checkout v6.3.4 challenger
+        uses: actions/checkout@v4
+        with:
+          path: challenger
+
+      - name: Checkout permanent Week 1 benchmark harness
+        uses: actions/checkout@v4
+        with:
+          ref: work/week1-reality-benchmark-v1
+          path: benchmark
+
+      - name: Checkout protected v6.3 control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: control
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install control dependencies
+        working-directory: control
+        run: uv sync --extra dev
+
+      - name: Install challenger dependencies
+        working-directory: challenger
+        run: uv sync --extra dev
+
+      - name: Protected control causal gates
+        working-directory: control
+        run: >-
+          uv run pytest -q
+          tests/test_reality_v63_core_fixes.py
+          tests/test_reality_v62_role_authority.py
+          tests/test_player_duel_authority_v6.py
+
+      - name: Challenger causal gates
+        working-directory: challenger
+        run: >-
+          uv run pytest -q
+          tests/test_matchup_identity_authority_v634.py
+          tests/test_current_role_guard_v63.py
+          tests/test_player_duel_authority_v6.py
+
+      - name: Build one shared leakage-resistant Week 1 input world
+        working-directory: control
+        run: |
+          uv run python ../benchmark/scripts/build_week1_2026_pregame_baseline.py             --season 2026 --history 2025 --recent-games 6             --out artifacts/week1-pregame-baseline
+          uv run python scripts/build_league_policy.py             --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py             --history 2024 --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py             --personnel artifacts/week1-pregame-baseline/league_personnel.parquet             --injuries artifacts/week1-pregame-baseline/raw_injuries.parquet             --overrides config/health/week1_2026_2026-09-07.csv             --season 2026 --out artifacts/week1-health
+          uv run python scripts/build_continuity_conditioned_policy.py             --older-policy artifacts/league-policy-2024/team_policy.parquet             --latest-policy artifacts/league-policy/team_policy.parquet             --personnel artifacts/week1-health/health_personnel.parquet             --out artifacts/continuity-policy
+
+      - name: Run protected v6.3 control on shared seed
+        working-directory: control
+        run: >-
+          uv run python scripts/run_reality_loop_v63.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 100
+          --first-out artifacts/v63-control
+          --box-out artifacts/v63-control-box
+
+      - name: Run v6.3.4 challenger on identical frozen inputs and seed
+        working-directory: challenger
+        run: >-
+          uv run python scripts/run_reality_loop_v634.py
+          --policy ../control/artifacts/continuity-policy/team_policy.parquet
+          --personnel ../control/artifacts/week1-health/health_personnel.parquet
+          --player-usage ../control/artifacts/league-policy/player_usage.parquet
+          --situation-context ../control/artifacts/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 100
+          --first-out artifacts/v634-challenger
+          --box-out artifacts/v634-challenger-box
+
+      - name: Audit role translation and score anatomy
+        run: |
+          cd control
+          uv run python scripts/audit_role_snap_opportunity_v63.py             --simulation artifacts/v63-control
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py             --simulation artifacts/v63-control --history 2025             --out artifacts/v63-control
+          cd ../challenger
+          uv run python scripts/audit_role_snap_opportunity_v63.py             --simulation artifacts/v634-challenger
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py             --simulation artifacts/v634-challenger --history 2025             --out artifacts/v634-challenger
+
+      - name: Download finalized Week 1 truth after both simulations exist
+        working-directory: benchmark
+        run: |
+          mkdir -p artifacts
+          curl --fail --location --retry 3             --output artifacts/stats_player_week_2026.csv             https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2026.csv
+          python scripts/build_week1_2026_player_truth.py             --stats artifacts/stats_player_week_2026.csv             --games benchmarks/week1_2026_sunday_games.csv             --out artifacts/truth
+
+      - name: Grade control and challenger with identical reality audit
+        working-directory: benchmark
+        run: |
+          python scripts/audit_week1_reality_benchmark.py             --simulation ../control/artifacts/v63-control             --games benchmarks/week1_2026_sunday_games.csv             --player-truth artifacts/truth/week1_2026_player_truth.csv             --out artifacts/v63-control-reality             --label protected-v63-paired-control
+          python scripts/audit_week1_reality_benchmark.py             --simulation ../challenger/artifacts/v634-challenger             --games benchmarks/week1_2026_sunday_games.csv             --player-truth artifacts/truth/week1_2026_player_truth.csv             --out artifacts/v634-challenger-reality             --label v634-matchup-identity-challenger
+
+      - name: Compare paired reality evidence
+        run: >-
+          challenger/.venv/bin/python challenger/scripts/compare_week1_v63_v634.py
+          --control benchmark/artifacts/v63-control-reality
+          --challenger benchmark/artifacts/v634-challenger-reality
+          --out benchmark/artifacts/v634-paired-comparison
+
+      - name: Preserve paired provenance
+        working-directory: benchmark
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = {
+              "control_sha": os.environ["BASELINE_SHA"],
+              "challenger_sha": os.environ["GITHUB_SHA"],
+              "worlds_per_game_each_arm": int(os.environ["WORLDS"]),
+              "shared_seed": int(os.environ["SEED"]),
+              "common_random_numbers": True,
+              "shared_pregame_inputs": True,
+              "truth_consumed_only_after_both_simulations": True,
+              "classification": "paired_shadow_architecture_test_not_prelock_prediction",
+          }
+          p = Path("artifacts/v634-paired-comparison/provenance.json")
+          p.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+
+      - name: Upload paired Week 1 evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v634-week1-paired-${{ github.run_id }}
+          path: |
+            benchmark/artifacts/truth/
+            benchmark/artifacts/v63-control-reality/
+            benchmark/artifacts/v634-challenger-reality/
+            benchmark/artifacts/v634-paired-comparison/
+            control/artifacts/v63-control/game_distributions.csv
+            control/artifacts/v63-control/player_distributions.csv
+            control/artifacts/v63-control/score_anatomy.json
+            challenger/artifacts/v634-challenger/game_distributions.csv
+            challenger/artifacts/v634-challenger/player_distributions.csv
+            challenger/artifacts/v634-challenger/matchup_identity_trace_v634.csv
+            challenger/artifacts/v634-challenger/score_anatomy.json
+          retention-days: 30
