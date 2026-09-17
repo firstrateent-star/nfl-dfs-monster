@@ -1,0 +1,8 @@
+v6.3.5 Identity Propagation + Role Separation paired Week 1 shadow
+control=13cf6a41e672fd262d7c4a9675fb2aa9ac0ac399
+challenger=work/v635-identity-propagation-role-separation
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+counterfactual_worlds_per_game=15
+truth_consumed_after_simulations_only=true
+promotion=forbidden_without_review
