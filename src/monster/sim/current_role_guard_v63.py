@@ -105,6 +105,22 @@ def receiver_candidate_ids_current(
     return tuple(player.player_id for player in selected)
 
 
+def _role_share_cap(player_count: int, *, base: float) -> float:
+    """Cap concentration without mathematically flattening small current rotations.
+
+    A fixed cap below 0.50 forces any two-player simplex to 50/50, which erases genuine
+    historical alpha roles. Small rotations therefore receive enough headroom to preserve
+    hierarchy; larger rotations keep the tighter v6.3 concentration guard.
+    """
+    if player_count <= 1:
+        return 1.0
+    if player_count == 2:
+        return max(base, 0.82)
+    if player_count == 3:
+        return max(base, 0.62)
+    return base
+
+
 def sample_target_share_plan_current(
     pool: TeamPlayerPool,
     *,
@@ -167,11 +183,11 @@ def sample_target_share_plan_current(
         dtype=float,
     )
     centers /= centers.sum()
-    centers = reality_v62._cap_simplex(centers, 0.42)
+    centers = reality_v62._cap_simplex(centers, _role_share_cap(len(selected), base=0.42))
     mean_uncertainty = float(np.mean([player.role_uncertainty for player in selected]))
     concentration = float(np.clip(52.0 - 70.0 * mean_uncertainty, 18.0, 48.0))
     shares = rng.dirichlet(np.clip(centers * concentration, 0.20, None))
-    shares = reality_v62._cap_simplex(shares, 0.48)
+    shares = reality_v62._cap_simplex(shares, _role_share_cap(len(selected), base=0.48))
     return {
         player.player_id: float(shares[index])
         for index, player in enumerate(selected)
