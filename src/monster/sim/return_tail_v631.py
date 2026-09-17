@@ -15,7 +15,6 @@ from monster.sim.reality_v63 import (
     apply_chaos_environment_v63,
 )
 
-
 _BAND_AUTHORITIES = np.asarray([-0.18, -0.08, 0.18, 0.48, 0.78, 1.10], dtype=float)
 
 
