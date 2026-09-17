@@ -1,0 +1,13 @@
+game,away,home,away_points,home_points,overtime,benchmark_group,truth_frozen_date
+CHI@CAR,CHI,CAR,59,37,false,A_sunday_main,2026-09-17
+BUF@HOU,BUF,HOU,36,31,false,A_sunday_main,2026-09-17
+NO@DET,NO,DET,30,31,true,A_sunday_main,2026-09-17
+CLE@JAC,CLE,JAC,10,34,false,A_sunday_main,2026-09-17
+TB@CIN,TB,CIN,27,33,false,A_sunday_main,2026-09-17
+ATL@PIT,ATL,PIT,13,20,false,A_sunday_main,2026-09-17
+NYJ@TEN,NYJ,TEN,23,10,false,A_sunday_main,2026-09-17
+BAL@IND,BAL,IND,41,23,false,A_sunday_main,2026-09-17
+ARI@LAC,ARI,LAC,26,14,false,A_sunday_main,2026-09-17
+WAS@PHI,WAS,PHI,22,24,false,A_sunday_main,2026-09-17
+MIA@LV,MIA,LV,13,27,false,A_sunday_main,2026-09-17
+GB@MIN,GB,MIN,22,39,false,A_sunday_main,2026-09-17
