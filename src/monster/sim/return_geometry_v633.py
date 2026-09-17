@@ -18,11 +18,10 @@ from monster.sim.football_state import FootballState, mirror_field
 from monster.sim.play_kernel import PassResult, PlayEvent
 from monster.sim.reality_v63 import active_game_environment, resolve_turnover_return_v63
 from monster.sim.return_channels_v632 import (
-    ChannelReturnPriorsV632,
     DEFAULT_CHANNEL_PRIORS_V632,
+    ChannelReturnPriorsV632,
 )
 from monster.sim.special_teams_v13 import SpecialTeamsEvent, SpecialTeamsType
-
 
 _BUCKET_NAMES = ("00_20", "20_40", "40_60", "60_80", "80_100")
 _BAND_AUTHORITIES = np.asarray([-0.22, -0.14, -0.06, 0.02, 0.12, 0.32, 0.58, 0.82, 1.08])
