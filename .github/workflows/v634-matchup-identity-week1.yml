@@ -170,6 +170,12 @@ jobs:
           uv run python scripts/audit_role_snap_opportunity_v63.py             --simulation artifacts/v634-challenger
           uv run python scripts/audit_reality_loop_v2_score_anatomy.py             --simulation artifacts/v634-challenger --history 2025             --out artifacts/v634-challenger
 
+      - name: Audit full-world identity propagation
+        run: >-
+          challenger/.venv/bin/python challenger/scripts/audit_identity_propagation_v634.py
+          --simulation challenger/artifacts/v634-challenger
+          --out benchmark/artifacts/v634-propagation
+
       - name: Download finalized Week 1 truth after both simulations exist
         working-directory: benchmark
         run: |
@@ -220,6 +226,7 @@ jobs:
             benchmark/artifacts/v63-control-reality/
             benchmark/artifacts/v634-challenger-reality/
             benchmark/artifacts/v634-paired-comparison/
+            benchmark/artifacts/v634-propagation/
             control/artifacts/v63-control/game_distributions.csv
             control/artifacts/v63-control/player_distributions.csv
             control/artifacts/v63-control/score_anatomy.json
