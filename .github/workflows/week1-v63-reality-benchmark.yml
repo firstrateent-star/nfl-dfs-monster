@@ -44,13 +44,13 @@ jobs:
       - name: Download finalized Week-1 player truth
         run: >-
           curl --fail --location --retry 3
-          --output artifacts/stats_player_regpost_2026.csv
-          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_regpost_2026.csv
+          --output artifacts/stats_player_week_2026.csv
+          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2026.csv
 
       - name: Normalize Week-1 player truth
         run: >-
           python scripts/build_week1_2026_player_truth.py
-          --stats artifacts/stats_player_regpost_2026.csv
+          --stats artifacts/stats_player_week_2026.csv
           --games benchmarks/week1_2026_sunday_games.csv
           --out artifacts/truth
 
@@ -183,14 +183,14 @@ jobs:
         working-directory: benchmark
         run: >-
           curl --fail --location --retry 3
-          --output artifacts/stats_player_regpost_2026.csv
-          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_regpost_2026.csv
+          --output artifacts/stats_player_week_2026.csv
+          https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2026.csv
 
       - name: Normalize and freeze Week-1 player truth in artifact
         working-directory: benchmark
         run: >-
           python scripts/build_week1_2026_player_truth.py
-          --stats artifacts/stats_player_regpost_2026.csv
+          --stats artifacts/stats_player_week_2026.csv
           --games benchmarks/week1_2026_sunday_games.csv
           --out artifacts/truth
 
