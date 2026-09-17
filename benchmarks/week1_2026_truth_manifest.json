@@ -1,0 +1,17 @@
+{
+  "season": 2026,
+  "week": 1,
+  "season_type": "REG",
+  "benchmark_group": "A_sunday_main",
+  "games": 12,
+  "frozen_date": "2026-09-17",
+  "simulation_information_cutoff": "2026-09-13T13:00:00-04:00",
+  "simulation_truth_policy": "Final outcomes are audit-only and must never be read by simulation code.",
+  "game_truth_source": "Final NFL Week 1 results, cross-checked against nflverse schedule/results.",
+  "player_truth_source": "nflverse Player Summary Stats 2026 REG; normalized snapshot is generated and archived by the benchmark workflow.",
+  "notes": [
+    "Benchmark A contains only the 12 Sunday main-slate games frozen in the original Week 1 runner.",
+    "DEN@KC belongs to Benchmark B because it was simulated later with a different v6.3/current-role context and is not mixed into Benchmark A.",
+    "DAL@NYG is excluded because it was not in the frozen Sunday runner."
+  ]
+}
