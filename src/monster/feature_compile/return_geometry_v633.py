@@ -4,7 +4,6 @@ import math
 
 import polars as pl
 
-
 _BUCKETS: tuple[tuple[str, float, float], ...] = (
     ("00_20", 0.0, 20.0),
     ("20_40", 20.0, 40.0),
