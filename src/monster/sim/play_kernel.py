@@ -265,6 +265,8 @@ def _field_read_target(
     """Evaluate the full eligible receiver field against one shared defensive snap."""
     from monster.sim.matchup_kernel import resolve_pass_matchup
 
+    from monster.sim.rich_identity import qb_execution_skill
+
     candidates: list[tuple[PlayerIdentity, PassMatchup, float]] = []
     for receiver in offense.receivers:
         qb_fatigue = _fatigue_factor(fatigue, offense.quarterback.player_id)
@@ -273,7 +275,7 @@ def _field_read_target(
             defense,
             pass_protection=offense.pass_protection
             * _fatigue_factor(fatigue, f"line:{offense.team_id}"),
-            quarterback_efficiency=offense.quarterback.efficiency * qb_fatigue,
+            quarterback_efficiency=qb_execution_skill(offense.quarterback) * qb_fatigue,
             responsibility_key=responsibility_key,
         )
         receiver_fatigue = _fatigue_factor(fatigue, receiver.player_id)
@@ -504,6 +506,10 @@ def simulate_scrimmage_play(
     else:
         target = preferred_target
     target_fatigue = _fatigue_factor(fatigue, target.player_id)
+    from monster.sim.rich_identity import qb_execution_skill, qb_mobility_skill
+
+    qb_execution = qb_execution_skill(offense.quarterback) * qb_fatigue
+    qb_mobility = qb_mobility_skill(offense.quarterback) * qb_fatigue
     for receiver in offense.receivers:
         _add_load(fatigue, receiver.player_id, 0.006)
 
@@ -516,7 +522,7 @@ def simulate_scrimmage_play(
     safety_help = 0.0
     bracket_factor = 0.0
     zone_overlap = 0.0
-    qb_read_quality = offense.quarterback.efficiency * qb_fatigue
+    qb_read_quality = qb_execution
     if matchup is not None:
         pressure = matchup.pressure_probability
         primary_defender_id = matchup.primary_defender_id
@@ -553,8 +559,8 @@ def simulate_scrimmage_play(
         )
     response = resolve_qb_response(
         pressured=pressured,
-        mobility=offense.quarterback.explosive * qb_fatigue,
-        pocket_skill=offense.quarterback.efficiency * qb_fatigue,
+        mobility=qb_mobility,
+        pocket_skill=qb_execution,
         rng=rng,
     )
     if response == QBResponse.SACK:
@@ -724,12 +730,18 @@ def simulate_scrimmage_play(
             **common,
         )
 
+    matchup_yac_multiplier = (
+        1.0
+        if matchup is None
+        else float(np.clip(matchup.yards_multiplier, 0.72, 1.45) ** 0.22)
+    )
     if offense.intent_ecology is None:
         yac = float(
             np.clip(
                 rng.lognormal(1.25, 0.65)
                 * target.explosive
                 * target_fatigue
+                * matchup_yac_multiplier
                 / max(coverage_strength**0.25, 0.75),
                 0.0,
                 55.0,
@@ -744,7 +756,9 @@ def simulate_scrimmage_play(
             if air_yards >= flow.yards_to_goal
             else sample_yac(
                 profile,
-                receiver_explosiveness=target.explosive * target_fatigue,
+                receiver_explosiveness=(
+                    target.explosive * target_fatigue * matchup_yac_multiplier
+                ),
                 coverage_strength=coverage_strength,
                 rng=rng,
                 air_yards=air_yards,
