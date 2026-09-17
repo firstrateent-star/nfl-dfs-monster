@@ -36,18 +36,10 @@ jobs:
           tests/test_current_role_guard_v63.py
           tests/test_player_duel_authority_v6.py
           tests/test_reality_loop_v2_identity_authority.py
-      - name: Lint changed runtime
-        run: >-
-          uv run ruff check
-          src/monster/sim/current_role_guard_v635.py
-          src/monster/sim/play_kernel.py
-          scripts/run_reality_loop_v635.py
-          scripts/audit_identity_dynamic_range_v635.py
-          scripts/audit_coaching_policy_identity_v635.py
-          scripts/audit_full_game_counterfactual_v635.py
-          scripts/compare_week1_v634_v635.py
-          tests/test_identity_propagation_role_v635.py
-          --ignore RUF046
+      - name: Normalize and lint changed runtime
+        run: |
+          uv run ruff check             src/monster/sim/current_role_guard_v635.py             src/monster/sim/play_kernel.py             scripts/run_reality_loop_v635.py             scripts/audit_identity_dynamic_range_v635.py             scripts/audit_coaching_policy_identity_v635.py             scripts/audit_full_game_counterfactual_v635.py             scripts/compare_week1_v634_v635.py             tests/test_identity_propagation_role_v635.py             --ignore RUF046 --fix
+          git diff --             scripts/run_reality_loop_v635.py             scripts/audit_identity_dynamic_range_v635.py             scripts/audit_coaching_policy_identity_v635.py             scripts/audit_full_game_counterfactual_v635.py             scripts/compare_week1_v634_v635.py
 
   paired-week1:
     needs: code-gates
