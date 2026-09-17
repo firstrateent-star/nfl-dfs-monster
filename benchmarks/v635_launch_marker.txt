@@ -6,3 +6,4 @@ shared_seed=2026091701
 counterfactual_worlds_per_game=15
 truth_consumed_after_simulations_only=true
 promotion=forbidden_without_review
+retry_after_import_normalization=true
