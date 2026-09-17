@@ -297,53 +297,153 @@ def _role_audit(simulation: Path, player_truth_path: Path) -> tuple[list[dict[st
     truth = _read(player_truth_path)
     actual_by_id = {(r["game"], r.get("player_id", "")): r for r in truth if r.get("player_id")}
     actual_by_name = {(r["game"], _name_key(r.get("player_name", ""))): r for r in truth}
+
+    # Reality owns the opportunity denominator. This is intentionally computed
+    # from every realized Week-1 player, not only players present in Monster's
+    # role plan. An omitted real contributor therefore remains a measurable miss.
+    truth_totals: dict[tuple[str, str, str], float] = defaultdict(float)
+    for actual in truth:
+        truth_totals[(actual["game"], actual["team"], "rush")] += _f(actual.get("carries"))
+        truth_totals[(actual["game"], actual["team"], "target")] += _f(actual.get("targets"))
+
     rows: list[dict[str, object]] = []
+    modeled_keys: set[tuple[str, str, str, str]] = set()
+
+    def append_plan_row(
+        *,
+        game: str,
+        team: str,
+        player_id: str,
+        player: str,
+        position: str,
+        role_type: str,
+        plan_share: float,
+        base_share: float,
+        active_probability: float,
+    ) -> None:
+        actual = (
+            actual_by_id.get((game, player_id))
+            or actual_by_name.get((game, _name_key(player)))
+        )
+        actual_opportunities = 0.0
+        if actual:
+            actual_opportunities = _f(
+                actual.get("carries" if role_type == "rush" else "targets")
+            )
+        rows.append({
+            "game": game,
+            "team": team,
+            "player_id": player_id,
+            "player": player,
+            "position": position,
+            "role_type": role_type,
+            "plan_share_mean": plan_share,
+            "base_share": base_share,
+            "active_probability": active_probability,
+            "actual_opportunities": actual_opportunities,
+            "modeled": True,
+        })
+        modeled_keys.add((game, team, role_type, player_id))
 
     rush_path = simulation / "rushing_role_plan_audit.csv"
     if rush_path.exists():
         for plan in _read(rush_path):
-            actual = actual_by_id.get((plan["game"], plan.get("player_id", ""))) or actual_by_name.get((plan["game"], _name_key(plan.get("player", ""))))
-            if not actual:
-                continue
-            rows.append({
-                "game": plan["game"], "team": plan["team"], "player_id": plan.get("player_id", ""),
-                "player": plan.get("player", ""), "position": plan.get("position", ""), "role_type": "rush",
-                "plan_share_mean": _f(plan.get("plan_share_mean")), "base_share": _f(plan.get("base_rush_share")),
-                "active_probability": _f(plan.get("active_probability")), "actual_opportunities": _f(actual.get("carries")),
-            })
+            append_plan_row(
+                game=plan["game"],
+                team=plan["team"],
+                player_id=plan.get("player_id", ""),
+                player=plan.get("player", ""),
+                position=plan.get("position", ""),
+                role_type="rush",
+                plan_share=_f(plan.get("plan_share_mean")),
+                base_share=_f(plan.get("base_rush_share")),
+                active_probability=_f(plan.get("active_probability")),
+            )
 
     target_path = simulation / "target_role_plan_audit_v63.csv"
     if target_path.exists():
         team_to_game = {r["team"]: r["game"] for r in truth}
         for plan in _read(target_path):
             game = team_to_game.get(plan["team"], "")
-            actual = actual_by_id.get((game, plan.get("player_id", ""))) or actual_by_name.get((game, _name_key(plan.get("player", ""))))
-            if not actual:
+            append_plan_row(
+                game=game,
+                team=plan["team"],
+                player_id=plan.get("player_id", ""),
+                player=plan.get("player", ""),
+                position=plan.get("position", ""),
+                role_type="target",
+                plan_share=_f(plan.get("target_plan_share_mean")),
+                base_share=_f(plan.get("base_target_share")),
+                active_probability=_f(plan.get("active_probability")),
+            )
+
+    # Add realized opportunity earners absent from Monster's role plan as
+    # zero-share predictions rather than silently dropping them.
+    for actual in truth:
+        for role_type, col in (("rush", "carries"), ("target", "targets")):
+            opportunities = _f(actual.get(col))
+            if opportunities <= 0:
+                continue
+            key = (
+                actual["game"],
+                actual["team"],
+                role_type,
+                actual.get("player_id", ""),
+            )
+            if key in modeled_keys:
                 continue
             rows.append({
-                "game": game, "team": plan["team"], "player_id": plan.get("player_id", ""),
-                "player": plan.get("player", ""), "position": plan.get("position", ""), "role_type": "target",
-                "plan_share_mean": _f(plan.get("target_plan_share_mean")), "base_share": _f(plan.get("base_target_share")),
-                "active_probability": _f(plan.get("active_probability")), "actual_opportunities": _f(actual.get("targets")),
+                "game": actual["game"],
+                "team": actual["team"],
+                "player_id": actual.get("player_id", ""),
+                "player": actual.get("player_name", ""),
+                "position": actual.get("position", ""),
+                "role_type": role_type,
+                "plan_share_mean": 0.0,
+                "base_share": 0.0,
+                "active_probability": 0.0,
+                "actual_opportunities": opportunities,
+                "modeled": False,
             })
 
-    totals: dict[tuple[str, str, str], float] = defaultdict(float)
     for row in rows:
-        totals[(str(row["game"]), str(row["team"]), str(row["role_type"]))] += _f(row["actual_opportunities"])
-    for row in rows:
-        total = totals[(str(row["game"]), str(row["team"]), str(row["role_type"]))]
+        total = truth_totals[
+            (str(row["game"]), str(row["team"]), str(row["role_type"]))
+        ]
         actual_share = _f(row["actual_opportunities"]) / total if total else 0.0
+        row["actual_team_opportunities"] = total
         row["actual_share"] = actual_share
         row["share_error"] = _f(row["plan_share_mean"]) - actual_share
         row["share_abs_error"] = abs(_f(row["share_error"]))
 
     summary: dict[str, object] = {"rows": len(rows)}
     for role in ("rush", "target"):
-        selected = [r for r in rows if r["role_type"] == role and _f(r["actual_opportunities"]) > 0]
-        summary[f"{role}_active_player_share_mae"] = _mean(_f(r["share_abs_error"]) for r in selected)
+        selected = [
+            r for r in rows
+            if r["role_type"] == role and _f(r["actual_opportunities"]) > 0
+        ]
+        missing = [r for r in selected if not bool(r["modeled"])]
+        summary[f"{role}_active_player_share_mae"] = _mean(
+            _f(r["share_abs_error"]) for r in selected
+        )
         summary[f"{role}_active_players"] = len(selected)
-    return rows, summary
+        summary[f"{role}_unmodeled_actual_players"] = len(missing)
+        summary[f"{role}_unmodeled_actual_opportunities"] = sum(
+            _f(r["actual_opportunities"]) for r in missing
+        )
 
+        by_team_role: dict[tuple[str, str], list[dict[str, object]]] = defaultdict(list)
+        for row in rows:
+            if row["role_type"] == role:
+                by_team_role[(str(row["game"]), str(row["team"]))].append(row)
+        tvds = [
+            0.5 * sum(_f(r["share_abs_error"]) for r in team_rows)
+            for team_rows in by_team_role.values()
+            if _f(team_rows[0].get("actual_team_opportunities")) > 0
+        ]
+        summary[f"{role}_team_share_tvd_mean"] = _mean(tvds)
+
+    return rows, summary
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Grade Monster v6.3 Week 1 worlds against frozen reality.")
