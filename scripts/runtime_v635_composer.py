@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import run_reality_loop_v2_smoke as v61
+import run_week1_v13_root_cause_experiment as root
 import run_reality_loop_v63 as v63
 import run_reality_loop_v634 as v634
 
@@ -142,6 +143,79 @@ def assert_team_runtime_v635(teams: dict[str, object]) -> None:
             f"missing_game_flow_policy={missing_flow}; missing_intent_ecology={missing_intent}"
         )
 
+
+
+def build_week1_runtime_inputs_v635(
+    *,
+    policy_path: Path,
+    personnel_path: Path,
+    player_usage_path: Path,
+    situation_context_path: Path,
+):
+    """Build Week-1 worlds through the exact live production composition.
+
+    Diagnostics must call this instead of importing identity/build helpers by value before
+    runtime composition. That prevents stale aliases from silently testing a different machine.
+    """
+
+    fingerprint = compose_v635_runtime()
+    integrated = v61.runner.integrated
+
+    policy = integrated._read(policy_path)
+    personnel = integrated._read(personnel_path)
+    usage = integrated._read(player_usage_path)
+    situation_context = integrated._read(situation_context_path)
+    league_neutral_pass_rate, situational_pass_rates = integrated._situational_context(
+        situation_context
+    )
+
+    pools = integrated.apply_health_to_skill_pools(
+        integrated.compile_current_skill_pools(personnel, usage, policy=policy),
+        personnel,
+    )
+    reality = integrated.compile_player_reality_inputs(
+        personnel,
+        game_date=integrated.GAME_DATE,
+    )
+    units = integrated.compile_league_unit_player_map(personnel)
+
+    states: dict[str, object] = {}
+    for away, home in integrated.MATCHUPS:
+        states.update(integrated.compile_team_state_map(policy, {away: home, home: away}))
+
+    teams = {
+        team: v61.runner.enhanced_team_identity(
+            team,
+            pools[team],
+            reality,
+            units[team],
+            states[team],
+            league_neutral_pass_rate=league_neutral_pass_rate,
+            situational_pass_rates=situational_pass_rates,
+        )
+        for pair in integrated.MATCHUPS
+        for team in pair
+    }
+    teams = integrated._attach_historical_intent_ecology(teams, player_usage_path.parent)
+    defenses = {
+        team: v61.runner.enhanced_defensive_unit(units[team])
+        for pair in integrated.MATCHUPS
+        for team in pair
+    }
+    assert_team_runtime_v635(teams)
+    ecology = root._load_chaos_ecology(player_usage_path)
+    return {
+        "fingerprint": fingerprint,
+        "personnel": personnel,
+        "pools": pools,
+        "teams": teams,
+        "defenses": defenses,
+        "states": states,
+        "units": units,
+        "ecology": ecology,
+        "league_neutral_pass_rate": league_neutral_pass_rate,
+        "situational_pass_rates": situational_pass_rates,
+    }
 
 def write_runtime_fingerprint_v635(out: Path) -> RuntimeFingerprintV635:
     fingerprint = assert_v635_runtime()
