@@ -37,6 +37,7 @@ jobs:
       - name: Re-run inherited v6.3.6 and v6.3.5 causal gates
         run: >-
           uv run pytest -q
+          tests/test_role_allocation_v636.py
           tests/test_identity_propagation_role_v635.py
           tests/test_matchup_identity_authority_v634.py
           tests/test_current_role_guard_v63.py
@@ -228,7 +229,7 @@ jobs:
             --games benchmarks/week1_2026_sunday_games.csv \
             --player-truth artifacts/truth/week1_2026_player_truth.csv \
             --out artifacts/v637-challenger-reality \
-            --label v637-rb-role-separation-challenger
+            --label v637-gadget-rush-entry-challenger
 
       - name: Compare paired Week 1 evidence
         run: >-
@@ -251,9 +252,9 @@ jobs:
               "common_random_numbers": True,
               "shared_pregame_inputs": True,
               "truth_consumed_only_after_both_simulations": True,
-              "classification": "v637 paired shadow role-allocation isolation test",
+              "classification": "v637 paired shadow gadget-rush-entry isolation test",
               "single_mechanism_change": (
-                  "RB-only current role reallocation; native QB and WR/TE rush mass preserved"
+                  "WR/TE designed-rush entry sampled from existing rush_role_probability; rejected gadget mass returns proportionally to the frozen v6.3.6 RB hierarchy"
               ),
           }
           path = Path("artifacts/v637-paired-comparison/provenance.json")
