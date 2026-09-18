@@ -24,6 +24,7 @@ def _record_v638_manifest(out: Path) -> None:
     manifest.update(
         {
             "reality_loop_v638_shadow_active": True,
+            "v636_wr_te_gadget_rush_mass_preserved_from_native_plan": False,
             "v638_gadget_rush_decomposition_active": True,
             "v638_rotation_exposure_separate_from_rush_entry": True,
             "v638_rush_role_probability_is_entry_only": True,
@@ -32,6 +33,9 @@ def _record_v638_manifest(out: Path) -> None:
             "v638_rb_internal_hierarchy_frozen_to_v636": True,
             "v638_target_sampler_frozen_to_v635": True,
             "v638_week1_truth_used_for_priors": False,
+            "v638_empirical_reference_team_gadget_share_mean_2022_2025": 0.03674310517636209,
+            "v638_empirical_reference_wr_entry_rate_2022_2025": 0.1315333672949567,
+            "v638_empirical_reference_te_entry_rate_2022_2025": 0.03567787971457696,
             "v638_live_pass_matchup_authority": float(
                 resolution_ecology._SNAP_MATCHUP_AUTHORITY
             ),
