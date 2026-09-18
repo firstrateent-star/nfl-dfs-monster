@@ -20,6 +20,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: v636-role-allocation-week1-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   code-gates:
     runs-on: ubuntu-24.04
