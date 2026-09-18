@@ -1,0 +1,14 @@
+v6.3.6 Role Allocation Separation paired Week 1 shadow
+control=e48d50f103d0ed021760ca695c14941607c7fe58
+challenger=work/v636-role-allocation-separation
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+counterfactual_worlds_per_game=40
+truth_consumed_after_simulations_only=true
+promotion=forbidden_without_review
+single_mechanism_change=rb_only_current_role_reallocation
+qb_rush_mass=native_preserved
+wr_te_gadget_rush_mass=native_preserved
+target_sampler=v635_frozen
+production_runtime_composer=true
+realism_over_week1_fit=true
