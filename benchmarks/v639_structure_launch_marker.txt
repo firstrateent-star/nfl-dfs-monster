@@ -28,3 +28,5 @@ do not launch outcome authority until pre-truth role geometry is reviewed
 retry_after_branch_trigger_fix=true
 
 retry_after_runner_syntax_fix=true
+
+retry_after_manifest_string_fix=true
