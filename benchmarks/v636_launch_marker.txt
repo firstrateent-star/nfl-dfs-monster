@@ -13,3 +13,5 @@ target_sampler=v635_frozen
 production_runtime_composer=true
 realism_over_week1_fit=true
 retry_after_lint_only_gate=true
+paired_target_rng_stream_preserved=true
+superseded_runs_cancelled=true
