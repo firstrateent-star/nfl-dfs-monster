@@ -25,7 +25,8 @@ def _record_v639_manifest(out: Path) -> None:
         {
             "reality_loop_v639_shadow_active": True,
             "v636_wr_te_gadget_rush_mass_preserved_from_native_plan": False,
-            "v639_gadget_rush_decomposition_active": True,\n            "v639_oos_recurrence_calibration_active": True,
+            "v639_gadget_rush_decomposition_active": True,
+            "v639_oos_recurrence_calibration_active": True,
             "v639_rotation_exposure_separate_from_rush_entry": True,
             "v639_heuristic_rush_role_probability_is_not_entry_authority": True,
             "v639_conditional_carries_from_2022_2025_empirical_distribution": True,
@@ -70,7 +71,8 @@ def _record_v639_manifest(out: Path) -> None:
             ),
         }
     )
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "
+")
 
 
 def main() -> None:
