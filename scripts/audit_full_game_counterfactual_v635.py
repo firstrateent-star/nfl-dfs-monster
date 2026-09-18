@@ -23,7 +23,7 @@ def _with_qb_channels(team, *, execution: float, mobility: float):
     qb_id = team.quarterback.player_id
     qb = team.quarterback
     if not isinstance(qb, RichPlayerIdentity):
-        raise RuntimeError(
+        raise TypeError(
             f"v6.3.5 counterfactual requires RichPlayerIdentity for {team.team_id} QB {qb_id}"
         )
     qb_new = replace(
