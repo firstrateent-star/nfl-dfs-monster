@@ -1,0 +1,30 @@
+v6.3.7 gadget-rush entry launch
+
+control_sha=41f490f8470f67b86b5d4866ccd1d5768539f12e
+control_architecture=v6.3.6 frozen role-allocation separation
+challenger_branch=work/v637-gadget-rush-entry
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+truth_consumed_after_both_simulations_only=true
+promotion_forbidden_without_review=true
+
+single_mechanism_change:
+WR/TE players with positive v6.3.6 gadget share must also win designed-rush
+admission through their existing rush_role_probability. Rejected gadget mass
+returns proportionally to the frozen v6.3.6 RB hierarchy.
+
+frozen:
+QB rushing mass
+RB within-group hierarchy
+target sampler and downstream target RNG world
+coaching/game-flow policy
+matchup identity
+player skill/execution mechanisms
+score construction
+market blindness
+
+causal_hypothesis:
+rush_role_probability is already defined as carry-tree entry probability.
+Using it only as a weight allowed nearly every active WR/TE with a nonzero
+positional prior to own gadget mass in every world. Sampling the entry state
+should create finite designed-rush participation without Week 1 fitting.
