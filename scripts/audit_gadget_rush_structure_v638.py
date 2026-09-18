@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
-
 from runtime_v638_composer import build_week1_runtime_inputs_v638
+
 from monster.sim import reality_v62
 
 HISTORICAL_REFERENCE = {
