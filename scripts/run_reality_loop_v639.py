@@ -66,13 +66,12 @@ def _record_v639_manifest(out: Path) -> None:
             "v639_principle": (
                 "A gadget role is a finite football state: a player must be in the "
                 "offensive rotation, then enter the designed-rush tree, then receive "
-                "a discrete conditional carry workload. Entry probability is not "
-                "reused as carry-share authority."
+                "a discrete conditional carry workload. Raw historical opportunity evidence "
+                "remains separate from current rotation and conditional workload."
             ),
         }
     )
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "
-")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
 def main() -> None:
