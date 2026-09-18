@@ -2,7 +2,7 @@ name: v6.3.9 Pregame Gadget Structure Audit
 
 on:
   push:
-    branches: [work/v639-gadget-rush-decomposition]
+    branches: [work/v639-gadget-entry-calibration]
     paths:
       - benchmarks/v639_structure_launch_marker.txt
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
           --player-usage artifacts/league-policy/player_usage.parquet
           --situation-context artifacts/league-policy/situational_pass_context.parquet
           --worlds 500
-          --seed 6381701
+          --seed 6391701
           --out artifacts/v639-gadget-structure
       - name: Upload structural evidence
         uses: actions/upload-artifact@v4
