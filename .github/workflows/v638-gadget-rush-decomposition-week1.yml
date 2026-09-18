@@ -2,7 +2,7 @@ name: v6.3.8 Gadget Rush Decomposition Paired Week 1
 
 on:
   push:
-    branches: [work/v638-gadget-rush-entry]
+    branches: [work/v638-gadget-rush-decomposition]
     paths:
       - benchmarks/v638_launch_marker.txt
   workflow_dispatch:
