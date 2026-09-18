@@ -17,6 +17,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout permanent Week 1 benchmark
+        uses: actions/checkout@v4
+        with:
+          ref: work/week1-reality-benchmark-v1
+          path: benchmark
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
       - name: Lint structural audit
@@ -25,7 +30,7 @@ jobs:
           scripts/audit_gadget_rush_structure_v638.py
       - name: Build leakage-resistant pregame inputs
         run: |
-          uv run python scripts/build_week1_2026_pregame_baseline.py             --season 2026 --history 2025 --recent-games 6             --out artifacts/week1-pregame-baseline
+          uv run python benchmark/scripts/build_week1_2026_pregame_baseline.py             --season 2026 --history 2025 --recent-games 6             --out artifacts/week1-pregame-baseline
           uv run python scripts/build_league_policy.py             --history 2025 --out artifacts/league-policy
           uv run python scripts/build_league_policy.py             --history 2024 --out artifacts/league-policy-2024
           uv run python scripts/build_health_snapshot.py             --personnel artifacts/week1-pregame-baseline/league_personnel.parquet             --injuries artifacts/week1-pregame-baseline/raw_injuries.parquet             --overrides config/health/week1_2026_2026-09-07.csv             --season 2026 --out artifacts/week1-health
