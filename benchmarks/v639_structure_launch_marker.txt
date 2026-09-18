@@ -1,0 +1,26 @@
+v6.3.9 pre-truth calibrated gadget structure audit
+
+branch=work/v639-gadget-entry-calibration
+worlds_per_team=500
+seed=6391701
+week1_2026_truth_used=false
+market_blind=true
+
+entry_authority:
+raw prior-season carries -> 2022-2025 OOS next-season recurrence rate
+then multiplied by current offensive-rotation exposure
+
+conditional_workload:
+2022-2025 position-specific carry-count PMF from gadget-entry games
+
+frozen:
+QB rush mass
+RB internal hierarchy
+target RNG world
+coaching
+matchup identity
+Madden/player execution
+score construction
+
+promotion_rule:
+do not launch outcome authority until pre-truth role geometry is reviewed
