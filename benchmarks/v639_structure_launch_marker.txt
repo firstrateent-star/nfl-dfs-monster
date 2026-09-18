@@ -24,3 +24,5 @@ score construction
 
 promotion_rule:
 do not launch outcome authority until pre-truth role geometry is reviewed
+
+retry_after_branch_trigger_fix=true
