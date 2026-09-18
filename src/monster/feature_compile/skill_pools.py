@@ -303,6 +303,7 @@ def compile_current_skill_pools(
                     "rush_weight": conditional_snap * rush_prior if position != "QB" else rush_prior,
                     "qb_rush_mean_share": rush_prior if position == "QB" else 0.0,
                     "historical_rushes": _finite(hist.get("rushes")),
+                    "historical_rush_share": _finite(hist.get("rush_share")),
                     "historical_rushing_tds": _finite(hist.get("rushing_tds")),
                     "rz_target_weight": conditional_snap * rz_target_prior,
                     "rz_rush_weight": conditional_snap * rz_rush_prior,
@@ -366,6 +367,8 @@ def compile_current_skill_pools(
                     effectiveness_if_active=1.0,
                     role_uncertainty=draft["uncertainty"],
                     rush_role_probability=draft["rush_role_probability"],
+                    historical_rushes=draft["historical_rushes"],
+                    historical_rush_share=draft["historical_rush_share"],
                     qb_pass_share=qb[idx],
                 )
             )
