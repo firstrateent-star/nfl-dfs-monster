@@ -26,6 +26,11 @@ class PlayerState:
     # the rushing opportunity pool in a simulated world; target participation remains unchanged
     # until its separate concentration/breadth problem is understood.
     rush_role_probability: float = 1.0
+    # Preserve the raw historical opportunity evidence separately from any derived
+    # probability. Downstream role models can then be recalibrated without trying to
+    # reverse-engineer the compiler's heuristic score.
+    historical_rushes: float = 0.0
+    historical_rush_share: float = 0.0
     explosive_modifier: float = 1.0
     catchpoint_modifier: float = 1.0
     rushing_efficiency_modifier: float = 1.0
