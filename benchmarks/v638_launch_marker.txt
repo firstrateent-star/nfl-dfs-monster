@@ -1,0 +1,36 @@
+v6.3.8 gadget-rush decomposition launch
+
+control_sha=41f490f8470f67b86b5d4866ccd1d5768539f12e
+control_architecture=v6.3.6 frozen role-allocation separation
+challenger_branch=work/v638-gadget-rush-decomposition
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+truth_consumed_after_both_simulations_only=true
+promotion_forbidden_without_review=true
+
+single_mechanism_change:
+WR/TE gadget rushing is decomposed into:
+1) current offensive-rotation exposure from depth/snap truth,
+2) designed-rush entry from existing rush_role_probability,
+3) conditional carry counts from 2022-2025 market-blind empirical distributions,
+4) residual non-QB workload returned to the frozen v6.3.6 RB hierarchy.
+
+frozen:
+QB rushing mass
+RB internal hierarchy
+target sampler and downstream target RNG world
+coaching/game-flow policy
+matchup identity
+Madden/player skill and execution mechanisms
+score construction
+market blindness
+
+empirical_reference_2022_2025:
+WR entry rate=0.1315333672949567
+TE entry rate=0.03567787971457696
+team gadget rush share mean=0.03674310517636209
+team gadget rush share median=0.02702702702702703
+WR conditional carries mean=1.3609604957397365
+TE conditional carries mean=2.32
+
+week1_2026_truth_used_for_priors=false
