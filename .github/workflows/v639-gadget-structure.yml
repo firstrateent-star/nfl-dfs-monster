@@ -1,0 +1,68 @@
+name: v6.3.9 Pregame Gadget Structure Audit
+
+on:
+  push:
+    branches: [work/v639-gadget-rush-decomposition]
+    paths:
+      - benchmarks/v639_structure_launch_marker.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout permanent Week 1 benchmark
+        uses: actions/checkout@v4
+        with:
+          ref: work/week1-reality-benchmark-v1
+          path: benchmark
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Run calibrated gadget-role gates
+        run: >-
+          uv run pytest -q
+          tests/test_gadget_rush_calibration_v639.py
+          tests/test_gadget_rush_decomposition_v638.py
+          tests/test_role_allocation_v636.py
+      - name: Lint structural audit
+        run: >-
+          uv run ruff check
+          src/monster/snapshot/player.py
+          src/monster/feature_compile/skill_pools.py
+          src/monster/sim/gadget_rush_entry_priors_v639.py
+          src/monster/sim/current_role_guard_v639.py
+          scripts/runtime_v639_composer.py
+          scripts/run_reality_loop_v639.py
+          scripts/audit_gadget_rush_structure_v639.py
+          tests/test_gadget_rush_calibration_v639.py
+          --ignore RUF046
+      - name: Build leakage-resistant pregame inputs
+        run: |
+          uv run python benchmark/scripts/build_week1_2026_pregame_baseline.py             --season 2026 --history 2025 --recent-games 6             --out artifacts/week1-pregame-baseline
+          uv run python scripts/build_league_policy.py             --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py             --history 2024 --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py             --personnel artifacts/week1-pregame-baseline/league_personnel.parquet             --injuries artifacts/week1-pregame-baseline/raw_injuries.parquet             --overrides config/health/week1_2026_2026-09-07.csv             --season 2026 --out artifacts/week1-health
+          uv run python scripts/build_continuity_conditioned_policy.py             --older-policy artifacts/league-policy-2024/team_policy.parquet             --latest-policy artifacts/league-policy/team_policy.parquet             --personnel artifacts/week1-health/health_personnel.parquet             --out artifacts/continuity-policy
+      - name: Sample v6.3.9 pre-truth role worlds
+        run: >-
+          uv run python scripts/audit_gadget_rush_structure_v639.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds 500
+          --seed 6381701
+          --out artifacts/v639-gadget-structure
+      - name: Upload structural evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v639-gadget-structure-${{ github.run_id }}
+          path: artifacts/v639-gadget-structure/
+          retention-days: 30
