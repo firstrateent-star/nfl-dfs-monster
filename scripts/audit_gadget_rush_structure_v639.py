@@ -9,6 +9,14 @@ import numpy as np
 from runtime_v639_composer import build_week1_runtime_inputs_v639
 
 from monster.sim import reality_v62
+from monster.sim.current_role_guard_v639 import (
+    _entry_probability_v639,
+    _rotation_exposure_v639,
+)
+from monster.sim.gadget_rush_entry_priors_v639 import (
+    carry_bin,
+    empirical_gadget_entry_prior,
+)
 
 HISTORICAL_REFERENCE = {
     "seasons": [2022, 2023, 2024, 2025],
@@ -50,6 +58,7 @@ def main() -> None:
     pools = runtime["pools"]
 
     rows: list[dict[str, object]] = []
+    player_summaries: list[dict[str, object]] = []
     team_summaries: list[dict[str, object]] = []
     all_gadget_mass: list[float] = []
     all_gadget_count: list[int] = []
@@ -60,6 +69,14 @@ def main() -> None:
             player.player_id: player.position.upper()
             for player in pool.players
         }
+        player_by_id = {player.player_id: player for player in pool.players}
+        gadget_player_ids = [
+            player.player_id
+            for player in pool.players
+            if player.position.upper() in {"WR", "TE"}
+        ]
+        player_entry_counts = {player_id: 0 for player_id in gadget_player_ids}
+        player_share_sums = {player_id: 0.0 for player_id in gadget_player_ids}
         gadget_mass_worlds: list[float] = []
         gadget_count_worlds: list[int] = []
         wr_count_worlds: list[int] = []
@@ -81,6 +98,9 @@ def main() -> None:
                 if share > 0.0 and position_by_id.get(player_id) == "TE"
             ]
             gadget_ids = wr_ids + te_ids
+            for player_id in gadget_ids:
+                player_entry_counts[player_id] += 1
+                player_share_sums[player_id] += float(plan[player_id])
             gadget_mass = sum(float(plan[player_id]) for player_id in gadget_ids)
             gadget_count = len(gadget_ids)
 
@@ -99,6 +119,31 @@ def main() -> None:
                     "gadget_rusher_count": gadget_count,
                     "wr_gadget_rusher_count": len(wr_ids),
                     "te_gadget_rusher_count": len(te_ids),
+                }
+            )
+
+        for player_id in gadget_player_ids:
+            player = player_by_id[player_id]
+            player_summaries.append(
+                {
+                    "team_id": team_id,
+                    "player_id": player_id,
+                    "player": player.display_name,
+                    "position": player.position.upper(),
+                    "historical_rushes": float(player.historical_rushes),
+                    "historical_rush_share": float(player.historical_rush_share),
+                    "heuristic_rush_role_probability": float(
+                        player.rush_role_probability
+                    ),
+                    "historical_carry_bin": carry_bin(player.historical_rushes),
+                    "empirical_entry_prior": empirical_gadget_entry_prior(
+                        player.position,
+                        player.historical_rushes,
+                    ),
+                    "rotation_exposure": _rotation_exposure_v639(player_id),
+                    "final_entry_probability": _entry_probability_v639(player),
+                    "simulated_entry_rate": player_entry_counts[player_id] / args.worlds,
+                    "mean_plan_share_all_worlds": player_share_sums[player_id] / args.worlds,
                 }
             )
 
@@ -165,6 +210,7 @@ def main() -> None:
     import polars as pl
 
     pl.DataFrame(rows).write_csv(args.out / "team_worlds.csv")
+    pl.DataFrame(player_summaries).write_csv(args.out / "player_summary.csv")
     pl.DataFrame(team_summaries).write_csv(args.out / "team_summary.csv")
     (args.out / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n",
