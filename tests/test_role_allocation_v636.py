@@ -258,3 +258,118 @@ def test_v636_install_keeps_v635_target_sampler() -> None:
     install_current_role_guard_v636(personnel)
     assert reality_v62.sample_target_share_plan is v635.sample_target_share_plan_v635
     assert reality_v62.sample_event_rush_share_plan is sample_rush_share_plan_v636
+
+
+def test_v636_preserves_v635_downstream_target_random_world() -> None:
+    pool = TeamPlayerPool(
+        "A",
+        (
+            PlayerState(
+                "rb1",
+                "RB1",
+                "RB",
+                "A",
+                target_share=0.08,
+                rush_share=0.58,
+                rush_role_probability=1.0,
+                role_uncertainty=0.08,
+            ),
+            PlayerState(
+                "rb2",
+                "RB2",
+                "RB",
+                "A",
+                target_share=0.05,
+                rush_share=0.22,
+                rush_role_probability=0.90,
+                role_uncertainty=0.12,
+            ),
+            PlayerState(
+                "qb",
+                "QB",
+                "QB",
+                "A",
+                rush_share=0.12,
+                rush_role_probability=1.0,
+            ),
+            PlayerState(
+                "wr",
+                "WR",
+                "WR",
+                "A",
+                target_share=0.58,
+                rush_share=0.06,
+                rush_role_probability=0.45,
+                role_uncertainty=0.06,
+            ),
+            PlayerState(
+                "te",
+                "TE",
+                "TE",
+                "A",
+                target_share=0.29,
+                rush_share=0.02,
+                rush_role_probability=0.25,
+                role_uncertainty=0.08,
+            ),
+        ),
+    )
+    v635.configure_current_skill_roles_v635(
+        _personnel(
+            [
+                {
+                    "gsis_id": "rb1",
+                    "position": "RB",
+                    "depth_rank": 1,
+                    "conditional_offense_snap_share": 0.70,
+                    "game_day_active_probability": 1.0,
+                    "status": "ACT",
+                },
+                {
+                    "gsis_id": "rb2",
+                    "position": "RB",
+                    "depth_rank": 2,
+                    "conditional_offense_snap_share": 0.32,
+                    "game_day_active_probability": 1.0,
+                    "status": "ACT",
+                },
+                {
+                    "gsis_id": "qb",
+                    "position": "QB",
+                    "depth_rank": 1,
+                    "conditional_offense_snap_share": 1.0,
+                    "game_day_active_probability": 1.0,
+                    "status": "ACT",
+                },
+                {
+                    "gsis_id": "wr",
+                    "position": "WR",
+                    "depth_rank": 1,
+                    "conditional_offense_snap_share": 0.94,
+                    "game_day_active_probability": 1.0,
+                    "status": "ACT",
+                },
+                {
+                    "gsis_id": "te",
+                    "position": "TE",
+                    "depth_rank": 1,
+                    "conditional_offense_snap_share": 0.84,
+                    "game_day_active_probability": 1.0,
+                    "status": "ACT",
+                },
+            ]
+        )
+    )
+
+    control_rng = np.random.default_rng(6361701)
+    v635.sample_rush_share_plan_v635(pool, rng=control_rng)
+    control_targets = v635.sample_target_share_plan_v635(pool, rng=control_rng)
+    control_next = float(control_rng.random())
+
+    challenger_rng = np.random.default_rng(6361701)
+    sample_rush_share_plan_v636(pool, rng=challenger_rng)
+    challenger_targets = v635.sample_target_share_plan_v635(pool, rng=challenger_rng)
+    challenger_next = float(challenger_rng.random())
+
+    assert challenger_targets == control_targets
+    assert challenger_next == control_next
