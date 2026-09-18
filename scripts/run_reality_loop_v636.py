@@ -7,12 +7,12 @@ import run_reality_loop_v2_smoke as v61
 import run_reality_loop_v63 as v63
 import run_reality_loop_v634 as v634
 import run_reality_loop_v635 as v635
-
-from monster.sim import resolution_ecology
 from runtime_v636_composer import (
     compose_v636_runtime,
     write_runtime_fingerprint_v636,
 )
+
+from monster.sim import resolution_ecology
 
 
 def _record_v636_manifest(out: Path) -> None:
