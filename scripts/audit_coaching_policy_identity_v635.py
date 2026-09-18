@@ -9,6 +9,12 @@ import polars as pl
 
 import audit_week1_v13_drive_survival as drive
 import run_week1_v13_integrated as integrated
+from runtime_v635_composer import (
+    assert_team_runtime_v635,
+    compose_v635_runtime,
+    write_runtime_fingerprint_v635,
+)
+
 from monster.sim.football_state import FootballState
 from monster.sim.play_kernel import _dropback_probability
 
@@ -53,12 +59,15 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
+    compose_v635_runtime()
+    write_runtime_fingerprint_v635(args.out)
     _pools, teams, _defenses, _states, _ecology = drive._build_current_world_inputs(
         policy_path=args.policy,
         personnel_path=args.personnel,
         player_usage_path=args.player_usage,
         situation_context_path=args.situation_context,
     )
+    assert_team_runtime_v635(teams)
 
     opponent = {
         away: home
