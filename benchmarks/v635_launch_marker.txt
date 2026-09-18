@@ -7,3 +7,6 @@ counterfactual_worlds_per_game=15
 truth_consumed_after_simulations_only=true
 promotion=forbidden_without_review
 retry_after_import_normalization=true
+production_runtime_composer=true
+hierarchical_qb_gate=true
+counterfactual_worlds_per_game=40
