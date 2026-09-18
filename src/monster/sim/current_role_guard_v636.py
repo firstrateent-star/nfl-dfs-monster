@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import polars as pl
 
@@ -40,9 +42,22 @@ def sample_rush_share_plan_v636(
     merely because they are receiving-game starters.
     """
 
-    base = _native_rush_plan(
+    # Preserve the exact random-number state that v6.3.5 hands to the target-role
+    # sampler. The paired shadow must change rushing allocation only, not which
+    # receiving-role world happens to be drawn next from the shared RNG stream.
+    shadow_rng = np.random.default_rng()
+    shadow_rng.bit_generator.state = copy.deepcopy(rng.bit_generator.state)
+    v635.sample_rush_share_plan_v635(
         pool,
         rng=rng,
+        expected_scrimmage_plays=expected_scrimmage_plays,
+    )
+
+    # Reconstruct the native rushing world from the pre-v6.3.5 RNG state on a
+    # private stream. All corrected RB uncertainty below also stays private.
+    base = _native_rush_plan(
+        pool,
+        rng=shadow_rng,
         expected_scrimmage_plays=expected_scrimmage_plays,
     )
     if not base:
@@ -104,7 +119,7 @@ def sample_rush_share_plan_v636(
     concentration = float(
         np.clip(58.0 - 70.0 * float(np.mean(uncertainties)), 26.0, 54.0)
     )
-    shares = rng.dirichlet(np.clip(centers * concentration, 0.25, None))
+    shares = shadow_rng.dirichlet(np.clip(centers * concentration, 0.25, None))
     shares = reality_v62._cap_simplex(
         shares,
         v635._role_share_cap(len(participant_ids), base=0.88),
