@@ -10,3 +10,5 @@ historical_reference_seasons=2022,2023,2024,2025
 purpose=compare simulated gadget-role geometry to frozen historical structure before outcome grading
 
 retry_after_lint_fix=true
+
+retry_after_benchmark_checkout_fix=true
