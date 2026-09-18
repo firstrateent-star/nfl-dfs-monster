@@ -112,11 +112,11 @@ jobs:
           --personnel ../control/artifacts/week1-health/health_personnel.parquet
           --player-usage ../control/artifacts/league-policy/player_usage.parquet
           --situation-context ../control/artifacts/league-policy/situational_pass_context.parquet
-          --worlds 15
+          --worlds 40
           --seed 6351701
           --out ../benchmark/artifacts/v635-counterfactual
 
-      - name: Require full-game QB signal to propagate directionally
+      - name: Require hierarchical QB identity propagation
         working-directory: benchmark
         run: |
           python - <<'PY'
@@ -125,10 +125,9 @@ jobs:
           report = json.loads(
               Path("artifacts/v635-counterfactual/v635_full_game_qb_counterfactual.json").read_text()
           )
-          if report["teams_with_positive_passing_yards_response"] < 20:
-              raise SystemExit(f"QB identity failed passing propagation: {report}")
-          if report["median_passing_yards_high_minus_low"] <= 0:
-              raise SystemExit(f"QB identity has no median passing response: {report}")
+          gates = report["hierarchical_gate"]
+          if not gates["overall"]:
+              raise SystemExit(f"QB causal propagation gate failed: {gates}; metrics={report['metrics']}")
           PY
 
       - name: Run frozen v6.3.4 control
