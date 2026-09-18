@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import run_reality_loop_v2_smoke as v61
@@ -9,41 +8,10 @@ import run_reality_loop_v63 as v63
 import run_reality_loop_v634 as v634
 
 from monster.sim import resolution_ecology
-from monster.sim.current_role_guard_v635 import install_current_role_guard_v635
-
-
-_NATIVE_APPLY_V634 = v634.apply_matchup_identity_authority_v634
-
-
-def _apply_identity_authority_v635(identity, **kwargs):
-    """Keep rich players/unit identity, but remove the dead team-pass proxy authority.
-
-    Normal pass snaps are now driven by the actual rich QB execution channel in play_kernel.
-    Leaving the v6.3.4 team pass_efficiency multiplier active would only affect a few
-    downstream scoring seams (not ordinary throws), creating false confidence and double
-    authority. Rushing team context remains live because rush_efficiency is consumed on
-    every run.
-    """
-
-    enhanced, trace = _NATIVE_APPLY_V634(identity, **kwargs)
-    return (
-        replace(enhanced, pass_efficiency=identity.pass_efficiency),
-        replace(trace, pass_efficiency_after=identity.pass_efficiency),
-    )
-
-
-def configure_reality_loop_v635() -> None:
-    """Compose v6.3.5 identity propagation + role separation over v6.3 physics."""
-
-    # v6.3.4 closures resolve these module globals at runtime. Replace only the two seams
-    # proven by the paired Week-1 audit to be wrong/incomplete.
-    v634.install_current_role_guard = install_current_role_guard_v635
-    v634.apply_matchup_identity_authority_v634 = _apply_identity_authority_v635
-    v634.configure_reality_loop_v634()
-
-    # Do not claim the legacy _COARSE_* variables as production authority. The live depth/run
-    # ecology is governed by _SNAP_MATCHUP_AUTHORITY / _SNAP_RUN_MATCHUP_AUTHORITY.
-    v61.runner._PASS_MATCHUP_AUTHORITY_OVERRIDE = None
+from runtime_v635_composer import (
+    compose_v635_runtime,
+    write_runtime_fingerprint_v635,
+)
 
 
 def _record_v635_manifest(out: Path) -> None:
@@ -99,7 +67,7 @@ def _record_v635_manifest(out: Path) -> None:
 def main() -> None:
     original = v61.configure_reality_loop_v2
     try:
-        v61.configure_reality_loop_v2 = configure_reality_loop_v635
+        v61.configure_reality_loop_v2 = compose_v635_runtime
         v61.main()
     finally:
         v61.configure_reality_loop_v2 = original
@@ -110,6 +78,7 @@ def main() -> None:
     v63._record_v63_manifest(out)
     v634._record_v634_manifest(out)
     _record_v635_manifest(out)
+    write_runtime_fingerprint_v635(out)
 
 
 if __name__ == "__main__":
