@@ -1,0 +1,11 @@
+v6.3.7 gadget rush incidence OOS audit
+
+seasons=2022,2023,2024,2025
+positions=WR,TE
+week1_2026_truth_used=false
+market_blind=true
+
+purpose:
+measure actual game-level WR/TE rushing entry, team gadget-rush share,
+conditional carry magnitude, and year-to-year persistence before promoting
+the v6.3.7 gadget-entry mechanism.
