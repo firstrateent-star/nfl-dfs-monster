@@ -89,19 +89,7 @@ def runtime_fingerprint_v635() -> RuntimeFingerprintV635:
     return RuntimeFingerprintV635(**payload, runtime_hash=digest)
 
 
-def compose_v635_runtime() -> RuntimeFingerprintV635:
-    """Install the exact v6.3.5 production runtime used by runners and diagnostics."""
-    v634.install_current_role_guard = install_current_role_guard_v635
-    v634.apply_matchup_identity_authority_v634 = _apply_identity_authority_v635
-    v634.configure_reality_loop_v634()
-
-    # The production dispersion wrapper should not re-label an obsolete coarse authority
-    # variable as though it controlled live throw resolution.
-    v61.runner._PASS_MATCHUP_AUTHORITY_OVERRIDE = None
-    return assert_v635_runtime()
-
-
-def assert_v635_runtime() -> RuntimeFingerprintV635:
+def _runtime_integrity_errors(*, require_role_guard: bool) -> list[str]:
     integrated = v61.runner.integrated
     errors: list[str] = []
 
@@ -109,10 +97,6 @@ def assert_v635_runtime() -> RuntimeFingerprintV635:
         errors.append("game-flow policy composer is not Reality Loop v2 production policy")
     if game_loop_v13.simulate_scrimmage_play is not v61._simulate_scrimmage_play_with_snap_world:
         errors.append("game_loop_v13 is not using the production per-snap participant world")
-    if reality_v62.sample_target_share_plan is not sample_target_share_plan_v635:
-        errors.append("v6.3.5 target role sampler is not active")
-    if reality_v62.sample_event_rush_share_plan is not sample_rush_share_plan_v635:
-        errors.append("v6.3.5 rush role sampler is not active")
     if play_kernel._field_read_target is not v61._field_read_target_with_opportunity:
         errors.append("production opportunity-aware field read wrapper is not active")
     if not hasattr(resolution_ecology, "_SNAP_MATCHUP_AUTHORITY"):
@@ -120,6 +104,32 @@ def assert_v635_runtime() -> RuntimeFingerprintV635:
     if not hasattr(resolution_ecology, "_SNAP_RUN_MATCHUP_AUTHORITY"):
         errors.append("live run matchup authority is unavailable")
 
+    if require_role_guard:
+        if reality_v62.sample_target_share_plan is not sample_target_share_plan_v635:
+            errors.append("v6.3.5 target role sampler is not active after personnel compile")
+        if reality_v62.sample_event_rush_share_plan is not sample_rush_share_plan_v635:
+            errors.append("v6.3.5 rush role sampler is not active after personnel compile")
+    return errors
+
+
+def compose_v635_runtime() -> None:
+    """Install the exact v6.3.5 production composition before data-dependent role setup."""
+    v634.install_current_role_guard = install_current_role_guard_v635
+    v634.apply_matchup_identity_authority_v634 = _apply_identity_authority_v635
+    v634.configure_reality_loop_v634()
+
+    # The production dispersion wrapper should not re-label an obsolete coarse authority
+    # variable as though it controlled live throw resolution.
+    v61.runner._PASS_MATCHUP_AUTHORITY_OVERRIDE = None
+
+    errors = _runtime_integrity_errors(require_role_guard=False)
+    if errors:
+        raise RuntimeError("v6.3.5 static runtime integrity failure: " + "; ".join(errors))
+
+
+def assert_v635_runtime() -> RuntimeFingerprintV635:
+    """Assert the fully materialized runtime after personnel compilation installed role truth."""
+    errors = _runtime_integrity_errors(require_role_guard=True)
     if errors:
         raise RuntimeError("v6.3.5 runtime integrity failure: " + "; ".join(errors))
     return runtime_fingerprint_v635()
@@ -158,7 +168,7 @@ def build_week1_runtime_inputs_v635(
     runtime composition. That prevents stale aliases from silently testing a different machine.
     """
 
-    fingerprint = compose_v635_runtime()
+    compose_v635_runtime()
     integrated = v61.runner.integrated
 
     policy = integrated._read(policy_path)
@@ -203,6 +213,7 @@ def build_week1_runtime_inputs_v635(
         for team in pair
     }
     assert_team_runtime_v635(teams)
+    fingerprint = assert_v635_runtime()
     ecology = root._load_chaos_ecology(player_usage_path)
     return {
         "fingerprint": fingerprint,
