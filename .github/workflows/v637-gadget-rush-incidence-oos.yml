@@ -1,1 +1,41 @@
-name: v6.3.7 Gadget Rush Incidence OOS\n\non:\n  push:\n    branches: [work/v637-gadget-rush-entry]\n    paths:\n      - benchmarks/v637_gadget_incidence_oos_launch.txt\n  workflow_dispatch:\n\npermissions:\n  contents: read\n  actions: read\n\njobs:\n  audit:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 45\n    steps:\n      - uses: actions/checkout@v4\n      - uses: astral-sh/setup-uv@v6\n      - run: uv sync --extra dev\n      - name: Unit-test incidence audit\n        run: uv run pytest -q tests/test_gadget_rush_incidence_oos_v637.py\n      - name: Lint incidence audit\n        run: >-\n          uv run ruff check\n          src/monster/feature_compile/gadget_rush_incidence_v637.py\n          scripts/audit_gadget_rush_incidence_oos_v637.py\n          tests/test_gadget_rush_incidence_oos_v637.py\n      - name: Run 2022-2025 market-blind incidence audit\n        run: >-\n          uv run python scripts/audit_gadget_rush_incidence_oos_v637.py\n          --seasons 2022 2023 2024 2025\n          --out artifacts/v637-gadget-incidence-oos\n      - name: Upload incidence evidence\n        uses: actions/upload-artifact@v4\n        if: always()\n        with:\n          name: monster-v637-gadget-incidence-oos-${{ github.run_id }}\n          path: artifacts/v637-gadget-incidence-oos/\n          retention-days: 30\n
+name: v6.3.7 Gadget Rush Incidence OOS
+
+on:
+  push:
+    branches: [work/v637-gadget-rush-entry]
+    paths:
+      - benchmarks/v637_gadget_incidence_oos_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Unit-test incidence audit
+        run: uv run pytest -q tests/test_gadget_rush_incidence_oos_v637.py
+      - name: Lint incidence audit
+        run: >-
+          uv run ruff check
+          src/monster/feature_compile/gadget_rush_incidence_v637.py
+          scripts/audit_gadget_rush_incidence_oos_v637.py
+          tests/test_gadget_rush_incidence_oos_v637.py
+      - name: Run 2022-2025 market-blind incidence audit
+        run: >-
+          uv run python scripts/audit_gadget_rush_incidence_oos_v637.py
+          --seasons 2022 2023 2024 2025
+          --out artifacts/v637-gadget-incidence-oos
+      - name: Upload incidence evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v637-gadget-incidence-oos-${{ github.run_id }}
+          path: artifacts/v637-gadget-incidence-oos/
+          retention-days: 30
