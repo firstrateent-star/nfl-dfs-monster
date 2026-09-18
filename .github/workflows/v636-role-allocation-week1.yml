@@ -56,8 +56,8 @@ jobs:
     timeout-minutes: 300
     env:
       CONTROL_SHA: e48d50f103d0ed021760ca695c14941607c7fe58
-      WORLDS: \${{ github.event.inputs.worlds || '300' }}
-      SEED: \${{ github.event.inputs.seed || '2026091701' }}
+      WORLDS: ${{ github.event.inputs.worlds || '300' }}
+      SEED: ${{ github.event.inputs.seed || '2026091701' }}
     steps:
       - name: Checkout v6.3.6 challenger
         uses: actions/checkout@v4
@@ -73,7 +73,7 @@ jobs:
       - name: Checkout frozen v6.3.5 control
         uses: actions/checkout@v4
         with:
-          ref: \${{ env.CONTROL_SHA }}
+          ref: ${{ env.CONTROL_SHA }}
           path: control
 
       - uses: astral-sh/setup-uv@v6
@@ -260,7 +260,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-v636-week1-paired-\${{ github.run_id }}
+          name: monster-v636-week1-paired-${{ github.run_id }}
           path: |
             benchmark/artifacts/v636-coaching-policy/
             benchmark/artifacts/v636-counterfactual/
