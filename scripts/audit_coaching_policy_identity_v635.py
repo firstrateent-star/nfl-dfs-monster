@@ -7,11 +7,9 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-import audit_week1_v13_drive_survival as drive
 import run_week1_v13_integrated as integrated
 from runtime_v635_composer import (
-    assert_team_runtime_v635,
-    compose_v635_runtime,
+    build_week1_runtime_inputs_v635,
     write_runtime_fingerprint_v635,
 )
 
@@ -59,15 +57,14 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
-    compose_v635_runtime()
-    write_runtime_fingerprint_v635(args.out)
-    _pools, teams, _defenses, _states, _ecology = drive._build_current_world_inputs(
+    runtime = build_week1_runtime_inputs_v635(
         policy_path=args.policy,
         personnel_path=args.personnel,
         player_usage_path=args.player_usage,
         situation_context_path=args.situation_context,
     )
-    assert_team_runtime_v635(teams)
+    write_runtime_fingerprint_v635(args.out)
+    teams = runtime["teams"]
 
     opponent = {
         away: home
