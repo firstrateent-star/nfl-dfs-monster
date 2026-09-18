@@ -10,6 +10,12 @@ import polars as pl
 
 import audit_week1_v13_drive_survival as drive
 import run_week1_v13_integrated as integrated
+from runtime_v635_composer import (
+    assert_team_runtime_v635,
+    compose_v635_runtime,
+    write_runtime_fingerprint_v635,
+)
+
 from monster.sim.current_role_guard_v635 import (
     configure_current_skill_roles_v635,
     sample_rush_share_plan_v635,
@@ -86,6 +92,8 @@ def main() -> None:
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
+    compose_v635_runtime()
+    write_runtime_fingerprint_v635(args.out)
     personnel = pl.read_parquet(args.personnel)
     configure_current_skill_roles_v635(personnel)
     pools, teams, defenses, _states, ecology = drive._build_current_world_inputs(
@@ -94,6 +102,7 @@ def main() -> None:
         player_usage_path=args.player_usage,
         situation_context_path=args.situation_context,
     )
+    assert_team_runtime_v635(teams)
 
     rows: list[dict[str, object]] = []
     for game_idx, (away, home) in enumerate(integrated.MATCHUPS):
