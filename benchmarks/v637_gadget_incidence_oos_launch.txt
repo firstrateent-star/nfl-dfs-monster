@@ -9,3 +9,5 @@ purpose:
 measure actual game-level WR/TE rushing entry, team gadget-rush share,
 conditional carry magnitude, and year-to-year persistence before promoting
 the v6.3.7 gadget-entry mechanism.
+
+retry_after_yaml_fix=true
