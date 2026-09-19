@@ -11,3 +11,4 @@ week1_truth_after_both_simulations=true
 market_blind=true
 attempt=2
 attempt=3
+attempt=4
