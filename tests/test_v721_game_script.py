@@ -114,12 +114,13 @@ def test_v721_timeout_bank_stops_live_clock_at_most_three_times(monkeypatch) -> 
 
     elapsed = []
     chosen = []
+    rng = __import__("numpy").random.default_rng(72101)
     for _ in range(4):
         adjusted, team = script._apply_timeout_clock(
             state,
             offense,
             event,
-            __import__("numpy").random.default_rng(72101),
+            rng,
         )
         elapsed.append(adjusted.elapsed_seconds)
         chosen.append(team)
