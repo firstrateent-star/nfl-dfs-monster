@@ -1,0 +1,14 @@
+MONSTER v7.1 strict Week 1 one-world reality audit
+
+worlds_per_game=1
+games=16
+seed=2026091901
+input_cutoff=2026-09-08
+current_2026_regular_season_snaps_used=false
+week1_truth_before_simulation=false
+market_blind=true
+
+purpose:
+rerun the complete 2026 Week 1 slate through the current v7.1 runtime and
+compare the realized synthetic football universe to actual Week 1 across
+team anatomy, offense, defense, participation and supported special teams.
