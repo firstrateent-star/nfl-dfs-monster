@@ -12,6 +12,10 @@ from monster.reality.engine import (
     RealityGameResult,
     V6CompatibilityEngine,
 )
+from monster.reality.game_latents import (
+    sample_game_day_latents,
+    team_latent_vector,
+)
 from monster.reality.ledger import (
     LedgerEventKind,
     LedgerFidelity,
@@ -57,5 +61,7 @@ __all__ = [
     "V6CompatibilityEngine",
     "WorldKey",
     "classify_qb_rush_event",
+    "sample_game_day_latents",
     "summarize_qb_rush_families",
+    "team_latent_vector",
 ]
