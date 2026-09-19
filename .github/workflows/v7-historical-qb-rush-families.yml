@@ -1,0 +1,35 @@
+name: v7 Historical QB Rush Families
+
+on:
+  push:
+    branches: [work/v7-reality-engine]
+    paths:
+      - scripts/audit_historical_qb_rush_families_v7.py
+      - .github/workflows/v7-historical-qb-rush-families.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Lint historical family audit
+        run: uv run ruff check scripts/audit_historical_qb_rush_families_v7.py
+      - name: Measure 2022-2025 QB rush families and recurrence
+        run: >-
+          uv run python scripts/audit_historical_qb_rush_families_v7.py
+          --seasons 2022,2023,2024,2025
+          --out artifacts/v7-qb-rush-families
+      - name: Show evidence
+        run: cat artifacts/v7-qb-rush-families/manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: monster-v7-historical-qb-rush-families-${{ github.run_id }}
+          path: artifacts/v7-qb-rush-families/
+          retention-days: 30
