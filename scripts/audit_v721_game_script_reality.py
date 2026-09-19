@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import nflreadpy as nfl
-import numpy as np
 import polars as pl
 
 from monster.ingest.nflverse import configure_cache
