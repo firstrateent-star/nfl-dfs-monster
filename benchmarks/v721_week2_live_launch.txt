@@ -1,0 +1,13 @@
+MONSTER V7.2.1 Week 2 full live distribution launch
+gate_run: 35473470621
+gate_status: PASS
+gate_artifact_id: 10593622281
+worlds_per_game: 120
+remaining_games: 15
+total_games: 1800
+seed: 2026091922
+information_cutoff: 2026-09-19
+week2_results_allowed: false
+market_inputs_to_football: false
+dfs_inputs_to_football: false
+purpose: produce lineup-ready Week 2 player/game distributions after V7.2.1 clock/game-script reality gate
