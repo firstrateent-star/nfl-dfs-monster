@@ -9,7 +9,8 @@ from monster.reality.availability import (
 from monster.reality.ledger import LedgerEventKind, LedgerFidelity, ParticipantSnapshot
 from monster.reality.native_ledger import NativeRealityLedgerBuilder
 from monster.reality.world_state import PregameWorld, TeamPregameState, WorldKey
-from monster.sim.football_state import FootballState, apply_scrimmage_yards
+from monster.sim.drive_trace import DriveTraceRecorder
+from monster.sim.football_state import FootballState, PossessionTerminal, apply_scrimmage_yards
 from monster.sim.play_kernel import PlayEvent, PlayType
 
 
@@ -178,3 +179,43 @@ def test_native_ledger_records_qb_exit_as_first_class_transition() -> None:
     assert record.availability_transition.player_id == "awy-qb1"
     assert record.availability_transition.replacement_player_id == "awy-qb2"
     assert record.availability_transition.reason == "concussion"
+
+
+def test_native_ledger_records_drive_terminal_from_same_state_path() -> None:
+    world = _world().key
+    builder = NativeRealityLedgerBuilder(world=world, source_runtime="native-test")
+    before = FootballState(
+        possession="AWY",
+        defense="HME",
+        quarter=1,
+        seconds_remaining=3450,
+        yardline_100=30.0,
+        down=1,
+        distance=10.0,
+        away_team_id="AWY",
+        home_team_id="HME",
+    )
+    event = PlayEvent(
+        play_type=PlayType.RUN,
+        elapsed_seconds=25,
+        yards=12.0,
+        rusher_id="awy-rb",
+    )
+    recorder = DriveTraceRecorder(before)
+    recorder.observe(before, event)
+    after = apply_scrimmage_yards(before, event.yards, event.elapsed_seconds)
+    trace = recorder.finish(after, PossessionTerminal.END_GAME)
+
+    builder.record_drive_terminal(drive_index=0, trace=trace)
+    ledger = builder.close_game(
+        final_state=after,
+        drives=1,
+        went_to_overtime=False,
+    )
+
+    assert len(ledger.drive_records) == 1
+    drive = ledger.drive_records[0].drive_terminal
+    assert drive is not None
+    assert drive.offense_team_id == "AWY"
+    assert drive.scrimmage_plays == 1
+    assert drive.net_scrimmage_yards == pytest.approx(12.0)
