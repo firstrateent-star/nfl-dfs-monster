@@ -124,6 +124,13 @@ def enhanced_team_identity(
                 capability_inputs=capability.get(player.player_id),
             )
 
+    try:
+        from monster.reality.live_state_v72 import register_team_identities_v72
+
+        register_team_identities_v72(team_id, compiled)
+    except ImportError:
+        pass
+
     qbs = [player for player in pool.players if player.position == "QB"]
     if not qbs:
         raise ValueError(f"{team_id} has no quarterback in current pool")
