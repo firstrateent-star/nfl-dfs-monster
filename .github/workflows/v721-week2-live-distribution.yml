@@ -1,4 +1,4 @@
-name: v7.2.1 Week 2 Live Pregame Distribution
+name: v7.2.1 Week 2 Saturday Ceiling Distribution
 
 on:
   push:
@@ -115,6 +115,7 @@ jobs:
               ("MIN", "Jauan Jennings"),
               ("DEN", "Marvin Mims Jr."),
               ("WAS", "Chigoziem Okonkwo"),
+              ("BAL", "Zay Flowers"),
           ]
 
           for team, player in starters:
@@ -160,8 +161,8 @@ jobs:
           --personnel artifacts/week2-live-health/health_personnel.parquet
           --player-usage artifacts/week2-live-policy/player_usage.parquet
           --situation-context artifacts/week2-live-policy/situational_pass_context.parquet
-          --worlds 120
-          --seed 2026091922
+          --worlds 600
+          --seed 2026091925
           --progress-every 120
           --first-out artifacts/week2-v721-live
           --box-out artifacts/week2-v721-live-box
@@ -272,9 +273,9 @@ jobs:
 
           manifest = {
               "experiment": "MONSTER V7.2.1 Week 2 2026 live pregame distribution",
-              "worlds_per_game": 120,
+              "worlds_per_game": 600,
               "games": int(games.height),
-              "seed": 2026091922,
+              "seed": 2026091925,
               "information_cutoff": "2026-09-19",
               "det_buf_excluded_already_played": True,
               "week1_real_football_allowed": True,
@@ -282,7 +283,7 @@ jobs:
               "week2_market_data_allowed": False,
               "live_roster_depth_injury_information_allowed": True,
               "runtime": "V7.2.1 game-script/clock shadow runtime",
-              "purpose": "Actionable pre-lock Sunday/Monday Week 2 football and fantasy distributions after V7.2.1 game-script reality gate.",
+              "purpose": "Saturday-refresh Week 2 football distributions with denser tail sampling for player ceiling and extreme-score discovery before DFS lineup construction.",
           }
           (out / "capsule_manifest.json").write_text(
               json.dumps(manifest, indent=2) + "\n",
