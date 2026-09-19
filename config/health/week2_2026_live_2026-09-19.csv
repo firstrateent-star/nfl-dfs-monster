@@ -1,0 +1,13 @@
+team_id,display_name,health_availability_probability,health_effectiveness_if_active,health_uncertainty,health_state,health_evidence,health_injury,source_url,as_of_date,notes
+ATL,Michael Penix Jr.,0.0,0.50,0.01,out,official_team,knee,https://www.atlantafalcons.com/news/cooper-rush-starting-qb-falcons-vs-panthers,2026-09-19,Ruled out for Week 2
+ATL,Tua Tagovailoa,0.03,0.90,0.03,doubtful_backup,official_team,oblique,https://www.atlantafalcons.com/news/cooper-rush-starting-qb-falcons-vs-panthers,2026-09-19,Doubtful; Cooper Rush named starter
+ATL,Cooper Rush,1.0,1.0,0.01,confirmed_starter,official_team,,https://www.atlantafalcons.com/news/cooper-rush-starting-qb-falcons-vs-panthers,2026-09-19,Named Week 2 starter
+MIN,Kyler Murray,0.0,0.50,0.01,out,official_team,concussion,https://www.vikings.com/news/carson-wentz-starting-week-2-at-bears,2026-09-19,Ruled out for Week 2
+MIN,Carson Wentz,1.0,1.0,0.01,confirmed_starter,official_team,,https://www.vikings.com/news/carson-wentz-starting-week-2-at-bears,2026-09-19,Named Week 2 starter
+SEA,Sam Darnold,0.0,0.50,0.01,out,official_team,glute,https://www.seahawks.com/news/sam-darnold-ruled-out-for-seahawks-week-2-game-at-arizona-drew-lock-will-start,2026-09-19,Ruled out for Week 2
+SEA,Drew Lock,1.0,1.0,0.01,confirmed_starter,official_team,,https://www.seahawks.com/news/sam-darnold-ruled-out-for-seahawks-week-2-game-at-arizona-drew-lock-will-start,2026-09-19,Named Week 2 starter
+HOU,Nico Collins,0.0,0.50,0.01,out,official_nfl,hamstring,https://www.nfl.com/news/nfl-week-2-injury-report-player-statuses-for-all-16-games,2026-09-19,Ruled out for Week 2
+PIT,Michael Pittman,0.0,0.50,0.01,out,official_nfl,foot,https://www.nfl.com/news/nfl-week-2-injury-report-player-statuses-for-all-16-games,2026-09-19,Ruled out for Week 2
+MIN,Jauan Jennings,0.0,0.50,0.01,out,official_nfl,personal,https://www.nfl.com/news/nfl-week-2-injury-report-player-statuses-for-all-16-games,2026-09-19,Ruled out for Week 2
+DEN,Marvin Mims Jr.,0.0,0.50,0.01,out,official_nfl,foot,https://www.nfl.com/news/nfl-week-2-injury-report-player-statuses-for-all-16-games,2026-09-19,Ruled out for Week 2
+WAS,Chigoziem Okonkwo,0.0,0.50,0.01,out,official_nfl,hamstring,https://www.nfl.com/news/nfl-week-2-injury-report-player-statuses-for-all-16-games,2026-09-19,Ruled out for Week 2
