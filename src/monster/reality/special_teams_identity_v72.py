@@ -33,6 +33,7 @@ _CURRENT_DEFENSE: str | None = None
 _BASE_PUNT: Callable | None = None
 _BASE_FIELD_GOAL: Callable | None = None
 _BASE_KICKOFF: Callable | None = None
+_BASE_KICKOFF_LOOP: Callable | None = None
 _EVENT_ROWS: list[dict[str, object]] = []
 
 
@@ -97,11 +98,13 @@ def configure_base_special_teams_hooks_v72(
     punt: Callable,
     field_goal: Callable,
     kickoff: Callable,
+    kickoff_loop: Callable,
 ) -> None:
-    global _BASE_PUNT, _BASE_FIELD_GOAL, _BASE_KICKOFF
+    global _BASE_PUNT, _BASE_FIELD_GOAL, _BASE_KICKOFF, _BASE_KICKOFF_LOOP
     _BASE_PUNT = punt
     _BASE_FIELD_GOAL = field_goal
     _BASE_KICKOFF = kickoff
+    _BASE_KICKOFF_LOOP = kickoff_loop
 
 
 def set_play_context_v72(offense_team: str, defense_team: str) -> None:
@@ -269,3 +272,15 @@ def player_team_v72(player_id: str | None) -> str:
         return ""
     role = role_for(str(player_id))
     return "" if role is None else role.team_id
+
+
+def kickoff_loop_v72(state, *args, **kwargs):
+    """Expose kicking/receiving identity to the inherited kickoff ecology."""
+
+    if _BASE_KICKOFF_LOOP is None:
+        raise RuntimeError("v7.2 base kickoff loop is not configured")
+    set_kick_context_v72(
+        str(getattr(state, "possession", "")),
+        str(getattr(state, "defense", "")),
+    )
+    return _BASE_KICKOFF_LOOP(state, *args, **kwargs)
