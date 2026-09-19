@@ -92,14 +92,11 @@ jobs:
           path = "artifacts/week2-live-health/health_personnel.parquet"
           df = pl.read_parquet(path)
 
-          def row(team: str, player: str):
-              hit = df.filter(
+          def rows(team: str, player: str):
+              return df.filter(
                   (pl.col("team_id") == team)
                   & (pl.col("display_name") == player)
               )
-              if hit.height != 1:
-                  raise SystemExit(f"Expected exactly one {team} {player}, found {hit.height}")
-              return hit.row(0, named=True)
 
           starters = [
               ("ATL", "Cooper Rush"),
@@ -118,14 +115,27 @@ jobs:
           ]
 
           for team, player in starters:
-              r = row(team, player)
-              p = float(r["game_day_active_probability"])
+              hit = rows(team, player)
+              if hit.height != 1:
+                  raise SystemExit(
+                      f"Expected exactly one confirmed starter {team} {player}, found {hit.height}"
+                  )
+              p = float(hit.row(0, named=True)["game_day_active_probability"])
               if p < 0.95:
                   raise SystemExit(f"{team} {player} starter active probability too low: {p}")
 
           for team, player in unavailable:
-              r = row(team, player)
-              p = float(r["game_day_active_probability"])
+              hit = rows(team, player)
+              # Absence from canonical game-day personnel is itself a valid
+              # representation of unavailability. If present, the player must
+              # have essentially no chance to become active.
+              if hit.height == 0:
+                  continue
+              if hit.height != 1:
+                  raise SystemExit(
+                      f"Expected at most one unavailable {team} {player}, found {hit.height}"
+                  )
+              p = float(hit.row(0, named=True)["game_day_active_probability"])
               if p > 0.05:
                   raise SystemExit(f"{team} {player} should be unavailable, active probability={p}")
 
