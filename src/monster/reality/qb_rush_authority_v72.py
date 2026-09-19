@@ -28,10 +28,14 @@ def designed_qb_entry_probability_v72(
         return 0.0
 
     attempts = getattr(ecology, "rusher_geometry_attempts", {})
+    candidate_ids = {
+        str(getattr(player, "player_id", ""))
+        for player in players
+    }
     total = sum(
         max(int(value), 0)
         for (actor_id, concept), value in attempts.items()
-        if str(concept) == category
+        if str(actor_id) in candidate_ids and str(concept) == category
     )
     qb_attempts = sum(
         max(int(attempts.get((str(getattr(qb, "player_id", "")), category), 0)), 0)
