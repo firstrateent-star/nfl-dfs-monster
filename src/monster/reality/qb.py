@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Iterable
+from collections.abc import Iterable
 
 from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
 
