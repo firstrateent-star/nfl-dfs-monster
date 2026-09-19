@@ -33,8 +33,8 @@ from monster.reality.special_teams_identity_v72 import (
 )
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
 from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, PlayerIdentity, TeamIdentity
+from monster.sim.defensive_intent import CoverageShell, DefensiveIntent, RushPlan
 from monster.sim.reality_snap_v5 import (
-    DefensiveIntent,
     SnapWorldV5,
     _EVENT_META,
     _WORLD_BY_KEY,
@@ -208,7 +208,11 @@ def test_v72_deep_route_family_prefers_wr_over_rb_without_usage_share() -> None:
 
 
 def test_v72_alignment_compatibility_reads_realized_snap_alignment() -> None:
-    intent = DefensiveIntent()
+    intent = DefensiveIntent(
+        coverage_shell=CoverageShell.TWO_HIGH,
+        rush_plan=RushPlan.FOUR,
+        box_aggression=0.5,
+    )
     _WORLD_BY_KEY["k"] = SnapWorldV5(
         responsibility_key="k",
         offense_package="11",
