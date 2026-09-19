@@ -10,15 +10,8 @@ from typing import Any
 import run_reality_loop_v2_smoke as v61
 import runtime_v700_composer as v700
 
-from monster.reality.qb_rush_authority import (
-    apply_qb_family_role_world,
-    separate_qb_from_rush_role_plan,
-)
+from monster.reality import qb_rush_runtime
 from monster.sim import reality_v62
-from monster.sim.reality_v62 import RoleWorldPlan
-
-_BASE_ROLE_SAMPLER: Callable[..., object] | None = None
-_BASE_ROLE_APPLIER: Callable[..., object] | None = None
 
 
 @dataclass(frozen=True)
@@ -45,23 +38,6 @@ def _callable_id(fn: Callable[..., Any]) -> str:
         f"{getattr(fn, '__module__', '<unknown>')}."
         f"{getattr(fn, '__qualname__', getattr(fn, '__name__', '<unknown>'))}"
     )
-
-
-def sample_role_world_v701(pool, *, rng, **kwargs):
-    if _BASE_ROLE_SAMPLER is None:
-        raise RuntimeError("v7.1 base role sampler has not been installed")
-    plan = _BASE_ROLE_SAMPLER(pool, rng=rng, **kwargs)
-    if not isinstance(plan, RoleWorldPlan):
-        return plan
-    return separate_qb_from_rush_role_plan(pool, plan)
-
-
-def apply_role_world_v701(team, plan):
-    if isinstance(plan, RoleWorldPlan):
-        return apply_qb_family_role_world(team, plan)
-    if _BASE_ROLE_APPLIER is None:
-        raise RuntimeError("v7.1 base role applier has not been installed")
-    return _BASE_ROLE_APPLIER(team, plan)
 
 
 def _fingerprint_payload() -> dict[str, object]:
@@ -98,31 +74,28 @@ def runtime_fingerprint_v701() -> RuntimeFingerprintV701:
 def compose_v701_runtime() -> None:
     """Install QB rush-family separation on top of the v7.0 participation shadow."""
 
-    global _BASE_ROLE_APPLIER, _BASE_ROLE_SAMPLER
-
     v700.compose_v700_runtime()
     integrated = v61.runner.integrated
 
-    if integrated.sample_event_rush_share_plan is not sample_role_world_v701:
-        _BASE_ROLE_SAMPLER = integrated.sample_event_rush_share_plan
-    if integrated._with_event_rush_plan is not apply_role_world_v701:
-        _BASE_ROLE_APPLIER = integrated._with_event_rush_plan
+    if integrated.sample_event_rush_share_plan is not qb_rush_runtime.sample_role_world_v701:
+        qb_rush_runtime.configure_base_role_hooks(
+            sampler=integrated.sample_event_rush_share_plan,
+            applier=integrated._with_event_rush_plan,
+        )
 
-    integrated.sample_event_rush_share_plan = sample_role_world_v701
-    integrated._with_event_rush_plan = apply_role_world_v701
+    integrated.sample_event_rush_share_plan = qb_rush_runtime.sample_role_world_v701
+    integrated._with_event_rush_plan = qb_rush_runtime.apply_role_world_v701
 
 
 def _runtime_integrity_errors() -> list[str]:
     errors: list[str] = []
     integrated = v61.runner.integrated
-    if integrated.sample_event_rush_share_plan is not sample_role_world_v701:
+    if integrated.sample_event_rush_share_plan is not qb_rush_runtime.sample_role_world_v701:
         errors.append("v7.1 QB-separated role sampler is not active")
-    if integrated._with_event_rush_plan is not apply_role_world_v701:
+    if integrated._with_event_rush_plan is not qb_rush_runtime.apply_role_world_v701:
         errors.append("v7.1 QB-separated role applier is not active")
-    if _BASE_ROLE_SAMPLER is None:
-        errors.append("v7.1 lost the inherited role-world sampler")
-    if _BASE_ROLE_APPLIER is None:
-        errors.append("v7.1 lost the inherited role-world applier")
+    if not qb_rush_runtime.base_role_hooks_ready():
+        errors.append("v7.1 lost the inherited role-world runtime")
     if reality_v62.sample_target_share_plan.__name__ != "sample_target_share_plan_v635":
         errors.append("v7.1 changed the frozen target participation prior")
     return errors
