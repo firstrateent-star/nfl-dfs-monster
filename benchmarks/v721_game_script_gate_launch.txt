@@ -1,0 +1,10 @@
+MONSTER V7.2.1 game-script reality gate
+branch: work/v721-game-script
+purpose: validate clock, timeout, late-defense, and preservation mechanisms before another full Week 2 run
+worlds_per_game: 30
+remaining_week2_games: 15
+seed: 2026091921
+week2_game_results_allowed: false
+market_data_allowed: false
+score_tuning_allowed: false
+fantasy_tuning_allowed: false
