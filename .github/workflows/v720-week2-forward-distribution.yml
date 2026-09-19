@@ -1,0 +1,225 @@
+name: v7.2 Week 2 Forward Distribution
+
+on:
+  push:
+    branches: [work/v72-reality-engine]
+    paths:
+      - benchmarks/v720_week2_distribution_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v720-week2-forward-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - name: Lint frozen Week 2 forward experiment
+        run: >-
+          uv run ruff check
+          scripts/build_week2_2026_pregame_baseline.py
+          scripts/build_week2_2026_policy.py
+          scripts/run_week2_v720_distribution.py
+          scripts/runtime_v720_composer.py
+          scripts/run_reality_loop_v720.py
+          src/monster/reality/participation_authority_v72.py
+          src/monster/reality/qb_rush_authority_v72.py
+          src/monster/reality/receiver_topology_v72.py
+          src/monster/reality/defensive_attribution_v72.py
+          src/monster/reality/live_state_v72.py
+          src/monster/reality/special_teams_identity_v72.py
+
+      - name: Require V7.2 causal and leakage gates
+        run: >-
+          uv run pytest -q
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_v7_qb_rush_authority.py
+          tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_reality_snap_v5.py
+          tests/test_defensive_attribution.py
+          tests/test_event_ledger.py
+          tests/test_market_blind_guard.py
+
+      - name: Build leakage-resistant Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_pregame_baseline.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-pregame-baseline
+
+      - name: Build Week 1-informed Week 2 football policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-policy
+
+      - name: Build older policy for continuity conditioning
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build frozen Week 2 health and availability state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-pregame-baseline/league_personnel.parquet
+          --injuries artifacts/week2-pregame-baseline/raw_injuries.parquet
+          --season 2026
+          --out artifacts/week2-health
+
+      - name: Build continuity-conditioned Week 2 team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-policy/team_policy.parquet
+          --personnel artifacts/week2-health/health_personnel.parquet
+          --out artifacts/week2-continuity-policy
+
+      - name: Run frozen V7.2 distribution for all 16 Week 2 games
+        run: >-
+          uv run python scripts/run_week2_v720_distribution.py
+          --policy artifacts/week2-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-health/health_personnel.parquet
+          --player-usage artifacts/week2-policy/player_usage.parquet
+          --situation-context artifacts/week2-policy/situational_pass_context.parquet
+          --worlds 120
+          --seed 2026092002
+          --progress-every 120
+          --first-out artifacts/week2-v720-distribution
+          --box-out artifacts/week2-v720-distribution-box
+
+      - name: Audit QB rushing families
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/week2-v720-distribution
+          --out artifacts/week2-v720-qb-rush
+
+      - name: Build compact Week 2 prediction capsule
+        run: |
+          uv run python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          import polars as pl
+
+          src = Path("artifacts/week2-v720-distribution")
+          box = Path("artifacts/week2-v720-distribution-box")
+          out = Path("artifacts/week2-v720-prediction-capsule")
+          out.mkdir(parents=True, exist_ok=True)
+
+          for name in ("manifest.json", "game_distributions.csv", "player_distributions.csv"):
+              shutil.copy2(src / name, out / name)
+
+          shutil.copy2(
+              box / "offensive_player_box_score_distributions.csv",
+              out / "offensive_player_box_score_distributions.csv",
+          )
+
+          players = pl.read_csv(src / "player_distributions.csv")
+          games = pl.read_csv(src / "game_distributions.csv")
+
+          players.sort("fanduel_mean", descending=True).head(200).write_csv(
+              out / "top_200_fantasy_players.csv"
+          )
+
+          game_cols = [
+              "game",
+              "worlds",
+              "away",
+              "home",
+              "away_points_mean",
+              "home_points_mean",
+              "total_mean",
+              "margin_mean",
+              "away_win_probability",
+              "home_win_probability",
+              "overtime_probability",
+              "projected_winner",
+              "projected_score",
+              "winner_probability",
+          ]
+          games.select([c for c in game_cols if c in games.columns]).write_csv(
+              out / "game_projection_summary.csv"
+          )
+
+          manifest = {
+              "experiment": "MONSTER V7.2 Week 2 2026 frozen forward distribution",
+              "worlds_per_game": 120,
+              "games": int(games.height),
+              "seed": 2026092002,
+              "information_cutoff": "2026-09-16",
+              "week1_real_football_allowed": True,
+              "week2_truth_allowed": False,
+              "week2_market_data_allowed": False,
+              "runtime": "V7.2 frozen football runtime",
+              "purpose": (
+                  "Forward player/game distribution prediction. Grade only after "
+                  "Week 2 reality is introduced separately."
+              ),
+          }
+          (out / "capsule_manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          print(json.dumps(manifest, indent=2))
+          print("Top projected fantasy players:")
+          print(
+              players.select(
+                  [
+                      "game",
+                      "player",
+                      "position",
+                      "fanduel_mean",
+                      "fanduel_p50",
+                      "fanduel_p90",
+                      "fanduel_20_plus_probability",
+                  ]
+              )
+              .sort("fanduel_mean", descending=True)
+              .head(30)
+          )
+          PY
+
+      - name: Upload compact prediction capsule
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v720-week2-prediction-capsule-${{ github.run_id }}
+          path: |
+            artifacts/week2-v720-prediction-capsule/
+            artifacts/week2-pregame-baseline/manifest.json
+            artifacts/week2-policy/manifest.json
+            artifacts/week2-health/manifest.json
+            artifacts/week2-continuity-policy/
+            artifacts/week2-v720-qb-rush/
+          retention-days: 30
+
+      - name: Upload full Week 2 simulation evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v720-week2-full-worlds-${{ github.run_id }}
+          path: |
+            artifacts/week2-v720-distribution/
+            artifacts/week2-v720-distribution-box/
+          retention-days: 30
