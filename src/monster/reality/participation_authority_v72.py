@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import blake2b
 from typing import Iterable
 
 import numpy as np
@@ -339,7 +340,7 @@ def weighted_without_replacement_v72(
         except ImportError:
             live = 1.0
         weight = max(inherited * authority * live, 1e-6)
-        digest = snap_ecology.blake2b(
+        digest = blake2b(
             f"{key}:{player_id}".encode(),
             digest_size=8,
         ).digest()
