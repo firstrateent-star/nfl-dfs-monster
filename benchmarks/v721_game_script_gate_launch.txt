@@ -9,3 +9,4 @@ market_data_allowed: false
 score_tuning_allowed: false
 fantasy_tuning_allowed: false
 retry_after_lint_cleanup: true
+retry_after_audit_test_lint_cleanup: true
