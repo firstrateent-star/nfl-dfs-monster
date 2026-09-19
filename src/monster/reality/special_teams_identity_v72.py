@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import tanh
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import polars as pl
@@ -54,8 +54,8 @@ def configure_special_teams_identities_v72(personnel: pl.DataFrame) -> None:
         except (TypeError, ValueError):
             depth_rank = 0
 
-        def opt(name: str) -> float | None:
-            value = row.get(name)
+        def opt(name: str, source: dict = row) -> float | None:
+            value = source.get(name)
             try:
                 return None if value is None else float(value)
             except (TypeError, ValueError):
@@ -144,7 +144,7 @@ def _specialist(team_id: str | None, positions: set[str]) -> SpecialTeamsPartici
     ]
     if not candidates:
         return None
-    return sorted(candidates, key=_rank)[0]
+    return min(candidates, key=_rank)
 
 
 def _returner(team_id: str | None) -> SpecialTeamsParticipantV72 | None:
@@ -169,7 +169,7 @@ def _returner(team_id: str | None) -> SpecialTeamsParticipantV72 | None:
         )
         return (-float(value), player.player_id)
 
-    return sorted(candidates, key=score)[0]
+    return min(candidates, key=score)
 
 
 def _kick_skill(player: SpecialTeamsParticipantV72 | None) -> float:
