@@ -52,11 +52,11 @@ from monster.reality.world_state import (
 )
 
 __all__ = [
+    "LATENT_AUTHORITY",
     "AvailabilityTransition",
     "ExitReason",
     "GameAvailabilityState",
     "GameDayLatents",
-    "LATENT_AUTHORITY",
     "LatentAuthoritySpec",
     "LatentFactor",
     "LatentMechanism",
