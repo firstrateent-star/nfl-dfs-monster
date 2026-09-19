@@ -19,6 +19,11 @@ on:
       - 'scripts/runtime_v701_composer.py'
       - 'scripts/run_reality_loop_v701.py'
       - 'tests/test_v701_runtime.py'
+      - 'scripts/audit_full_game_counterfactual_v701.py'
+      - 'scripts/audit_coaching_policy_identity_v701.py'
+      - 'scripts/compare_week1_v700_v701.py'
+      - 'scripts/compare_qb_rush_families_v700_v701.py'
+      - '.github/workflows/v701-qb-rush-week1.yml'
       - 'docs/V7_REALITY_ENGINE_CONSTITUTION.md'
       - '.github/workflows/v7-reality-engine.yml'
   workflow_dispatch:
@@ -52,6 +57,10 @@ jobs:
           scripts/runtime_v701_composer.py
           scripts/run_reality_loop_v701.py
           tests/test_v701_runtime.py
+          scripts/audit_full_game_counterfactual_v701.py
+          scripts/audit_coaching_policy_identity_v701.py
+          scripts/compare_week1_v700_v701.py
+          scripts/compare_qb_rush_families_v700_v701.py
       - name: Run v7 foundation and inherited conservation gates
         run: >-
           uv run pytest -q
