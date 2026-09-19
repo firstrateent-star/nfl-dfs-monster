@@ -1,0 +1,31 @@
+name: FanDuel World Lineup Bridge Gate
+
+on:
+  push:
+    branches: [work/v721-game-script]
+    paths:
+      - benchmarks/fanduel_world_lineup_bridge_gate.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Lint lineup bridge
+        run: uv run ruff check scripts/build_fanduel_world_optimal_lineups.py
+      - name: FanDuel optimizer correctness gates
+        run: >-
+          uv run pytest -q
+          tests/test_fanduel_lineup.py
+          tests/test_fanduel_optimizer.py
+          tests/test_fanduel_optimizer_milp.py
+          tests/test_fanduel_defense.py
+          tests/test_fanduel_scoring.py
+          tests/test_fanduel_world_matrix.py
