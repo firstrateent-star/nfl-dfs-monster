@@ -1,0 +1,19 @@
+v7.0 participation-first opportunity paired Week 1 shadow
+
+branch=work/v7-reality-engine
+control=frozen-v6.3.8@374988076b0a443c1b6eaa368e7641439f078b21
+challenger=v7.0.0-participation-first-shadow
+worlds_per_game_each_arm=120
+shared_seed=2026091901
+common_random_numbers=true
+shared_pregame_inputs=true
+week1_truth_used_before_simulation=false
+market_blind=true
+
+single_mechanism:
+post-snap target and designed-run assignment remove preallocated usage-share fallback authority;
+historical concept evidence may tilt assignment only among live participants;
+usage-based opportunity-skill tail disabled;
+all other frozen v6.3.8 football authority retained.
+
+promotion_status=SHADOW_NOT_PROMOTED
