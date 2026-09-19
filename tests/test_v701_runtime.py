@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import pytest
 
-import runtime_v701_composer as v701
+from monster.reality import qb_rush_runtime
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
 from monster.sim.reality_v62 import RoleWorldPlan
 from monster.snapshot.player import PlayerState, TeamPlayerPool
@@ -20,7 +22,7 @@ def _pool() -> TeamPlayerPool:
     )
 
 
-def test_v701_sampler_removes_qb_mass_without_new_randomness(monkeypatch) -> None:
+def test_v701_sampler_removes_qb_mass_without_new_randomness() -> None:
     plan = RoleWorldPlan(
         {"qb": 0.20, "rb1": 0.56, "rb2": 0.24},
         {"wr": 0.65, "te": 0.35},
@@ -30,13 +32,17 @@ def test_v701_sampler_removes_qb_mass_without_new_randomness(monkeypatch) -> Non
         assert pool.team_id == "T"
         return plan
 
-    monkeypatch.setattr(v701, "_BASE_ROLE_SAMPLER", base)
+    qb_rush_runtime.configure_base_role_hooks(
+        sampler=base,
+        applier=lambda team, value: team,
+    )
     rng = np.random.default_rng(701)
-    before = rng.bit_generator.state
-    separated = v701.sample_role_world_v701(_pool(), rng=rng)
-    after = rng.bit_generator.state
+    before = copy.deepcopy(rng.bit_generator.state)
+    separated = qb_rush_runtime.sample_role_world_v701(_pool(), rng=rng)
+    after = copy.deepcopy(rng.bit_generator.state)
 
     assert before == after
+    assert isinstance(separated, RoleWorldPlan)
     assert "qb" not in separated
     assert separated["rb1"] == pytest.approx(0.70)
     assert separated["rb2"] == pytest.approx(0.30)
@@ -55,7 +61,7 @@ def test_v701_role_applier_preserves_target_world_and_qb_identity() -> None:
         {"wr": 0.60, "te": 0.40},
     )
 
-    live = v701.apply_role_world_v701(team, plan)
+    live = qb_rush_runtime.apply_role_world_v701(team, plan)
 
     assert [player.player_id for player in live.rushers] == ["rb1", "rb2", "qb"]
     assert [player.player_id for player in live.receivers] == ["wr", "te"]
