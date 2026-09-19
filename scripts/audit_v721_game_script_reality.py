@@ -205,6 +205,31 @@ def main() -> None:
     hist_trailing = _value(hist, "q4_trailing", "historical_elapsed_mean")
     hist_lead = _value(hist, "q4_lead_drain", "historical_elapsed_mean")
 
+    context_errors = {
+        context: _value(joined, context, "elapsed_abs_error")
+        for context in (
+            "ordinary",
+            "q2_two_minute",
+            "q4_trailing",
+            "q4_lead_drain",
+        )
+    }
+    historical_lead_minus_trailing = (
+        None
+        if hist_lead is None or hist_trailing is None
+        else hist_lead - hist_trailing
+    )
+    simulated_lead_minus_trailing = (
+        None
+        if lead is None or trailing is None
+        else lead - trailing
+    )
+    lead_trailing_direction_match = bool(
+        historical_lead_minus_trailing is not None
+        and simulated_lead_minus_trailing is not None
+        and historical_lead_minus_trailing * simulated_lead_minus_trailing >= 0.0
+    )
+
     timeout_rows = pl.read_csv(args.simulated).filter(pl.col("timeout_team") != "")
     timeout_worlds = (
         timeout_rows.select(["game", "world_key"]).unique().height
@@ -230,6 +255,10 @@ def main() -> None:
         "fantasy_points_used_as_targets": False,
         "contexts_compared": int(comparable.height),
         "mean_context_elapsed_abs_error_seconds": mean_abs_error,
+        "context_elapsed_abs_error_seconds": context_errors,
+        "historical_lead_minus_trailing_elapsed_seconds": historical_lead_minus_trailing,
+        "simulated_lead_minus_trailing_elapsed_seconds": simulated_lead_minus_trailing,
+        "lead_trailing_direction_match": lead_trailing_direction_match,
         "sim_timeout_events": int(timeout_rows.height),
         "sim_worlds_with_timeout": int(timeout_worlds),
         "sim_q2_two_minute_faster_than_ordinary": bool(
