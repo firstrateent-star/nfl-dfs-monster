@@ -11,3 +11,4 @@ fantasy_tuning_allowed: false
 retry_after_lint_cleanup: true
 retry_after_audit_test_lint_cleanup: true
 retry_after_clock_ecology_recenter: true
+retry_after_q4_trailing_recenter: true
