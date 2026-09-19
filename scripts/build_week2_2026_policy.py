@@ -44,7 +44,7 @@ def main() -> None:
     configure_cache(args.cache_dir)
     import nflreadpy as nfl
 
-    seasons = sorted(set([*args.prior_seasons, args.current_season]))
+    seasons = sorted({*args.prior_seasons, args.current_season})
     pbp = nfl.load_pbp(seasons)
     pbp = pbp.select([column for column in PBP_COLUMNS if column in pbp.columns])
     raw_rows = pbp.height
