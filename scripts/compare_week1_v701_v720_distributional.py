@@ -6,8 +6,8 @@ import json
 import math
 import statistics
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 
 TEAM_ALIASES = {"JAX": "JAC", "LA": "LAR"}
@@ -1303,9 +1303,11 @@ def _markdown(
         "",
         "## Headline",
         "",
-        "This report separates mechanism realism from scoreboard luck. "
-        "Lower error is better unless the metric is explicitly a correlation "
-        "or recognition/hit rate.",
+        (
+            "This report separates mechanism realism from scoreboard luck. "
+            "Lower error is better unless the metric is explicitly a correlation "
+            "or recognition/hit rate."
+        ),
         "",
         "## Core paired metrics",
         "",
@@ -1379,21 +1381,27 @@ def _markdown(
             "",
             "## Special teams identity",
             "",
-            f"V7.1 player identity telemetry available: "
-            f"**{control['special_teams']['player_identity_available']}**.",
-            f"V7.2 kicker hit rate: "
-            f"**{_f(challenger['special_teams'].get('kicker_hit_rate')):.3f}**; "
-            f"punter: **{_f(challenger['special_teams'].get('punter_hit_rate')):.3f}**; "
-            f"PR: **{_f(challenger['special_teams'].get('punt_returner_hit_rate')):.3f}**; "
-            f"KR: **{_f(challenger['special_teams'].get('kick_returner_hit_rate')):.3f}**.",
+            (
+                f"V7.1 player identity telemetry available: "
+                f"**{control['special_teams']['player_identity_available']}**."
+            ),
+            (
+                f"V7.2 kicker hit rate: "
+                f"**{_f(challenger['special_teams'].get('kicker_hit_rate')):.3f}**; "
+                f"punter: **{_f(challenger['special_teams'].get('punter_hit_rate')):.3f}**; "
+                f"PR: **{_f(challenger['special_teams'].get('punt_returner_hit_rate')):.3f}**; "
+                f"KR: **{_f(challenger['special_teams'].get('kick_returner_hit_rate')):.3f}**."
+            ),
             "",
             "## Interpretation guard",
             "",
-            "Week 1 reality is an external benchmark, not a tuning target. "
-            "A V7.2 mechanism can be retained when its causal layer improves "
-            "even if a downstream scoreboard metric is flat or worse. "
-            "Scoreboard changes should be investigated through the event chain, "
-            "not patched directly.",
+            (
+                "Week 1 reality is an external benchmark, not a tuning target. "
+                "A V7.2 mechanism can be retained when its causal layer improves "
+                "even if a downstream scoreboard metric is flat or worse. "
+                "Scoreboard changes should be investigated through the event chain, "
+                "not patched directly."
+            ),
             "",
         ]
     )
