@@ -1,0 +1,289 @@
+name: v7 Participation-First Paired Week 1
+
+on:
+  push:
+    branches: [work/v7-reality-engine]
+    paths:
+      - benchmarks/v700_participation_launch_marker.txt
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Worlds per game for each paired arm
+        required: true
+        default: '120'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091901'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v700-participation-week1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Run v7 opportunity and inherited causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_engine_v7.py
+          tests/test_v7_live_state.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_gadget_rush_decomposition_v638.py
+          tests/test_role_allocation_v636.py
+          tests/test_identity_propagation_role_v635.py
+          tests/test_matchup_identity_authority_v634.py
+          tests/test_player_duel_authority_v6.py
+          tests/test_market_blind_guard.py
+      - name: Lint v7 shadow runtime
+        run: >-
+          uv run ruff check
+          src/monster/reality
+          scripts/runtime_v700_composer.py
+          scripts/run_reality_loop_v700.py
+          scripts/audit_full_game_counterfactual_v700.py
+          scripts/audit_coaching_policy_identity_v700.py
+          scripts/compare_week1_v638_v700.py
+          tests/test_v7_participation_opportunity.py
+          --ignore RUF046
+
+  paired-week1:
+    needs: code-gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      CONTROL_SHA: 374988076b0a443c1b6eaa368e7641439f078b21
+      WORLDS: ${{ github.event.inputs.worlds || '120' }}
+      SEED: ${{ github.event.inputs.seed || '2026091901' }}
+    steps:
+      - name: Checkout v7 challenger
+        uses: actions/checkout@v4
+        with:
+          path: challenger
+
+      - name: Checkout permanent Week 1 benchmark
+        uses: actions/checkout@v4
+        with:
+          ref: work/week1-reality-benchmark-v1
+          path: benchmark
+
+      - name: Checkout frozen v6.3.8 control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CONTROL_SHA }}
+          path: control
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install control dependencies
+        working-directory: control
+        run: uv sync --extra dev
+
+      - name: Install challenger dependencies
+        working-directory: challenger
+        run: uv sync --extra dev
+
+      - name: Build one shared leakage-resistant Week 1 input world
+        working-directory: control
+        run: |
+          uv run python ../benchmark/scripts/build_week1_2026_pregame_baseline.py \
+            --season 2026 --history 2025 --recent-games 6 \
+            --out artifacts/week1-pregame-baseline
+          uv run python scripts/build_league_policy.py \
+            --history 2025 --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py \
+            --history 2024 --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py \
+            --personnel artifacts/week1-pregame-baseline/league_personnel.parquet \
+            --injuries artifacts/week1-pregame-baseline/raw_injuries.parquet \
+            --overrides config/health/week1_2026_2026-09-07.csv \
+            --season 2026 --out artifacts/week1-health
+          uv run python scripts/build_continuity_conditioned_policy.py \
+            --older-policy artifacts/league-policy-2024/team_policy.parquet \
+            --latest-policy artifacts/league-policy/team_policy.parquet \
+            --personnel artifacts/week1-health/health_personnel.parquet \
+            --out artifacts/continuity-policy
+
+      - name: Audit coaching differentiation through v7 runtime
+        working-directory: challenger
+        run: >-
+          uv run python scripts/audit_coaching_policy_identity_v700.py
+          --policy ../control/artifacts/continuity-policy/team_policy.parquet
+          --personnel ../control/artifacts/week1-health/health_personnel.parquet
+          --player-usage ../control/artifacts/league-policy/player_usage.parquet
+          --situation-context ../control/artifacts/league-policy/situational_pass_context.parquet
+          --out ../benchmark/artifacts/v700-coaching-policy
+
+      - name: Run common-seed QB propagation counterfactual through v7 runtime
+        working-directory: challenger
+        run: >-
+          uv run python scripts/audit_full_game_counterfactual_v700.py
+          --policy ../control/artifacts/continuity-policy/team_policy.parquet
+          --personnel ../control/artifacts/week1-health/health_personnel.parquet
+          --player-usage ../control/artifacts/league-policy/player_usage.parquet
+          --situation-context ../control/artifacts/league-policy/situational_pass_context.parquet
+          --worlds 30
+          --seed 7001902
+          --out ../benchmark/artifacts/v700-counterfactual
+
+      - name: Require hierarchical QB identity propagation
+        working-directory: benchmark
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(
+              Path("artifacts/v700-counterfactual/v700_full_game_qb_counterfactual.json").read_text()
+          )
+          gates = report["hierarchical_gate"]
+          if not gates["overall"]:
+              raise SystemExit(
+                  f"QB causal propagation gate failed under v7 shadow: {gates}; "
+                  f"metrics={report['metrics']}"
+              )
+          PY
+
+      - name: Run frozen v6.3.8 control
+        working-directory: control
+        run: >-
+          uv run python scripts/run_reality_loop_v638.py
+          --policy artifacts/continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/league-policy/player_usage.parquet
+          --situation-context artifacts/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 60
+          --first-out artifacts/v638-control
+          --box-out artifacts/v638-control-box
+
+      - name: Run v7 participation-first challenger on identical inputs and seed
+        working-directory: challenger
+        run: >-
+          uv run python scripts/run_reality_loop_v700.py
+          --policy ../control/artifacts/continuity-policy/team_policy.parquet
+          --personnel ../control/artifacts/week1-health/health_personnel.parquet
+          --player-usage ../control/artifacts/league-policy/player_usage.parquet
+          --situation-context ../control/artifacts/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 60
+          --first-out artifacts/v700-challenger
+          --box-out artifacts/v700-challenger-box
+
+      - name: Audit role translation and score anatomy
+        run: |
+          cd control
+          uv run python scripts/audit_role_snap_opportunity_v63.py \
+            --simulation artifacts/v638-control
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py \
+            --simulation artifacts/v638-control --history 2025 \
+            --out artifacts/v638-control
+          cd ../challenger
+          uv run python scripts/audit_role_snap_opportunity_v63.py \
+            --simulation artifacts/v700-challenger
+          uv run python scripts/audit_reality_loop_v2_score_anatomy.py \
+            --simulation artifacts/v700-challenger --history 2025 \
+            --out artifacts/v700-challenger
+
+      - name: Audit full-world identity propagation in both arms
+        run: |
+          challenger/.venv/bin/python challenger/scripts/audit_identity_propagation_v634.py \
+            --simulation control/artifacts/v638-control \
+            --out benchmark/artifacts/v638-control-propagation
+          challenger/.venv/bin/python challenger/scripts/audit_identity_propagation_v634.py \
+            --simulation challenger/artifacts/v700-challenger \
+            --out benchmark/artifacts/v700-propagation
+
+      - name: Download finalized Week 1 truth after both simulations
+        working-directory: benchmark
+        run: |
+          mkdir -p artifacts
+          curl --fail --location --retry 3 \
+            --output artifacts/stats_player_week_2026.csv \
+            https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_2026.csv
+          python scripts/build_week1_2026_player_truth.py \
+            --stats artifacts/stats_player_week_2026.csv \
+            --games benchmarks/week1_2026_sunday_games.csv \
+            --out artifacts/truth
+
+      - name: Grade control and challenger identically
+        working-directory: benchmark
+        run: |
+          python scripts/audit_week1_reality_benchmark.py \
+            --simulation ../control/artifacts/v638-control \
+            --games benchmarks/week1_2026_sunday_games.csv \
+            --player-truth artifacts/truth/week1_2026_player_truth.csv \
+            --out artifacts/v638-control-reality \
+            --label frozen-v638-control
+          python scripts/audit_week1_reality_benchmark.py \
+            --simulation ../challenger/artifacts/v700-challenger \
+            --games benchmarks/week1_2026_sunday_games.csv \
+            --player-truth artifacts/truth/week1_2026_player_truth.csv \
+            --out artifacts/v700-challenger-reality \
+            --label v700-participation-first-shadow
+
+      - name: Compare paired Week 1 evidence
+        run: >-
+          challenger/.venv/bin/python challenger/scripts/compare_week1_v638_v700.py
+          --control benchmark/artifacts/v638-control-reality
+          --challenger benchmark/artifacts/v700-challenger-reality
+          --out benchmark/artifacts/v700-paired-comparison
+
+      - name: Preserve experiment provenance
+        working-directory: benchmark
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = {
+              "control_sha": os.environ["CONTROL_SHA"],
+              "challenger_sha": os.environ["GITHUB_SHA"],
+              "worlds_per_game_each_arm": int(os.environ["WORLDS"]),
+              "shared_seed": int(os.environ["SEED"]),
+              "common_random_numbers": True,
+              "shared_pregame_inputs": True,
+              "truth_consumed_only_after_both_simulations": True,
+              "classification": "v7 participation-first opportunity shadow",
+              "week1_truth_used_for_priors": False,
+              "market_blind": True,
+          }
+          path = Path("artifacts/v700-paired-comparison/provenance.json")
+          path.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+
+      - name: Upload v7 shadow evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v700-participation-week1-${{ github.run_id }}
+          path: |
+            benchmark/artifacts/v700-coaching-policy/
+            benchmark/artifacts/v700-counterfactual/
+            benchmark/artifacts/v638-control-propagation/
+            benchmark/artifacts/v700-propagation/
+            benchmark/artifacts/truth/
+            benchmark/artifacts/v638-control-reality/
+            benchmark/artifacts/v700-challenger-reality/
+            benchmark/artifacts/v700-paired-comparison/
+            control/artifacts/v638-control/game_distributions.csv
+            control/artifacts/v638-control/player_distributions.csv
+            control/artifacts/v638-control/rushing_role_plan_audit.csv
+            control/artifacts/v638-control/runtime_fingerprint_v638.json
+            control/artifacts/v638-control/score_anatomy.json
+            challenger/artifacts/v700-challenger/game_distributions.csv
+            challenger/artifacts/v700-challenger/player_distributions.csv
+            challenger/artifacts/v700-challenger/rushing_role_plan_audit.csv
+            challenger/artifacts/v700-challenger/runtime_fingerprint_v700.json
+            challenger/artifacts/v700-challenger/matchup_identity_trace_v634.csv
+            challenger/artifacts/v700-challenger/score_anatomy.json
+          retention-days: 30
