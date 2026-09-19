@@ -309,3 +309,41 @@ def register_team_units_v72(
     profile = snap_ecology.TeamSnapProfile(team_id, blockers, protectors)
     snap_ecology._TEAM_PROFILES[team_id] = profile
     return profile
+
+
+def weighted_without_replacement_v72(
+    players: tuple[object, ...],
+    count: int,
+    *,
+    key: str,
+    exposure: bool = False,
+) -> tuple[object, ...]:
+    """Use current role as participation authority without replacing football skill."""
+
+    if count <= 0 or not players:
+        return ()
+    unit = "defense" if exposure else "offense"
+    ranked: list[tuple[float, str, object]] = []
+    for player in players:
+        player_id = str(getattr(player, "player_id", ""))
+        inherited = (
+            max(float(getattr(player, "snap_weight", 0.0) or 0.0), 0.001)
+            if exposure
+            else max(float(getattr(player, "usage_weight", 0.0) or 0.0), 0.001)
+        )
+        authority = participation_multiplier(player_id, unit=unit)
+        try:
+            from monster.reality.live_state_v72 import participation_multiplier_live
+
+            live = participation_multiplier_live(player_id)
+        except ImportError:
+            live = 1.0
+        weight = max(inherited * authority * live, 1e-6)
+        digest = snap_ecology.blake2b(
+            f"{key}:{player_id}".encode(),
+            digest_size=8,
+        ).digest()
+        u = max((int.from_bytes(digest, "big") + 0.5) / (2**64), 1e-12)
+        ranked.append((-np.log(u) / weight, player_id, player))
+    ranked.sort(key=lambda row: (row[0], row[1]))
+    return tuple(row[2] for row in ranked[: min(count, len(ranked))])
