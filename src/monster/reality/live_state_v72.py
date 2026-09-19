@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from hashlib import blake2b
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import polars as pl
@@ -150,7 +150,7 @@ def _backup_qb(
     ]
     if not candidates:
         return None
-    return sorted(candidates, key=_role_sort)[0]
+    return min(candidates, key=_role_sort)
 
 
 def _refill_receivers(
@@ -251,7 +251,7 @@ def _risk_modifier(player_id: str) -> float:
 
 def _stable_uniform(snap_key: str, player_id: str, channel: str) -> float:
     digest = blake2b(
-        f"{snap_key}:{player_id}:{channel}".encode("utf-8"),
+        f"{snap_key}:{player_id}:{channel}".encode(),
         digest_size=8,
     ).digest()
     return (int.from_bytes(digest, "big") + 0.5) / (2**64)
