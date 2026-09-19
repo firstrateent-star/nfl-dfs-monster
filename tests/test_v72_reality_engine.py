@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import polars as pl
-import pytest
 
 from monster.feature_compile.units import UnitPlayerInputs
 from monster.reality import live_state_v72
@@ -31,13 +30,13 @@ from monster.reality.special_teams_identity_v72 import (
     simulate_kickoff_v72,
     simulate_punt_v72,
 )
-from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
-from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, PlayerIdentity, TeamIdentity
 from monster.sim.defensive_intent import CoverageShell, DefensiveIntent, RushPlan
+from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
+from monster.sim.play_kernel import PassResult, PlayerIdentity, PlayEvent, PlayType, TeamIdentity
 from monster.sim.reality_snap_v5 import (
-    SnapWorldV5,
     _EVENT_META,
     _WORLD_BY_KEY,
+    SnapWorldV5,
 )
 
 
