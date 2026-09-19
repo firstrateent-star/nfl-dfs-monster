@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import polars as pl
 
-from scripts.audit_simulated_qb_rush_families_v7 import (
-    classify_rows,
-    summarize_family_worlds,
+from monster.reality.qb_rush_audit import (
+    classify_qb_rush_rows,
+    summarize_qb_rush_family_worlds,
 )
 
 
@@ -25,7 +25,7 @@ def _snaps() -> pl.DataFrame:
 
 
 def test_simulated_qb_rush_family_classification_separates_paths() -> None:
-    classified = classify_rows(_snaps())
+    classified = classify_qb_rush_rows(_snaps())
     assert classified.height == 4
     counts = {
         row["qb_rush_family"]: row["len"]
@@ -40,7 +40,7 @@ def test_simulated_qb_rush_family_classification_separates_paths() -> None:
 
 
 def test_simulated_qb_rush_family_summary_conserves_attempts_and_yards() -> None:
-    worlds = summarize_family_worlds(classify_rows(_snaps()))
+    worlds = summarize_qb_rush_family_worlds(classify_qb_rush_rows(_snaps()))
     assert worlds.height == 1
     row = worlds.to_dicts()[0]
     assert row["designed_non_sneak_attempts"] == 1
