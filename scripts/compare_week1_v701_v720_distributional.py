@@ -5,8 +5,8 @@ import csv
 import json
 import math
 import statistics
-from collections.abc import Iterable
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 
 
