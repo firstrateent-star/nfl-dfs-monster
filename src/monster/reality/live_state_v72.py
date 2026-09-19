@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from hashlib import blake2b
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import polars as pl
@@ -34,6 +35,7 @@ _TEAM_IDENTITIES: dict[str, dict[str, PlayerIdentity]] = {}
 _WORLD_STATES: dict[int, LiveWorldStateV72] = {}
 _ACTIVE_WORLD_KEY: int | None = None
 _MUTATION_ROWS: list[dict[str, object]] = []
+_BASE_SCRIMMAGE: Callable | None = None
 
 
 _EXIT_RISK = {
@@ -324,3 +326,39 @@ def write_live_state_telemetry_v72(out: Path) -> None:
         return
     out.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(_MUTATION_ROWS).write_csv(out / "live_mutations_v72.csv")
+
+
+def configure_base_scrimmage_hook_v72(fn: Callable) -> None:
+    global _BASE_SCRIMMAGE
+    _BASE_SCRIMMAGE = fn
+
+
+def simulate_scrimmage_play_v72(
+    state,
+    offense,
+    defense_strength,
+    rng,
+    defense=None,
+):
+    """Apply current live availability before the inherited V7.1 snap world."""
+
+    if _BASE_SCRIMMAGE is None:
+        raise RuntimeError("v7.2 base scrimmage hook is not configured")
+    active_offense, active_defense = apply_live_state_v72(
+        offense,
+        defense,
+        state=state,
+        rng=rng,
+    )
+    from monster.reality.special_teams_identity_v72 import set_play_context_v72
+
+    set_play_context_v72(str(state.possession), str(state.defense))
+    event = _BASE_SCRIMMAGE(
+        state,
+        active_offense,
+        defense_strength,
+        rng,
+        defense=active_defense,
+    )
+    observe_live_mutations_v72(event, state=state, rng=rng)
+    return event
