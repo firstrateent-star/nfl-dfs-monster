@@ -446,6 +446,7 @@ def simulate_scrimmage_play_v721(
     _SCRIPT_ROWS.append(
         {
             "game": world.game,
+            "world_key": id(rng),
             "quarter": int(getattr(state, "quarter", 1)),
             "seconds_remaining": int(getattr(state, "seconds_remaining", 0)),
             "period_clock": seconds_remaining_in_quarter(
