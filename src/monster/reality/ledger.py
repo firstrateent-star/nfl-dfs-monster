@@ -24,6 +24,7 @@ class LedgerFidelity(StrEnum):
 
 class LedgerEventKind(StrEnum):
     SNAP_RESULT = "snap_result"
+    AVAILABILITY_TRANSITION = "availability_transition"
     DRIVE_TERMINAL = "drive_terminal"
     GAME_FINAL = "game_final"
 
@@ -91,6 +92,16 @@ class PlayOutcomeSnapshot:
 
 
 @dataclass(frozen=True)
+class AvailabilityTransitionSnapshot:
+    team_id: str
+    player_id: str
+    reason: str
+    quarter: int
+    seconds_remaining: int
+    replacement_player_id: str | None = None
+
+
+@dataclass(frozen=True)
 class DriveTerminalSnapshot:
     offense_team_id: str
     defense_team_id: str
@@ -121,6 +132,7 @@ class LedgerRecord:
     post_state: FootballStateSnapshot | None = None
     participants: ParticipantSnapshot | None = None
     play: PlayOutcomeSnapshot | None = None
+    availability_transition: AvailabilityTransitionSnapshot | None = None
     drive_terminal: DriveTerminalSnapshot | None = None
     payload: tuple[tuple[str, str], ...] = ()
 
@@ -160,6 +172,14 @@ class RealityLedger:
         )
 
     @property
+    def availability_records(self) -> tuple[LedgerRecord, ...]:
+        return tuple(
+            record
+            for record in self.records
+            if record.event_kind == LedgerEventKind.AVAILABILITY_TRANSITION
+        )
+
+    @property
     def drive_records(self) -> tuple[LedgerRecord, ...]:
         return tuple(
             record
@@ -172,6 +192,11 @@ class RealityLedger:
             raise AssertionError("a completed game ledger cannot be empty")
         if self.records[-1].event_kind != LedgerEventKind.GAME_FINAL:
             raise AssertionError("the final ledger record must close the game")
+        for record in self.availability_records:
+            if record.availability_transition is None:
+                raise AssertionError(
+                    "availability-transition records require a transition snapshot"
+                )
         for record in self.snap_records:
             if record.play is None:
                 raise AssertionError("snap-result records require a play outcome")
