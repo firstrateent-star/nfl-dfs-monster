@@ -10,3 +10,4 @@ week2_market_data_allowed: false
 live_roster_depth_injury_information_allowed: true
 det_buf_excluded_already_played: true
 runtime_change: none
+retry_after_unavailable_absence_gate_fix: true
