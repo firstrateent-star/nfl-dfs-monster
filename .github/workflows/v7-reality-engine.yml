@@ -1,0 +1,36 @@
+name: v7 Reality Engine Foundation
+
+on:
+  push:
+    branches: [work/v7-reality-engine]
+    paths:
+      - 'src/monster/reality/**'
+      - 'tests/test_reality_engine_v7.py'
+      - 'docs/V7_REALITY_ENGINE_CONSTITUTION.md'
+      - '.github/workflows/v7-reality-engine.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+      - name: Lint v7 foundation
+        run: >-
+          uv run ruff check
+          src/monster/reality
+          tests/test_reality_engine_v7.py
+      - name: Run v7 foundation and inherited conservation gates
+        run: >-
+          uv run pytest -q
+          tests/test_reality_engine_v7.py
+          tests/test_event_ledger.py
+          tests/test_football_state.py
+          tests/test_reality_snap_v5.py
+          tests/test_market_blind_guard.py
