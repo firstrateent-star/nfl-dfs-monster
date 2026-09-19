@@ -9,10 +9,10 @@ import numpy as np
 import polars as pl
 
 from monster.feature_compile.v13_identity_bridge import compile_v13_player_identity
-from monster.sim import play_kernel, reality_snap_v5
+from monster.sim import reality_snap_v5
 from monster.sim.clock import seconds_remaining_in_quarter
 from monster.sim.defensive_intent import DefensiveTacticalPrior, sample_defensive_intent
-from monster.sim.play_kernel import PassResult, PlayEvent, PlayType, PlayerIdentity, TeamIdentity
+from monster.sim.play_kernel import PassResult, PlayerIdentity, PlayEvent, PlayType, TeamIdentity
 
 
 @dataclass
@@ -314,7 +314,7 @@ def _reweight_for_preservation(
     weights = np.asarray([max(float(p.usage_weight), 0.001) for p in players], dtype=float)
     order = np.argsort(weights)[::-1]
     top_n = 1 if len(players) < 4 else 2
-    protected = set(int(i) for i in order[:top_n])
+    protected = {int(i) for i in order[:top_n]}
     adjusted = weights.copy()
     for i in range(len(players)):
         if i in protected:
