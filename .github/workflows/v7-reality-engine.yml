@@ -14,6 +14,7 @@ on:
       - 'tests/test_v7_identity_catalog.py'
       - 'tests/test_v7_latent_authority.py'
       - 'tests/test_v7_qb_rush_family_audit.py'
+      - 'tests/test_v7_qb_rush_authority.py'
       - 'scripts/audit_simulated_qb_rush_families_v7.py'
       - 'docs/V7_REALITY_ENGINE_CONSTITUTION.md'
       - '.github/workflows/v7-reality-engine.yml'
@@ -43,6 +44,7 @@ jobs:
           tests/test_v7_identity_catalog.py
           tests/test_v7_latent_authority.py
           tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_qb_rush_authority.py
           scripts/audit_simulated_qb_rush_families_v7.py
       - name: Run v7 foundation and inherited conservation gates
         run: >-
@@ -56,6 +58,7 @@ jobs:
           tests/test_v7_identity_catalog.py
           tests/test_v7_latent_authority.py
           tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_qb_rush_authority.py
           tests/test_event_ledger.py
           tests/test_football_state.py
           tests/test_reality_snap_v5.py
