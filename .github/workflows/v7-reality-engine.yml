@@ -11,6 +11,7 @@ on:
       - 'tests/test_v7_qb_rush_families.py'
       - 'tests/test_v7_game_latents.py'
       - 'tests/test_v7_ledger_reducers.py'
+      - 'tests/test_v7_identity_catalog.py'
       - 'docs/V7_REALITY_ENGINE_CONSTITUTION.md'
       - '.github/workflows/v7-reality-engine.yml'
   workflow_dispatch:
@@ -36,6 +37,7 @@ jobs:
           tests/test_v7_qb_rush_families.py
           tests/test_v7_game_latents.py
           tests/test_v7_ledger_reducers.py
+          tests/test_v7_identity_catalog.py
       - name: Run v7 foundation and inherited conservation gates
         run: >-
           uv run pytest -q
@@ -45,6 +47,7 @@ jobs:
           tests/test_v7_qb_rush_families.py
           tests/test_v7_game_latents.py
           tests/test_v7_ledger_reducers.py
+          tests/test_v7_identity_catalog.py
           tests/test_event_ledger.py
           tests/test_football_state.py
           tests/test_reality_snap_v5.py
