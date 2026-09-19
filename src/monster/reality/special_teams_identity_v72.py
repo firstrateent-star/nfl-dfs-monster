@@ -19,6 +19,7 @@ class SpecialTeamsParticipantV72:
     player_id: str
     team_id: str
     position: str
+    depth_position: str
     depth_rank: int
     special_share: float
     active_probability: float
@@ -66,6 +67,7 @@ def configure_special_teams_identities_v72(personnel: pl.DataFrame) -> None:
                 player_id=player_id,
                 team_id=team_id,
                 position=str(row.get("position") or "").upper(),
+                depth_position=str(row.get("depth_position") or "").upper(),
                 depth_rank=depth_rank,
                 special_share=float(
                     np.clip(
@@ -147,7 +149,11 @@ def _specialist(team_id: str | None, positions: set[str]) -> SpecialTeamsPartici
     return min(candidates, key=_rank)
 
 
-def _returner(team_id: str | None) -> SpecialTeamsParticipantV72 | None:
+def _returner(
+    team_id: str | None,
+    *,
+    return_role: str,
+) -> SpecialTeamsParticipantV72 | None:
     if not team_id:
         return None
     candidates = [
@@ -160,12 +166,28 @@ def _returner(team_id: str | None) -> SpecialTeamsParticipantV72 | None:
     if not candidates:
         return None
 
+    seat = [
+        player
+        for player in candidates
+        if player.depth_position == return_role
+    ]
+    if seat:
+        candidates = seat
+
     def score(player: SpecialTeamsParticipantV72) -> tuple[float, str]:
         return_rating = 78.0 if player.madden_return is None else player.madden_return
+        rank_bonus = (
+            1.0
+            if player.depth_rank == 1
+            else 0.55
+            if player.depth_rank == 2
+            else 0.25
+        )
         value = (
-            0.54 * player.special_share
-            + 0.28 * participation_multiplier(player.player_id, unit="special")
-            + 0.18 * np.clip((return_rating - 65.0) / 35.0, 0.0, 1.0)
+            0.42 * rank_bonus
+            + 0.28 * player.special_share
+            + 0.18 * participation_multiplier(player.player_id, unit="special")
+            + 0.12 * np.clip((return_rating - 65.0) / 35.0, 0.0, 1.0)
         )
         return (-float(value), player.player_id)
 
@@ -202,7 +224,7 @@ def simulate_punt_v72(rng, **kwargs):
     if _BASE_PUNT is None:
         raise RuntimeError("v7.2 base punt hook is not configured")
     punter = _specialist(_CURRENT_OFFENSE, {"P"})
-    returner = _returner(_CURRENT_DEFENSE)
+    returner = _returner(_CURRENT_DEFENSE, return_role="PR")
     kwargs["punter_id"] = None if punter is None else punter.player_id
     kwargs["returner_id"] = None if returner is None else returner.player_id
     kwargs["punter_skill"] = _kick_skill(punter)
@@ -223,7 +245,7 @@ def simulate_kickoff_v72(rng, **kwargs):
     if _BASE_KICKOFF is None:
         raise RuntimeError("v7.2 base kickoff hook is not configured")
     kicker = _specialist(_CURRENT_OFFENSE, {"K"})
-    returner = _returner(_CURRENT_DEFENSE)
+    returner = _returner(_CURRENT_DEFENSE, return_role="KR")
     kwargs["kicker_id"] = None if kicker is None else kicker.player_id
     kwargs["returner_id"] = None if returner is None else returner.player_id
     kwargs["return_skill"] = _return_skill(returner)
