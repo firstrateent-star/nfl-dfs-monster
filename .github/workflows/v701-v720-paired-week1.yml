@@ -1,0 +1,375 @@
+name: V7.1 vs V7.2 Paired Week 1 Distributional
+
+on:
+  push:
+    branches: [work/v72-reality-engine]
+    paths:
+      - benchmarks/v701_v720_paired_launch.txt
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: Worlds per game for each arm
+        required: true
+        default: '120'
+      seed:
+        description: Shared deterministic seed
+        required: true
+        default: '2026091901'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v701-v720-paired-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CONTROL_SHA: 37cb49077805917fad52813cbd58e3dcff10c859
+  CHALLENGER_RUNTIME_SHA: 51d678e27af8b3a5f64cee6402cfaaca8c4a004f
+  WORLDS: ${{ github.event.inputs.worlds || '120' }}
+  SEED: ${{ github.event.inputs.seed || '2026091901' }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - name: Require V7.2 and inherited causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_v7_qb_rush_authority.py
+          tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_reality_snap_v5.py
+          tests/test_defensive_attribution.py
+          tests/test_event_ledger.py
+          tests/test_market_blind_guard.py
+
+      - name: Lint paired benchmark
+        run: >-
+          uv run ruff check
+          scripts/compare_week1_v701_v720_distributional.py
+          src/monster/reality/participation_authority_v72.py
+          src/monster/reality/qb_rush_authority_v72.py
+          src/monster/reality/receiver_topology_v72.py
+          src/monster/reality/defensive_attribution_v72.py
+          src/monster/reality/live_state_v72.py
+          src/monster/reality/special_teams_identity_v72.py
+          scripts/runtime_v720_composer.py
+          scripts/run_reality_loop_v720.py
+          tests/test_v72_reality_engine.py
+
+      - name: Verify frozen challenger runtime commit exists
+        run: git cat-file -e "${CHALLENGER_RUNTIME_SHA}^{commit}"
+
+      - name: Build one shared strict pre-Week-1 input world
+        run: |
+          uv run python scripts/build_week1_2026_pregame_strict.py             --season 2026             --history 2025             --recent-games 6             --out artifacts/week1-pregame
+          uv run python scripts/build_league_policy.py             --history 2025             --out artifacts/league-policy
+          uv run python scripts/build_league_policy.py             --history 2024             --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py             --personnel artifacts/week1-pregame/league_personnel.parquet             --injuries artifacts/week1-pregame/raw_injuries.parquet             --overrides config/health/week1_2026_2026-09-07.csv             --season 2026             --out artifacts/week1-health
+          uv run python scripts/build_continuity_conditioned_policy.py             --older-policy artifacts/league-policy-2024/team_policy.parquet             --latest-policy artifacts/league-policy/team_policy.parquet             --personnel artifacts/week1-health/health_personnel.parquet             --out artifacts/continuity-policy
+
+      - name: Build historical QB-family reference
+        run: >-
+          uv run python scripts/audit_historical_qb_rush_families_v7.py
+          --seasons 2022,2023,2024,2025
+          --out artifacts/historical-qb
+
+      - name: Preserve shared-input provenance
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "control_sha": os.environ["CONTROL_SHA"],
+              "challenger_runtime_sha": os.environ["CHALLENGER_RUNTIME_SHA"],
+              "worlds_per_game_each_arm": int(os.environ["WORLDS"]),
+              "shared_seed": int(os.environ["SEED"]),
+              "input_cutoff": "2026-09-08",
+              "current_2026_regular_season_snaps_used": False,
+              "week1_truth_used_before_simulation": False,
+              "common_random_numbers": True,
+              "market_blind": True,
+          }
+          Path("artifacts/paired_provenance.json").write_text(
+              json.dumps(payload, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload shared frozen inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: v701-v720-shared-inputs
+          path: |
+            artifacts/week1-pregame/
+            artifacts/league-policy/
+            artifacts/league-policy-2024/
+            artifacts/week1-health/
+            artifacts/continuity-policy/
+            artifacts/historical-qb/
+            artifacts/paired_provenance.json
+          retention-days: 30
+
+  control-v701:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout frozen V7.1 control
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CONTROL_SHA }}
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v701-v720-shared-inputs
+          path: shared
+
+      - name: Run 120-world-per-game V7.1 control
+        run: >-
+          uv run python scripts/run_week1_v701_one_world.py
+          --policy shared/continuity-policy/team_policy.parquet
+          --personnel shared/week1-health/health_personnel.parquet
+          --player-usage shared/league-policy/player_usage.parquet
+          --situation-context shared/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 120
+          --first-out artifacts/v701-control
+          --box-out artifacts/v701-control-box
+
+      - name: Audit V7.1 QB families before truth
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/v701-control
+          --out artifacts/v701-qb-rush
+
+      - name: Upload V7.1 paired arm
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v701-control-worlds
+          path: |
+            artifacts/v701-control/manifest.json
+            artifacts/v701-control/runtime_fingerprint_v701.json
+            artifacts/v701-control/football_weirdness_worlds.csv
+            artifacts/v701-control/football_anatomy.csv
+            artifacts/v701-control/game_distributions.csv
+            artifacts/v701-control/player_distributions.csv
+            artifacts/v701-control/player_world_fanduel.csv
+            artifacts/v701-control/same_world_snap_participants_v5.csv
+            artifacts/v701-control/same_world_designed_runs.csv
+            artifacts/v701-control/same_world_scrambles.csv
+            artifacts/v701-control/same_world_pass_throws.csv
+            artifacts/v701-control/same_world_dropbacks.csv
+            artifacts/v701-control/same_world_drive_terminal_summary.csv
+            artifacts/v701-control/same_world_drive_progression_summary.csv
+            artifacts/v701-control-box/
+            artifacts/v701-qb-rush/
+          retention-days: 30
+
+  challenger-v720:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout frozen V7.2 runtime
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHALLENGER_RUNTIME_SHA }}
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v701-v720-shared-inputs
+          path: shared
+
+      - name: Run 120-world-per-game V7.2 challenger
+        run: >-
+          uv run python scripts/run_week1_v720_one_world.py
+          --policy shared/continuity-policy/team_policy.parquet
+          --personnel shared/week1-health/health_personnel.parquet
+          --player-usage shared/league-policy/player_usage.parquet
+          --situation-context shared/league-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed "$SEED"
+          --progress-every 120
+          --first-out artifacts/v720-challenger
+          --box-out artifacts/v720-challenger-box
+
+      - name: Audit V7.2 QB families before truth
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/v720-challenger
+          --out artifacts/v720-qb-rush
+
+      - name: Upload V7.2 paired arm
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v720-challenger-worlds
+          path: |
+            artifacts/v720-challenger/manifest.json
+            artifacts/v720-challenger/runtime_fingerprint_v720.json
+            artifacts/v720-challenger/football_weirdness_worlds.csv
+            artifacts/v720-challenger/football_anatomy.csv
+            artifacts/v720-challenger/game_distributions.csv
+            artifacts/v720-challenger/player_distributions.csv
+            artifacts/v720-challenger/player_world_fanduel.csv
+            artifacts/v720-challenger/same_world_snap_participants_v5.csv
+            artifacts/v720-challenger/same_world_designed_runs.csv
+            artifacts/v720-challenger/same_world_scrambles.csv
+            artifacts/v720-challenger/same_world_pass_throws.csv
+            artifacts/v720-challenger/same_world_dropbacks.csv
+            artifacts/v720-challenger/same_world_drive_terminal_summary.csv
+            artifacts/v720-challenger/same_world_drive_progression_summary.csv
+            artifacts/v720-challenger/same_world_special_teams_players_v72.csv
+            artifacts/v720-challenger/live_mutations_v72.csv
+            artifacts/v720-challenger-box/
+            artifacts/v720-qb-rush/
+          retention-days: 30
+
+  compare:
+    needs: [control-v701, challenger-v720]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v701-v720-shared-inputs
+          path: shared
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v701-control-worlds
+          path: control
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v720-challenger-worlds
+          path: challenger
+
+      - name: Freeze Week 1 truth after both arms finish
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          import nflreadpy as nfl
+          import polars as pl
+
+          out = Path("truth")
+          out.mkdir(parents=True, exist_ok=True)
+
+          def week1(frame: pl.DataFrame) -> pl.DataFrame:
+              if "season" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("season").cast(pl.Int64, strict=False) == 2026
+                  )
+              if "week" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("week").cast(pl.Int64, strict=False) == 1
+                  )
+              if "season_type" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("season_type").cast(pl.Utf8).str.to_uppercase()
+                      == "REG"
+                  )
+              if "game_type" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("game_type").cast(pl.Utf8).str.to_uppercase()
+                      == "REG"
+                  )
+              return frame
+
+          player = week1(nfl.load_player_stats([2026]))
+          snaps = week1(nfl.load_snap_counts([2026]))
+          schedules = week1(nfl.load_schedules([2026]))
+          defense = week1(
+              nfl.load_pfr_advstats(
+                  [2026],
+                  stat_type="def",
+                  summary_level="week",
+              )
+          )
+
+          player.write_csv(out / "player_stats_week1.csv")
+          snaps.write_csv(out / "snap_counts_week1.csv")
+          schedules.write_csv(out / "schedules_week1.csv")
+          defense.write_csv(out / "pfr_defense_week1.csv")
+          (out / "manifest.json").write_text(
+              json.dumps(
+                  {
+                      "truth_loaded_after_both_simulations": True,
+                      "player_rows": player.height,
+                      "snap_rows": snaps.height,
+                      "schedule_rows": schedules.height,
+                      "defense_rows": defense.height,
+                  },
+                  indent=2,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Compare V7.1 and V7.2 distributionally
+        run: >-
+          uv run python scripts/compare_week1_v701_v720_distributional.py
+          --control-sim control/v701-control
+          --control-box control/v701-control-box
+          --challenger-sim challenger/v720-challenger
+          --challenger-box challenger/v720-challenger-box
+          --schedules truth/schedules_week1.csv
+          --player-truth truth/player_stats_week1.csv
+          --snap-truth truth/snap_counts_week1.csv
+          --pfr-defense-truth truth/pfr_defense_week1.csv
+          --personnel shared/week1-health/health_personnel.csv
+          --historical-qb shared/historical-qb/manifest.json
+          --out comparison
+
+      - name: Preserve comparison provenance
+        run: |
+          cp shared/paired_provenance.json comparison/provenance.json
+          cp truth/manifest.json comparison/truth_manifest.json
+
+      - name: Upload final paired validation
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v701-v720-paired-week1-${{ github.run_id }}
+          path: |
+            comparison/
+            truth/
+            shared/paired_provenance.json
+            control/v701-qb-rush/
+            challenger/v720-qb-rush/
+            control/v701-control/runtime_fingerprint_v701.json
+            challenger/v720-challenger/runtime_fingerprint_v720.json
+          retention-days: 30
