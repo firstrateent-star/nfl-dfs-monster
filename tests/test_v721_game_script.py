@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import polars as pl
 import pytest
 
@@ -9,14 +7,14 @@ from monster.reality import game_script_v721 as script
 from monster.reality.participation_authority_v72 import (
     configure_participation_authority_v72,
 )
-from monster.sim.defensive_intent import CoverageShell, DefensiveIntent, RushPlan
 from monster.sim.decision_policy import SituationPolicy
+from monster.sim.defensive_intent import CoverageShell, DefensiveIntent, RushPlan
 from monster.sim.football_state import FootballState
 from monster.sim.play_kernel import (
     PassResult,
+    PlayerIdentity,
     PlayEvent,
     PlayType,
-    PlayerIdentity,
     TeamIdentity,
 )
 from monster.sim.reality_snap_v5 import _EVENT_META, event_metadata
