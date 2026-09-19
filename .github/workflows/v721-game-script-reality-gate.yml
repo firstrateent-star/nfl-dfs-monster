@@ -120,12 +120,16 @@ jobs:
           assert m["sim_timeout_events"] > 0, m
           assert m["sim_q2_two_minute_faster_than_ordinary"], m
           assert m["sim_q4_trailing_faster_than_ordinary"], m
-          assert m["sim_q4_lead_slower_than_trailing"], m
           assert m["historical_q2_two_minute_faster_than_ordinary"], m
           assert m["historical_q4_trailing_faster_than_ordinary"], m
-          assert m["historical_q4_lead_slower_than_trailing"], m
-          # Broad calibration guard only. This is deliberately not a score-fitting target.
-          assert m["mean_context_elapsed_abs_error_seconds"] < 12.0, m
+          assert m["lead_trailing_direction_match"], m
+          # State-conditioned clock gates only. These are football-behavior
+          # comparisons; no score or fantasy outcome enters the thresholds.
+          errors=m["context_elapsed_abs_error_seconds"]
+          assert errors["q2_two_minute"] < 6.0, m
+          assert errors["q4_trailing"] < 8.0, m
+          assert errors["q4_lead_drain"] < 6.0, m
+          assert m["mean_context_elapsed_abs_error_seconds"] < 7.0, m
           print(json.dumps(m, indent=2))
           PY
 
