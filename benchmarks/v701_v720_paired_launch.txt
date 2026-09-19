@@ -1,0 +1,11 @@
+MONSTER V7.1 vs V7.2 paired Week 1 distributional validation
+
+control_runtime_sha=37cb49077805917fad52813cbd58e3dcff10c859
+challenger_runtime_sha=51d678e27af8b3a5f64cee6402cfaaca8c4a004f
+worlds_per_game_each_arm=120
+games=16
+shared_seed=2026091901
+common_random_numbers=true
+shared_strict_pregame_inputs=true
+week1_truth_after_both_simulations=true
+market_blind=true
