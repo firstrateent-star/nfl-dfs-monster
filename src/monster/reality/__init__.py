@@ -24,6 +24,7 @@ from monster.reality.ledger import (
     RealityLedger,
 )
 from monster.reality.native_ledger import NativeRealityLedgerBuilder
+from monster.reality.reducers import final_score, reduce_player_box_scores
 from monster.reality.qb import (
     QBRushFamily,
     QBRushFamilySummary,
@@ -61,6 +62,8 @@ __all__ = [
     "V6CompatibilityEngine",
     "WorldKey",
     "classify_qb_rush_event",
+    "final_score",
+    "reduce_player_box_scores",
     "sample_game_day_latents",
     "summarize_qb_rush_families",
     "team_latent_vector",
