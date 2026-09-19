@@ -1,0 +1,145 @@
+name: V7.2.1 Game Script Reality Gate
+
+on:
+  push:
+    branches: [work/v721-game-script]
+    paths:
+      - benchmarks/v721_game_script_gate_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v721-game-script-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Code and causal gates
+        run: |
+          uv run ruff check             src/monster/reality/game_script_v721.py             scripts/runtime_v721_composer.py             scripts/run_reality_loop_v721.py             scripts/run_week2_v721_live_distribution.py             scripts/audit_v721_game_script_reality.py             tests/test_v721_game_script.py
+          uv run pytest -q             tests/test_v721_game_script.py             tests/test_v72_reality_engine.py             tests/test_v701_runtime.py             tests/test_reality_loop_v2_clock_ecology.py             tests/test_market_blind_guard.py
+
+      - name: Preserve game-flow brain OOS gate
+        run: >-
+          uv run python scripts/audit_game_flow_brain_oos.py
+          --out artifacts/game-flow-brain-oos
+
+      - name: Require pass-run brain still generalizes
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("artifacts/game-flow-brain-oos/manifest.json").read_text())
+          assert m["mean_brier_gain"] > 0.0, m
+          assert m["mean_log_loss_gain"] > 0.0, m
+          assert m["positive_brier_folds"] == len(m["folds"]), m
+          assert m["positive_log_loss_folds"] == len(m["folds"]), m
+          print(json.dumps(m, indent=2))
+          PY
+
+      - name: Build Saturday live Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_live_pregame.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-live-pregame
+
+      - name: Build Week 1-only Week 2 football policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-live-policy
+
+      - name: Build older continuity policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build live health state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-live-pregame/league_personnel.parquet
+          --injuries artifacts/week2-live-pregame/raw_injuries.parquet
+          --overrides config/health/week2_2026_live_2026-09-19.csv
+          --season 2026
+          --out artifacts/week2-live-health
+
+      - name: Build continuity-conditioned live team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-live-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --out artifacts/week2-live-continuity-policy
+
+      - name: Run V7.2.1 script shadow
+        run: >-
+          uv run python scripts/run_week2_v721_live_distribution.py
+          --policy artifacts/week2-live-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --player-usage artifacts/week2-live-policy/player_usage.parquet
+          --situation-context artifacts/week2-live-policy/situational_pass_context.parquet
+          --worlds 30
+          --seed 2026091921
+          --progress-every 60
+          --first-out artifacts/week2-v721-script-gate
+          --box-out artifacts/week2-v721-script-gate-box
+
+      - name: Audit state-conditioned clock reality
+        run: >-
+          uv run python scripts/audit_v721_game_script_reality.py
+          --simulated artifacts/week2-v721-script-gate/game_script_v721.csv
+          --season 2025
+          --out artifacts/v721-game-script-reality
+
+      - name: Enforce game-script reality gate
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path("artifacts/v721-game-script-reality/manifest.json").read_text())
+          assert m["market_blind"] is True, m
+          assert m["final_scores_used_as_targets"] is False, m
+          assert m["fantasy_points_used_as_targets"] is False, m
+          assert m["contexts_compared"] >= 4, m
+          assert m["sim_timeout_events"] > 0, m
+          assert m["sim_q2_two_minute_faster_than_ordinary"], m
+          assert m["sim_q4_trailing_faster_than_ordinary"], m
+          assert m["sim_q4_lead_slower_than_trailing"], m
+          assert m["historical_q2_two_minute_faster_than_ordinary"], m
+          assert m["historical_q4_trailing_faster_than_ordinary"], m
+          assert m["historical_q4_lead_slower_than_trailing"], m
+          # Broad calibration guard only. This is deliberately not a score-fitting target.
+          assert m["mean_context_elapsed_abs_error_seconds"] < 12.0, m
+          print(json.dumps(m, indent=2))
+          PY
+
+      - name: Upload V7.2.1 game-script gate
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v721-game-script-gate-${{ github.run_id }}
+          path: |
+            artifacts/v721-game-script-reality/
+            artifacts/game-flow-brain-oos/
+            artifacts/week2-v721-script-gate/manifest.json
+            artifacts/week2-v721-script-gate/game_script_v721.csv
+            artifacts/week2-v721-script-gate/preservation_v721.csv
+            artifacts/week2-v721-script-gate/game_distributions.csv
+            artifacts/week2-v721-script-gate/player_distributions.csv
+          retention-days: 30
