@@ -96,7 +96,7 @@ def _clock_hurry_target(state: object) -> float | None:
         if margin < 0 and clock <= 240:
             urgency = float(np.clip((240.0 - clock) / 210.0, 0.0, 1.0))
             score_pressure = float(np.clip((-margin - 1.0) / 20.0, 0.0, 1.0))
-            return 0.27 + 0.22 * urgency + 0.05 * score_pressure
+            return 0.19 + 0.15 * urgency + 0.03 * score_pressure
         if margin == 0 and clock <= 120:
             urgency = float(np.clip((120.0 - clock) / 105.0, 0.0, 1.0))
             return 0.40 + 0.20 * urgency
@@ -120,7 +120,7 @@ def policy_for_state_v721(state, offense):
     ) < 0:
         # Replace most of the legacy desperation cadence rather than stacking
         # another hurry layer on top of it.
-        hurry = 0.20 * float(base.hurry_probability) + 0.80 * target
+        hurry = 0.10 * float(base.hurry_probability) + 0.90 * target
     else:
         hurry = target
 
@@ -165,14 +165,14 @@ def _timeout_probability(
         # Trailing teams hurry on most snaps but do not spend a timeout after
         # every live-clock completion/run. Preserve the bank for terminal states.
         if clock <= 30:
-            return 0.52
+            return 0.30
         if clock <= 60:
-            return 0.34
+            return 0.16
         if clock <= 120:
-            return 0.17
+            return 0.06
         if clock <= 180:
-            return 0.08
-        return 0.05 if margin <= -9 else 0.02
+            return 0.03
+        return 0.015 if margin <= -9 else 0.005
 
     # When the offense owns a late lead, the *defense* is usually the side
     # creating hard clock stops. This is the main four-minute timeout channel.
