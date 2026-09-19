@@ -59,3 +59,5 @@ def test_qb_remains_concept_eligible_without_owning_generic_rush_share() -> None
     assert live.rushers[0].usage_weight == pytest.approx(0.70)
     assert live.rushers[1].usage_weight == pytest.approx(0.30)
     assert live.rushers[2].usage_weight == pytest.approx(QB_SENTINEL_USAGE)
+    assert [player.player_id for player in live.receivers] == ["wr"]
+    assert live.receivers[0].usage_weight == pytest.approx(1.0)
