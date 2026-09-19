@@ -16,6 +16,11 @@ from monster.reality.game_latents import (
     sample_game_day_latents,
     team_latent_vector,
 )
+from monster.reality.identity_catalog import (
+    TeamIdentityCatalog,
+    apply_live_roster_identity,
+    compile_team_identity_catalog,
+)
 from monster.reality.ledger import (
     LedgerEventKind,
     LedgerFidelity,
@@ -57,11 +62,14 @@ __all__ = [
     "RealityGameRequest",
     "RealityGameResult",
     "RealityLedger",
+    "TeamIdentityCatalog",
     "TeamLiveRoster",
     "TeamPregameState",
     "V6CompatibilityEngine",
     "WorldKey",
+    "apply_live_roster_identity",
     "classify_qb_rush_event",
+    "compile_team_identity_catalog",
     "final_score",
     "reduce_player_box_scores",
     "sample_game_day_latents",
