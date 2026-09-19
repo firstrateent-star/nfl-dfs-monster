@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from monster.reality.availability import AvailabilityTransition
 from monster.reality.ledger import (
     AvailabilityTransitionSnapshot,
+    DriveTerminalSnapshot,
     FootballStateSnapshot,
     LedgerEventKind,
     LedgerFidelity,
@@ -14,6 +15,7 @@ from monster.reality.ledger import (
     RealityLedger,
 )
 from monster.reality.world_state import WorldKey
+from monster.sim.drive_trace import DriveTrace
 from monster.sim.football_state import FootballState
 from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
 
@@ -126,6 +128,41 @@ class NativeRealityLedgerBuilder:
                     quarter=int(transition.quarter),
                     seconds_remaining=int(transition.seconds_remaining),
                     replacement_player_id=transition.replacement_player_id,
+                ),
+            )
+        )
+
+    def record_drive_terminal(
+        self,
+        *,
+        drive_index: int,
+        trace: DriveTrace,
+    ) -> None:
+        self._require_open()
+        self._records.append(
+            LedgerRecord(
+                sequence=len(self._records),
+                world_id=self.world.world_id,
+                event_kind=LedgerEventKind.DRIVE_TERMINAL,
+                fidelity=LedgerFidelity.NATIVE,
+                source_runtime=self.source_runtime,
+                drive_index=drive_index,
+                offense_team_id=trace.offense_team_id,
+                defense_team_id=trace.defense_team_id,
+                drive_terminal=DriveTerminalSnapshot(
+                    offense_team_id=trace.offense_team_id,
+                    defense_team_id=trace.defense_team_id,
+                    terminal=getattr(trace.terminal, "value", str(trace.terminal)),
+                    points=int(trace.points),
+                    scrimmage_plays=int(trace.scrimmage_plays),
+                    net_scrimmage_yards=float(trace.net_scrimmage_yards),
+                    first_downs=int(trace.first_downs),
+                    start_quarter=int(trace.start_quarter),
+                    start_seconds_remaining=int(trace.start_seconds_remaining),
+                    start_yardline_100=float(trace.start_yardline_100),
+                    end_quarter=int(trace.end_quarter),
+                    end_seconds_remaining=int(trace.end_seconds_remaining),
+                    end_yardline_100=float(trace.end_yardline_100),
                 ),
             )
         )
