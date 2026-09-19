@@ -9,7 +9,6 @@ from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
-
 TEAM_ALIASES = {"JAX": "JAC", "LA": "LAR"}
 
 
