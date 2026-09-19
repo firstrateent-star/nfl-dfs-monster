@@ -1,0 +1,127 @@
+name: v7.1 Week 2 One World Slate
+
+on:
+  push:
+    branches: [work/v7-reality-engine]
+    paths:
+      - benchmarks/v701_week2_one_world_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v701-week2-one-world-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - name: Lint Week 2 experiment
+        run: >-
+          uv run ruff check
+          scripts/build_week2_2026_pregame_baseline.py
+          scripts/build_week2_2026_policy.py
+          scripts/run_week2_v701_one_world.py
+          scripts/summarize_week2_v701_one_world.py
+          scripts/runtime_v701_composer.py
+          src/monster/reality/qb_rush_runtime.py
+          src/monster/reality/qb_rush_authority.py
+
+      - name: Require v7.1 structural and market-blind gates
+        run: >-
+          uv run pytest -q
+          tests/test_v701_runtime.py
+          tests/test_v7_qb_rush_authority.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_market_blind_guard.py
+          tests/test_event_ledger.py
+
+      - name: Build leakage-resistant Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_pregame_baseline.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-pregame-baseline
+
+      - name: Build Week 1-informed Week 2 football policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-policy
+
+      - name: Build older policy for continuity conditioning
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build Week 2 health and availability state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-pregame-baseline/league_personnel.parquet
+          --injuries artifacts/week2-pregame-baseline/raw_injuries.parquet
+          --season 2026
+          --out artifacts/week2-health
+
+      - name: Build continuity-conditioned Week 2 team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-policy/team_policy.parquet
+          --personnel artifacts/week2-health/health_personnel.parquet
+          --out artifacts/week2-continuity-policy
+
+      - name: Run exactly one v7.1 world for every Week 2 game
+        run: >-
+          uv run python scripts/run_week2_v701_one_world.py
+          --policy artifacts/week2-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-health/health_personnel.parquet
+          --player-usage artifacts/week2-policy/player_usage.parquet
+          --situation-context artifacts/week2-policy/situational_pass_context.parquet
+          --worlds 1
+          --seed 2026092001
+          --progress-every 1
+          --first-out artifacts/week2-v701-one-world
+          --box-out artifacts/week2-v701-one-world-box
+
+      - name: Audit QB rushing families in the realized slate
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/week2-v701-one-world
+          --out artifacts/week2-v701-qb-rush
+
+      - name: Materialize and print complete Week 2 box-score report
+        run: >-
+          uv run python scripts/summarize_week2_v701_one_world.py
+          --simulation artifacts/week2-v701-one-world
+          --box artifacts/week2-v701-one-world-box
+          --out artifacts/week2-v701-report
+
+      - name: Upload Week 2 one-world artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v701-week2-one-world-${{ github.run_id }}
+          path: |
+            artifacts/week2-pregame-baseline/manifest.json
+            artifacts/week2-health/
+            artifacts/week2-policy/manifest.json
+            artifacts/week2-continuity-policy/
+            artifacts/week2-v701-one-world/
+            artifacts/week2-v701-one-world-box/
+            artifacts/week2-v701-qb-rush/
+            artifacts/week2-v701-report/
+          retention-days: 30
