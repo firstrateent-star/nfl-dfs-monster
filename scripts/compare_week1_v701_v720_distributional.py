@@ -1265,8 +1265,10 @@ def _markdown(
     lines = [
         "# MONSTER V7.1 vs V7.2 paired Week 1 validation",
         "",
-        f"Common-random-number worlds per game per arm: **{worlds}** "
-        f"({worlds * 16:,} simulated games per arm).",
+        (
+            f"Common-random-number worlds per game per arm: **{worlds}** "
+            f"({worlds * 16:,} simulated games per arm)."
+        ),
         "",
         "## Headline",
         "",
