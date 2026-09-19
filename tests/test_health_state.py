@@ -2,6 +2,7 @@ import polars as pl
 
 from monster.feature_compile.health import attach_health_state
 from monster.feature_compile.health_pools import apply_health_to_skill_pools
+from monster.feature_compile.skill_pools import compile_current_skill_pools
 from monster.snapshot.player import PlayerState, TeamPlayerPool
 
 
@@ -57,3 +58,53 @@ def test_health_pool_adapter_overwrites_generic_availability_and_effectiveness()
     player = out["BUF"].players[0]
     assert player.active_probability == 0.61
     assert player.effectiveness_if_active == 0.93
+
+
+def test_unavailable_depth_qb_cedes_passing_authority_to_active_backup():
+    personnel = pl.DataFrame(
+        {
+            "gsis_id": ["qb1", "qb2", "qb3"],
+            "pfr_id": [None, None, None],
+            "team_id": ["ATL", "ATL", "ATL"],
+            "display_name": ["Old QB1", "Confirmed Backup Starter", "QB3"],
+            "position": ["QB", "QB", "QB"],
+            "status": ["ACT", "ACT", "ACT"],
+            "depth_rank": [1, 2, 3],
+            "conditional_offense_snap_share": [0.98, 0.20, 0.05],
+            "game_day_active_probability": [0.03, 1.0, 1.0],
+            "participation_uncertainty": [0.08, 0.12, 0.16],
+        }
+    )
+    usage = pl.DataFrame({"player_id": []}, schema={"player_id": pl.Utf8})
+
+    pool = compile_current_skill_pools(personnel, usage)["ATL"]
+    by_id = {player.player_id: player for player in pool.players}
+
+    assert by_id["qb1"].qb_pass_share == 0.0
+    assert by_id["qb2"].qb_pass_share > by_id["qb3"].qb_pass_share
+    assert by_id["qb2"].qb_pass_share > 0.80
+    assert by_id["qb1"].active_probability == 0.03
+
+
+def test_healthy_qb1_keeps_passing_authority_over_active_backup():
+    personnel = pl.DataFrame(
+        {
+            "gsis_id": ["qb1", "qb2"],
+            "pfr_id": [None, None],
+            "team_id": ["BUF", "BUF"],
+            "display_name": ["Healthy QB1", "Backup"],
+            "position": ["QB", "QB"],
+            "status": ["ACT", "ACT"],
+            "depth_rank": [1, 2],
+            "conditional_offense_snap_share": [0.98, 0.05],
+            "game_day_active_probability": [0.99, 1.0],
+            "participation_uncertainty": [0.08, 0.12],
+        }
+    )
+    usage = pl.DataFrame({"player_id": []}, schema={"player_id": pl.Utf8})
+
+    pool = compile_current_skill_pools(personnel, usage)["BUF"]
+    by_id = {player.player_id: player for player in pool.players}
+
+    assert by_id["qb1"].qb_pass_share > 0.99
+    assert by_id["qb1"].qb_pass_share > by_id["qb2"].qb_pass_share
