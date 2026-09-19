@@ -332,6 +332,7 @@ def _reweight_for_preservation(
 def apply_preservation_v721(
     offense: TeamIdentity,
     state: object,
+    rng: np.random.Generator | None = None,
 ) -> TeamIdentity:
     strength = _preservation_strength(state)
     if strength <= 0.0:
@@ -355,6 +356,7 @@ def apply_preservation_v721(
     _PRESERVATION_ROWS.append(
         {
             "game": _game_id(state),
+            "world_key": None if rng is None else id(rng),
             "team": offense.team_id,
             "quarter": int(getattr(state, "quarter", 1)),
             "seconds_remaining": int(getattr(state, "seconds_remaining", 0)),
@@ -427,7 +429,7 @@ def simulate_scrimmage_play_v721(
     if _BASE_SCRIMMAGE is None:
         raise RuntimeError("V7.2.1 base scrimmage runtime is not configured")
 
-    scripted_offense = apply_preservation_v721(offense, state)
+    scripted_offense = apply_preservation_v721(offense, state, rng)
     event = _BASE_SCRIMMAGE(
         state,
         scripted_offense,
