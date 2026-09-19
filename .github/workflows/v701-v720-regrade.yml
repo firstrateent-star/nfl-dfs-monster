@@ -1,0 +1,85 @@
+name: Regrade V7.1 vs V7.2 Paired Week 1
+
+on:
+  push:
+    branches: [work/v72-reality-engine]
+    paths:
+      - benchmarks/v701_v720_regrade_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SOURCE_RUN_ID: 35459914625
+
+jobs:
+  regrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - run: uv sync --extra dev
+
+      - name: Lint corrected grader
+        run: uv run ruff check scripts/compare_week1_v701_v720_distributional.py
+
+      - name: Download preserved paired artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$SOURCE_RUN_ID"             --repo "${{ github.repository }}"             -n v701-control-worlds             -D control
+          gh run download "$SOURCE_RUN_ID"             --repo "${{ github.repository }}"             -n v720-challenger-worlds             -D challenger
+          gh run download "$SOURCE_RUN_ID"             --repo "${{ github.repository }}"             -n v701-v720-shared-inputs             -D shared
+          gh run download "$SOURCE_RUN_ID"             --repo "${{ github.repository }}"             -n monster-v701-v720-paired-week1-35459914625             -D prior
+
+      - name: Regrade preserved 120-world arms
+        run: >-
+          uv run python scripts/compare_week1_v701_v720_distributional.py
+          --control-sim control/v701-control
+          --control-box control/v701-control-box
+          --challenger-sim challenger/v720-challenger
+          --challenger-box challenger/v720-challenger-box
+          --schedules prior/truth/schedules_week1.csv
+          --player-truth prior/truth/player_stats_week1.csv
+          --snap-truth prior/truth/snap_counts_week1.csv
+          --pfr-defense-truth prior/truth/pfr_defense_week1.csv
+          --personnel shared/week1-health/health_personnel.csv
+          --control-qb control/v701-qb-rush/qb_rush_family_manifest_v7.json
+          --challenger-qb challenger/v720-qb-rush/qb_rush_family_manifest_v7.json
+          --historical-qb shared/historical-qb/manifest.json
+          --out comparison-corrected
+
+      - name: Preserve corrected provenance
+        run: |
+          cp shared/paired_provenance.json comparison-corrected/provenance.json
+          cp prior/truth/manifest.json comparison-corrected/truth_manifest.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("comparison-corrected/provenance.json")
+          payload = json.loads(path.read_text())
+          payload.update({
+              "source_simulation_run_id": 35459914625,
+              "simulations_rerun_for_regrade": False,
+              "grader_repair": [
+                  "recover world index from per-game row order in football_weirdness_worlds.csv",
+                  "map OL participants through frozen personnel rather than fantasy box rows",
+                  "consume QB-family audit manifest rather than divide total events by one collapsed world",
+                  "use explicit player-world indices for live-substitution denominators",
+              ],
+          })
+          path.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+
+      - name: Upload corrected paired validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: monster-v701-v720-paired-week1-corrected-${{ github.run_id }}
+          path: comparison-corrected/
+          retention-days: 30
