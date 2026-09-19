@@ -1,0 +1,17 @@
+MONSTER v7.2 integrated reality-allocation launch
+
+branch=work/v72-reality-engine
+worlds_per_game=1
+games=16
+seed=2026091901
+input_cutoff=2026-09-08
+week1_truth_before_simulation=false
+market_blind=true
+
+causal_order:
+1 current participation and exact OL seats
+2 designed QB-run concept entry
+3 receiver route/alignment topology
+4 defensive package participation and causal attribution
+5 live injury/substitution state
+6 special-teams player identity
