@@ -8,3 +8,4 @@ week2_game_results_allowed: false
 market_data_allowed: false
 score_tuning_allowed: false
 fantasy_tuning_allowed: false
+retry_after_lint_cleanup: true
