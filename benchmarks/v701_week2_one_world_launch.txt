@@ -10,6 +10,6 @@ current_snap_cutoff_week=1
 current_pbp_cutoff_week=1
 week1_real_football_allowed_in_priors=true
 
-purpose:
+attempt=2\n\npurpose:
 observe one realized v7.1 football universe for every Week 2 matchup and materialize
 team/player/defensive box scores without using Week 2 results as inputs.
