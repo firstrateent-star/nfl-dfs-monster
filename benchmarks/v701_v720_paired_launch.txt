@@ -10,3 +10,4 @@ shared_strict_pregame_inputs=true
 week1_truth_after_both_simulations=true
 market_blind=true
 attempt=2
+attempt=3
