@@ -14,7 +14,7 @@ def _num(row: dict[str, Any], key: str) -> float:
 
 
 def _int(row: dict[str, Any], key: str) -> int:
-    return int(round(_num(row, key)))
+    return round(_num(row, key))
 
 
 def _fd(row: dict[str, Any]) -> float:
@@ -102,8 +102,8 @@ def main() -> None:
         offense = [row for row in rows if row["record_type"] == "offense"]
         defense = [row for row in rows if row["record_type"] == "defense"]
 
-        away_score = int(round(float(game_row["away_points_mean"])))
-        home_score = int(round(float(game_row["home_points_mean"])))
+        away_score = round(float(game_row["away_points_mean"]))
+        home_score = round(float(game_row["home_points_mean"]))
         team_stats = {}
         for row in team_by_game[game]:
             team = str(row["team"])
