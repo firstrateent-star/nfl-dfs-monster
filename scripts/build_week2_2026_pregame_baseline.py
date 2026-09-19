@@ -11,10 +11,10 @@ import polars as pl
 BASELINE_ROOT = Path.cwd()
 sys.path.insert(0, str(BASELINE_ROOT / "scripts"))
 
-import build_league_baseline as baseline  # noqa: E402
+import build_league_baseline as baseline
 
-from monster.ingest.madden_canonical import canonicalize_madden_attribute_mirror  # noqa: E402
-from monster.ingest.madden_players import load_madden27_player_ratings  # noqa: E402
+from monster.ingest.madden_canonical import canonicalize_madden_attribute_mirror
+from monster.ingest.madden_players import load_madden27_player_ratings
 
 CUTOFF_DATE = date(2026, 9, 16)
 ROSTER_CUTOFF_WEEK = 2
