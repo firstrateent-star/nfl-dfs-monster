@@ -7,7 +7,7 @@ seed=2026091901
 input_cutoff=2026-09-08
 week1_truth_before_simulation=false
 market_blind=true
-attempt=2
+attempt=3
 
 causal_order:
 1 current participation and exact OL seats
