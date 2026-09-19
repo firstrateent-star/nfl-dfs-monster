@@ -353,6 +353,8 @@ jobs:
           --snap-truth truth/snap_counts_week1.csv
           --pfr-defense-truth truth/pfr_defense_week1.csv
           --personnel shared/week1-health/health_personnel.csv
+          --control-qb control/v701-qb-rush/qb_rush_family_manifest_v7.json
+          --challenger-qb challenger/v720-qb-rush/qb_rush_family_manifest_v7.json
           --historical-qb shared/historical-qb/manifest.json
           --out comparison
 
