@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from monster.snapshot.player import TeamPlayerPool
 from monster.sim.play_kernel import TeamIdentity
 from monster.sim.reality_v62 import RoleWorldPlan
-from monster.snapshot.player import TeamPlayerPool
 
 
 QB_SENTINEL_USAGE = 0.001
