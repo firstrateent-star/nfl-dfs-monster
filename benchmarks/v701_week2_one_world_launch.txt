@@ -1,0 +1,15 @@
+MONSTER v7.1 Week 2 2026 one-world slate
+
+worlds_per_game=1
+games=16
+seed=2026092001
+week2_truth_used=false
+market_blind=true
+pregame_cutoff_date=2026-09-16
+current_snap_cutoff_week=1
+current_pbp_cutoff_week=1
+week1_real_football_allowed_in_priors=true
+
+purpose:
+observe one realized v7.1 football universe for every Week 2 matchup and materialize
+team/player/defensive box scores without using Week 2 results as inputs.
