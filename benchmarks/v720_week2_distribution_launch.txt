@@ -1,0 +1,10 @@
+MONSTER V7.2 Week 2 frozen forward distribution launch
+launched_at_context: 2026-09-19
+information_cutoff: 2026-09-16
+worlds_per_game: 120
+games: 16
+seed: 2026092002
+week1_real_football_allowed: true
+week2_truth_allowed: false
+week2_market_data_allowed: false
+runtime_change: none
