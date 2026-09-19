@@ -146,6 +146,9 @@ def test_v72_qb_designed_run_is_entry_probability_not_equal_actor_weight() -> No
         rusher_geometry_attempts={
             ("qb", "left_edge"): 5,
             ("rb", "left_edge"): 95,
+            # League-wide ecology may carry other teams' actor evidence. It
+            # must not dilute this offense's QB concept-entry probability.
+            ("other-team-rb", "left_edge"): 900,
         }
     )
     probability = designed_qb_entry_probability_v72(
