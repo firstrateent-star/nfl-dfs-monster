@@ -1,0 +1,188 @@
+name: v7.2 Reality Allocation Week 1
+
+on:
+  push:
+    branches: [work/v72-reality-engine]
+    paths:
+      - benchmarks/v720_week1_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v720-week1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Lint V7.2 runtime
+        run: >-
+          uv run ruff check
+          src/monster/reality/participation_authority_v72.py
+          src/monster/reality/qb_rush_authority_v72.py
+          src/monster/reality/receiver_topology_v72.py
+          src/monster/reality/defensive_attribution_v72.py
+          src/monster/reality/live_state_v72.py
+          src/monster/reality/special_teams_identity_v72.py
+          src/monster/sim/dispersion_bridge.py
+          scripts/runtime_v720_composer.py
+          scripts/run_reality_loop_v720.py
+          scripts/run_week1_v720_one_world.py
+          tests/test_v72_reality_engine.py
+
+      - name: Require V7.2 and inherited causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_v7_qb_rush_authority.py
+          tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_reality_snap_v5.py
+          tests/test_defensive_attribution.py
+          tests/test_event_ledger.py
+          tests/test_market_blind_guard.py
+
+      - name: Build strict pre-Week-1 personnel
+        run: >-
+          uv run python scripts/build_week1_2026_pregame_strict.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week1-strict-pregame-baseline
+
+      - name: Build 2025 policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2025
+          --out artifacts/week1-policy
+
+      - name: Build 2024 continuity policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Apply pre-opener health knowledge
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week1-strict-pregame-baseline/league_personnel.parquet
+          --injuries artifacts/week1-strict-pregame-baseline/raw_injuries.parquet
+          --overrides config/health/week1_2026_2026-09-07.csv
+          --season 2026
+          --out artifacts/week1-strict-health
+
+      - name: Build continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week1-policy/team_policy.parquet
+          --personnel artifacts/week1-strict-health/health_personnel.parquet
+          --out artifacts/week1-strict-continuity-policy
+
+      - name: Run one V7.2 world for all 16 Week 1 games
+        run: >-
+          uv run python scripts/run_week1_v720_one_world.py
+          --policy artifacts/week1-strict-continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-strict-health/health_personnel.parquet
+          --player-usage artifacts/week1-policy/player_usage.parquet
+          --situation-context artifacts/week1-policy/situational_pass_context.parquet
+          --worlds 1
+          --seed 2026091901
+          --progress-every 1
+          --first-out artifacts/week1-v720-one-world
+          --box-out artifacts/week1-v720-one-world-box
+
+      - name: Audit QB rushing families before truth
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/week1-v720-one-world
+          --out artifacts/week1-v720-qb-rush
+
+      - name: Freeze Week 1 truth only after simulation
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          import nflreadpy as nfl
+          import polars as pl
+
+          out = Path("artifacts/week1-actual-truth")
+          out.mkdir(parents=True, exist_ok=True)
+
+          def week1(frame: pl.DataFrame) -> pl.DataFrame:
+              if "season" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("season").cast(pl.Int64, strict=False) == 2026
+                  )
+              if "week" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("week").cast(pl.Int64, strict=False) == 1
+                  )
+              if "season_type" in frame.columns:
+                  frame = frame.filter(
+                      pl.col("season_type").cast(pl.Utf8).str.to_uppercase()
+                      == "REG"
+                  )
+              return frame
+
+          player = week1(nfl.load_player_stats([2026]))
+          snaps = week1(nfl.load_snap_counts([2026]))
+          pbp = week1(nfl.load_pbp([2026]))
+          schedules = week1(nfl.load_schedules([2026]))
+          try:
+              defense = week1(
+                  nfl.load_pfr_advstats(
+                      [2026],
+                      stat_type="def",
+                      summary_level="week",
+                  )
+              )
+          except Exception as exc:
+              defense = pl.DataFrame({"truth_load_error": [str(exc)]})
+
+          player.write_csv(out / "player_stats_week1.csv")
+          snaps.write_csv(out / "snap_counts_week1.csv")
+          pbp.write_parquet(out / "pbp_week1.parquet", compression="zstd")
+          schedules.write_csv(out / "schedules_week1.csv")
+          defense.write_csv(out / "pfr_defense_week1.csv")
+          (out / "manifest.json").write_text(
+              json.dumps(
+                  {
+                      "truth_loaded_after_simulation": True,
+                      "player_rows": player.height,
+                      "snap_rows": snaps.height,
+                      "pbp_rows": pbp.height,
+                      "schedule_rows": schedules.height,
+                      "defense_rows": defense.height,
+                  },
+                  indent=2,
+              )
+              + "\n"
+          )
+          PY
+
+      - name: Upload V7.2 evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v720-week1-one-world-${{ github.run_id }}
+          path: |
+            artifacts/week1-strict-pregame-baseline/manifest.json
+            artifacts/week1-strict-health/
+            artifacts/week1-policy/manifest.json
+            artifacts/week1-strict-continuity-policy/
+            artifacts/week1-v720-one-world/
+            artifacts/week1-v720-one-world-box/
+            artifacts/week1-v720-qb-rush/
+            artifacts/week1-actual-truth/
+          retention-days: 30
