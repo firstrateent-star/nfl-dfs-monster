@@ -21,6 +21,13 @@ from monster.reality.identity_catalog import (
     apply_live_roster_identity,
     compile_team_identity_catalog,
 )
+from monster.reality.latent_authority import (
+    LATENT_AUTHORITY,
+    LatentAuthoritySpec,
+    LatentMechanism,
+    RoutedLatent,
+    route_team_latent,
+)
 from monster.reality.ledger import (
     LedgerEventKind,
     LedgerFidelity,
@@ -49,7 +56,10 @@ __all__ = [
     "ExitReason",
     "GameAvailabilityState",
     "GameDayLatents",
+    "LATENT_AUTHORITY",
+    "LatentAuthoritySpec",
     "LatentFactor",
+    "LatentMechanism",
     "LedgerEventKind",
     "LedgerFidelity",
     "LedgerRecord",
@@ -62,6 +72,7 @@ __all__ = [
     "RealityGameRequest",
     "RealityGameResult",
     "RealityLedger",
+    "RoutedLatent",
     "TeamIdentityCatalog",
     "TeamLiveRoster",
     "TeamPregameState",
@@ -72,6 +83,7 @@ __all__ = [
     "compile_team_identity_catalog",
     "final_score",
     "reduce_player_box_scores",
+    "route_team_latent",
     "sample_game_day_latents",
     "summarize_qb_rush_families",
     "team_latent_vector",
