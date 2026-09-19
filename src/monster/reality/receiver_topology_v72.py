@@ -29,6 +29,9 @@ _POSITION_DEPTH_COMPATIBILITY = {
     "bomb_40_plus": {"RB": 0.35, "FB": 0.30, "WR": 1.48, "TE": 0.70},
 }
 
+_LAST_ROUTE_FAMILY_BY_ECOLOGY: dict[int, str] = {}
+
+
 _ALIGNMENT_DEPTH_COMPATIBILITY = {
     "behind_los": {
         "BACK": 1.55,
@@ -130,6 +133,7 @@ def choose_target_for_depth_v72(
 
     if not players:
         raise ValueError("receiver participant set cannot be empty")
+    _LAST_ROUTE_FAMILY_BY_ECOLOGY[id(ecology)] = str(category)
     weights = participation_assignment_weights(
         players,
         category=category,
@@ -176,21 +180,12 @@ def field_read_target_v72(
     line_fatigue = play_kernel._fatigue_factor(fatigue, f"line:{offense.team_id}")
     quarterback_efficiency = qb_execution_skill(offense.quarterback) * qb_fatigue
 
-    category = "short_0_5"
-    # The preferred target is chosen from the already-sampled depth family.
-    # Recovering its strongest historical family keeps the live read topology-aware
-    # without re-sampling the play concept.
     ecology = getattr(offense, "intent_ecology", None)
-    if ecology is not None and preferred is not None:
-        attempts = getattr(ecology, "target_depth_attempts", {})
-        categories = getattr(getattr(ecology, "pass_depth", None), "categories", ())
-        if categories:
-            category = max(
-                categories,
-                key=lambda value: int(
-                    attempts.get((str(preferred.player_id), str(value)), 0)
-                ),
-            )
+    category = (
+        "short_0_5"
+        if ecology is None
+        else _LAST_ROUTE_FAMILY_BY_ECOLOGY.get(id(ecology), "short_0_5")
+    )
 
     for receiver in offense.receivers:
         matchup = resolve_pass_matchup(
@@ -235,3 +230,7 @@ def field_read_target_v72(
     index = int(rng.choice(len(candidates), p=weights))
     receiver, matchup, _ = candidates[index]
     return receiver, matchup
+
+
+def last_route_family_v72(ecology: object) -> str | None:
+    return _LAST_ROUTE_FAMILY_BY_ECOLOGY.get(id(ecology))
