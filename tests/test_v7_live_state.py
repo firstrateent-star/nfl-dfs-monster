@@ -6,7 +6,7 @@ from monster.reality.availability import (
     ExitReason,
     GameAvailabilityState,
 )
-from monster.reality.ledger import LedgerFidelity, ParticipantSnapshot
+from monster.reality.ledger import LedgerEventKind, LedgerFidelity, ParticipantSnapshot
 from monster.reality.native_ledger import NativeRealityLedgerBuilder
 from monster.reality.world_state import PregameWorld, TeamPregameState, WorldKey
 from monster.sim.football_state import FootballState, apply_scrimmage_yards
@@ -140,3 +140,41 @@ def test_native_ledger_rejects_partial_participant_world() -> None:
             ),
             drive_index=0,
         )
+
+
+def test_native_ledger_records_qb_exit_as_first_class_transition() -> None:
+    availability = GameAvailabilityState.from_pregame(_world())
+    changed = availability.exit_player(
+        team_id="AWY",
+        player_id="awy-qb1",
+        reason=ExitReason.CONCUSSION,
+        quarter=2,
+        seconds_remaining=811,
+        replacement_qb_id="awy-qb2",
+    )
+    transition = changed.transitions[-1]
+
+    builder = NativeRealityLedgerBuilder(world=_world().key, source_runtime="native-test")
+    builder.record_availability_transition(transition)
+    final_state = FootballState(
+        possession="AWY",
+        defense="HME",
+        quarter=2,
+        seconds_remaining=811,
+        away_team_id="AWY",
+        home_team_id="HME",
+    )
+    ledger = builder.close_game(
+        final_state=final_state,
+        drives=1,
+        went_to_overtime=False,
+    )
+
+    assert len(ledger.availability_records) == 1
+    record = ledger.availability_records[0]
+    assert record.event_kind == LedgerEventKind.AVAILABILITY_TRANSITION
+    assert record.fidelity == LedgerFidelity.NATIVE
+    assert record.availability_transition is not None
+    assert record.availability_transition.player_id == "awy-qb1"
+    assert record.availability_transition.replacement_player_id == "awy-qb2"
+    assert record.availability_transition.reason == "concussion"
