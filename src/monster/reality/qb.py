@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from collections.abc import Iterable
 
 from monster.sim.play_kernel import PassResult, PlayEvent, PlayType
 
