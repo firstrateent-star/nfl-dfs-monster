@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from monster.sim.play_kernel import TeamIdentity
-from monster.sim.reality_v62 import RoleWorldPlan
+from monster.sim.reality_v62 import RoleWorldPlan, apply_role_world
 from monster.snapshot.player import TeamPlayerPool
 
 QB_SENTINEL_USAGE = 0.001
@@ -53,12 +53,13 @@ def apply_qb_family_role_world(
     this sentinel as opportunity authority.
     """
 
+    base = apply_role_world(team, plan)
     rushers = tuple(
-        replace(rusher, usage_weight=float(plan[rusher.player_id]))
-        for rusher in team.rushers
-        if rusher.position.upper() != "QB" and plan.get(rusher.player_id, 0.0) > 0.0
+        rusher
+        for rusher in base.rushers
+        if rusher.position.upper() != "QB"
     )
-    qb = replace(team.quarterback, usage_weight=QB_SENTINEL_USAGE)
+    qb = replace(base.quarterback, usage_weight=QB_SENTINEL_USAGE)
     if not rushers:
         rushers = tuple(
             replace(
@@ -68,7 +69,7 @@ def apply_qb_family_role_world(
             for rusher in team.rushers
             if rusher.position.upper() != "QB"
         )
-    return replace(team, rushers=(*rushers, qb))
+    return replace(base, rushers=(*rushers, qb))
 
 
 def designed_qb_geometry_attempts(team: TeamIdentity) -> int:
