@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from monster.reality.availability import AvailabilityTransition
 from monster.reality.ledger import (
+    AvailabilityTransitionSnapshot,
     FootballStateSnapshot,
     LedgerEventKind,
     LedgerFidelity,
@@ -101,6 +103,30 @@ class NativeRealityLedgerBuilder:
                 post_state=_state_snapshot(post_state),
                 participants=participants,
                 play=_play_snapshot(event),
+            )
+        )
+
+    def record_availability_transition(
+        self,
+        transition: AvailabilityTransition,
+    ) -> None:
+        self._require_open()
+        self._records.append(
+            LedgerRecord(
+                sequence=len(self._records),
+                world_id=self.world.world_id,
+                event_kind=LedgerEventKind.AVAILABILITY_TRANSITION,
+                fidelity=LedgerFidelity.NATIVE,
+                source_runtime=self.source_runtime,
+                offense_team_id=transition.team_id,
+                availability_transition=AvailabilityTransitionSnapshot(
+                    team_id=transition.team_id,
+                    player_id=transition.player_id,
+                    reason=transition.reason.value,
+                    quarter=int(transition.quarter),
+                    seconds_remaining=int(transition.seconds_remaining),
+                    replacement_player_id=transition.replacement_player_id,
+                ),
             )
         )
 
