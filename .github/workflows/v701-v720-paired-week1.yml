@@ -69,7 +69,9 @@ jobs:
           tests/test_v72_reality_engine.py
 
       - name: Verify frozen challenger runtime commit exists
-        run: git cat-file -e "${CHALLENGER_RUNTIME_SHA}^{commit}"
+        run: |
+          git fetch --no-tags --depth=1 origin "${CHALLENGER_RUNTIME_SHA}"
+          git cat-file -e "${CHALLENGER_RUNTIME_SHA}^{commit}"
 
       - name: Build one shared strict pre-Week-1 input world
         run: |
