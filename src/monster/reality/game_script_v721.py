@@ -485,10 +485,16 @@ def configure_v721_hooks(
     team_identity: Callable,
 ) -> None:
     global _BASE_POLICY, _BASE_SCRIMMAGE, _BASE_DEFENSIVE_INTENT, _BASE_TEAM_IDENTITY
-    _BASE_POLICY = policy
-    _BASE_SCRIMMAGE = scrimmage
-    _BASE_DEFENSIVE_INTENT = defensive_intent
-    _BASE_TEAM_IDENTITY = team_identity
+    # Runtime composers can be invoked more than once inside audit processes.
+    # Never capture our own wrapper as its inherited base.
+    if policy is not policy_for_state_v721:
+        _BASE_POLICY = policy
+    if scrimmage is not simulate_scrimmage_play_v721:
+        _BASE_SCRIMMAGE = scrimmage
+    if defensive_intent is not defensive_intent_v721:
+        _BASE_DEFENSIVE_INTENT = defensive_intent
+    if team_identity is not team_identity_v721:
+        _BASE_TEAM_IDENTITY = team_identity
 
 
 def reset_v721_state() -> None:
