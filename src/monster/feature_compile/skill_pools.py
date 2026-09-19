@@ -251,14 +251,22 @@ def compile_current_skill_pools(
 
             depth_rank = int(_finite(row.get("depth_rank"), 0.0))
             if position == "QB":
-                # Current depth is authoritative for ordinary Week 1 passing role; old-team
-                # starter volume must not grant a transferred QB routine share behind QB1.
-                qb_weight = _QB_DEPTH_WEIGHT.get(depth_rank, 0.002)
-                if depth_rank == 1 and str(row.get("status") or "") == "ACT":
-                    active_probability = max(active_probability, 0.985)
+                # Pregame health/availability outranks stale depth ownership.
+                # A listed QB1 who is OUT/doubtful must not retain passing authority
+                # merely because the depth chart has not yet promoted the replacement.
+                # Among game-day viable QBs, current depth still owns the hierarchy.
+                roster_status = str(row.get("status") or "").upper()
+                qb_weight = (
+                    _QB_DEPTH_WEIGHT.get(depth_rank, 0.002)
+                    if roster_status == "ACT" and active_probability >= 0.10
+                    else 0.0
+                )
+                if (
+                    depth_rank == 1
+                    and roster_status == "ACT"
+                    and active_probability >= 0.50
+                ):
                     uncertainty = min(uncertainty, 0.10)
-                elif depth_rank >= 2 and str(row.get("status") or "") == "ACT":
-                    active_probability = max(active_probability, 0.97)
             else:
                 qb_weight = 0.0
 
