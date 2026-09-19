@@ -72,7 +72,16 @@ def _stable_uniform(*parts: object) -> float:
     return (int.from_bytes(digest, "big") + 0.5) / (2**64)
 
 
-def _hurry_floor(state: object) -> float:
+def _clock_hurry_target(state: object) -> float | None:
+    """State-conditioned tempo target, separate from run/pass intent.
+
+    Historical 2025 live-clock gaps show that two-minute offenses accelerate,
+    but not to max-tempo on every snap. Late trailing teams are especially more
+    patient than a generic desperation heuristic implies because they still use
+    the full play clock between many live-clock plays and reserve timeouts for
+    selected states.
+    """
+
     quarter = int(getattr(state, "quarter", 1))
     clock = seconds_remaining_in_quarter(int(getattr(state, "seconds_remaining", 3600)))
     margin = int(getattr(state, "score_margin_for_offense", 0))
@@ -80,33 +89,42 @@ def _hurry_floor(state: object) -> float:
     if quarter == 2 and clock <= 120:
         urgency = float(np.clip((120.0 - clock) / 105.0, 0.0, 1.0))
         if margin <= 8:
-            return 0.48 + 0.42 * urgency
-        return 0.12 + 0.18 * urgency
+            return 0.50 + 0.20 * urgency
+        return 0.14 + 0.12 * urgency
 
     if quarter == 4:
         if margin < 0 and clock <= 240:
             urgency = float(np.clip((240.0 - clock) / 210.0, 0.0, 1.0))
-            return 0.52 + 0.40 * urgency
+            score_pressure = float(np.clip((-margin - 1.0) / 20.0, 0.0, 1.0))
+            return 0.27 + 0.22 * urgency + 0.05 * score_pressure
         if margin == 0 and clock <= 120:
             urgency = float(np.clip((120.0 - clock) / 105.0, 0.0, 1.0))
-            return 0.42 + 0.38 * urgency
-    return 0.0
+            return 0.40 + 0.20 * urgency
+        if margin >= 7 and clock <= 240:
+            # A four-minute offense still gets to the line and operates; defensive
+            # timeouts, not an artificially frozen offense, supply most hard stops.
+            return 0.12
+
+    return None
 
 
 def policy_for_state_v721(state, offense):
     if _BASE_POLICY is None:
         raise RuntimeError("V7.2.1 base situation policy is not configured")
     base = _BASE_POLICY(state, offense)
-    clock = seconds_remaining_in_quarter(int(state.seconds_remaining))
-    margin = state.score_margin_for_offense
-    hurry = max(float(base.hurry_probability), _hurry_floor(state))
+    target = _clock_hurry_target(state)
+    if target is None:
+        hurry = float(base.hurry_probability)
+    elif int(getattr(state, "quarter", 1)) == 4 and int(
+        getattr(state, "score_margin_for_offense", 0)
+    ) < 0:
+        # Replace most of the legacy desperation cadence rather than stacking
+        # another hurry layer on top of it.
+        hurry = 0.20 * float(base.hurry_probability) + 0.80 * target
+    else:
+        hurry = target
 
-    # A four-minute offense with a meaningful lead should consume the play clock
-    # rather than inherit generic hurry behavior from another state layer.
-    if state.quarter == 4 and clock <= 240 and margin >= 7:
-        hurry = min(hurry, 0.04)
-
-    return replace(base, hurry_probability=float(np.clip(hurry, 0.02, 0.95)))
+    return replace(base, hurry_probability=float(np.clip(hurry, 0.02, 0.90)))
 
 
 def _clock_would_run(event: PlayEvent) -> bool:
@@ -134,30 +152,38 @@ def _timeout_probability(
     margin = int(getattr(state, "score_margin_for_offense", 0))
     offense_timeout = timeout_team == offense_team
 
-    if quarter == 2 and offense_timeout and clock <= 90 and margin <= 8:
+    if quarter == 2 and offense_timeout and clock <= 120 and margin <= 8:
         if clock <= 30:
-            return 0.96
+            return 0.52
         if clock <= 60:
-            return 0.82
-        return 0.56
+            return 0.34
+        if clock <= 90:
+            return 0.20
+        return 0.08
 
-    if quarter == 4 and offense_timeout and margin <= 0:
+    if quarter == 4 and offense_timeout and margin <= 0 and clock <= 240:
+        # Trailing teams hurry on most snaps but do not spend a timeout after
+        # every live-clock completion/run. Preserve the bank for terminal states.
+        if clock <= 30:
+            return 0.52
         if clock <= 60:
-            return 0.97
+            return 0.34
         if clock <= 120:
-            return 0.88
+            return 0.17
         if clock <= 180:
-            return 0.58
-        if margin <= -9 and clock <= 240:
-            return 0.42
+            return 0.08
+        return 0.05 if margin <= -9 else 0.02
 
-    # The defense owns the timeout when the offense is protecting a close lead.
+    # When the offense owns a late lead, the *defense* is usually the side
+    # creating hard clock stops. This is the main four-minute timeout channel.
     if quarter == 4 and not offense_timeout and 1 <= margin <= 16 and clock <= 180:
+        if clock <= 30:
+            return 0.98
         if clock <= 60:
-            return 0.96
+            return 0.88
         if clock <= 120:
-            return 0.84
-        return 0.58
+            return 0.72
+        return 0.52
 
     return 0.0
 
