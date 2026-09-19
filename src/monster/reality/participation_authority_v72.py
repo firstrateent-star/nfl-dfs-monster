@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from hashlib import blake2b
-from typing import Iterable
 
 import numpy as np
 import polars as pl
@@ -217,7 +217,7 @@ def _choose_offensive_line(players: Iterable[object]) -> tuple[object, ...]:
         ]
         if not candidates:
             continue
-        selected = sorted(candidates, key=lambda player: _ol_candidate_key(player, seat))[0]
+        selected = min(candidates, key=lambda player: _ol_candidate_key(player, seat))
         chosen.append(selected)
         chosen_ids.add(str(getattr(selected, "player_id", "")))
 
