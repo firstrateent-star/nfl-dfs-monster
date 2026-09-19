@@ -21,6 +21,7 @@ from monster.reality.qb_rush_authority_v72 import (
 from monster.reality.receiver_topology_v72 import (
     alignment_compatibility_v72,
     choose_target_for_depth_v72,
+    last_route_family_v72,
 )
 from monster.reality.special_teams_identity_v72 import (
     configure_base_special_teams_hooks_v72,
@@ -207,6 +208,7 @@ def test_v72_deep_route_family_prefers_wr_over_rb_without_usage_share() -> None:
         )
         counts[target.player_id] += 1
     assert counts["wr"] > 2 * counts["rb"]
+    assert last_route_family_v72(ecology) == "deep_20_39"
 
 
 def test_v72_alignment_compatibility_reads_realized_snap_alignment() -> None:
@@ -344,13 +346,24 @@ def test_v72_special_teams_assigns_kicker_punter_and_returner_ids() -> None:
                 "madden_kick_accuracy": 82,
             },
             {
-                "gsis_id": "ret",
+                "gsis_id": "pr",
                 "team_id": "B",
                 "position": "WR",
                 "position_group": "WR",
-                "depth_rank": 2,
-                "conditional_special_teams_snap_share": 0.7,
-                "madden_return": 92,
+                "depth_position": "PR",
+                "depth_rank": 1,
+                "conditional_special_teams_snap_share": 0.65,
+                "madden_return": 86,
+            },
+            {
+                "gsis_id": "kr",
+                "team_id": "B",
+                "position": "RB",
+                "position_group": "RB",
+                "depth_position": "KR",
+                "depth_rank": 1,
+                "conditional_special_teams_snap_share": 0.65,
+                "madden_return": 90,
             },
         ]
     )
@@ -384,7 +397,7 @@ def test_v72_special_teams_assigns_kicker_punter_and_returner_ids() -> None:
     simulate_kickoff_v72(rng)
 
     assert captured["punt"]["punter_id"] == "p"
-    assert captured["punt"]["returner_id"] == "ret"
+    assert captured["punt"]["returner_id"] == "pr"
     assert captured["fg"]["kicker_id"] == "k"
     assert captured["kickoff"]["kicker_id"] == "k"
-    assert captured["kickoff"]["returner_id"] == "ret"
+    assert captured["kickoff"]["returner_id"] == "kr"
