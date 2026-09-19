@@ -1,0 +1,313 @@
+name: v7.2 Week 2 Live Pregame Distribution
+
+on:
+  push:
+    branches: [work/v72-reality-engine]
+    paths:
+      - benchmarks/v720_week2_live_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v720-week2-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Lint live Week 2 experiment
+        run: >-
+          uv run ruff check
+          scripts/build_week2_2026_live_pregame.py
+          scripts/build_week2_2026_policy.py
+          scripts/run_week2_v720_live_distribution.py
+          scripts/runtime_v720_composer.py
+          scripts/run_reality_loop_v720.py
+          src/monster/reality/participation_authority_v72.py
+          src/monster/reality/qb_rush_authority_v72.py
+          src/monster/reality/receiver_topology_v72.py
+          src/monster/reality/defensive_attribution_v72.py
+          src/monster/reality/live_state_v72.py
+          src/monster/reality/special_teams_identity_v72.py
+
+      - name: Require V7.2 causal and market-blind gates
+        run: >-
+          uv run pytest -q
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_v7_qb_rush_authority.py
+          tests/test_v7_qb_rush_family_audit.py
+          tests/test_v7_participation_opportunity.py
+          tests/test_reality_snap_v5.py
+          tests/test_defensive_attribution.py
+          tests/test_event_ledger.py
+          tests/test_market_blind_guard.py
+
+      - name: Build Saturday live Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_live_pregame.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-live-pregame
+
+      - name: Build Week 1-only Week 2 football policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-live-policy
+
+      - name: Build older policy for continuity conditioning
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build live health and availability state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-live-pregame/league_personnel.parquet
+          --injuries artifacts/week2-live-pregame/raw_injuries.parquet
+          --overrides config/health/week2_2026_live_2026-09-19.csv
+          --season 2026
+          --out artifacts/week2-live-health
+
+      - name: Require confirmed Week 2 availability facts
+        run: |
+          uv run python - <<'PY'
+          import polars as pl
+
+          path = "artifacts/week2-live-health/health_personnel.parquet"
+          df = pl.read_parquet(path)
+
+          def row(team: str, player: str):
+              hit = df.filter(
+                  (pl.col("team_id") == team)
+                  & (pl.col("display_name") == player)
+              )
+              if hit.height != 1:
+                  raise SystemExit(f"Expected exactly one {team} {player}, found {hit.height}")
+              return hit.row(0, named=True)
+
+          starters = [
+              ("ATL", "Cooper Rush"),
+              ("MIN", "Carson Wentz"),
+              ("SEA", "Drew Lock"),
+          ]
+          unavailable = [
+              ("ATL", "Michael Penix Jr."),
+              ("MIN", "Kyler Murray"),
+              ("SEA", "Sam Darnold"),
+              ("HOU", "Nico Collins"),
+              ("PIT", "Michael Pittman"),
+              ("MIN", "Jauan Jennings"),
+              ("DEN", "Marvin Mims Jr."),
+              ("WAS", "Chigoziem Okonkwo"),
+          ]
+
+          for team, player in starters:
+              r = row(team, player)
+              p = float(r["game_day_active_probability"])
+              if p < 0.95:
+                  raise SystemExit(f"{team} {player} starter active probability too low: {p}")
+
+          for team, player in unavailable:
+              r = row(team, player)
+              p = float(r["game_day_active_probability"])
+              if p > 0.05:
+                  raise SystemExit(f"{team} {player} should be unavailable, active probability={p}")
+
+          print("Confirmed starter/out availability gate passed.")
+          PY
+
+      - name: Build continuity-conditioned live team policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-live-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --out artifacts/week2-live-continuity-policy
+
+      - name: Run V7.2 live distribution for remaining 15 Week 2 games
+        run: >-
+          uv run python scripts/run_week2_v720_live_distribution.py
+          --policy artifacts/week2-live-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --player-usage artifacts/week2-live-policy/player_usage.parquet
+          --situation-context artifacts/week2-live-policy/situational_pass_context.parquet
+          --worlds 120
+          --seed 2026091902
+          --progress-every 120
+          --first-out artifacts/week2-v720-live
+          --box-out artifacts/week2-v720-live-box
+
+      - name: Require confirmed QB roles in simulation output
+        run: |
+          uv run python - <<'PY'
+          import polars as pl
+
+          df = pl.read_csv("artifacts/week2-v720-live/player_distributions.csv")
+
+          def pass_mean(player: str) -> float:
+              hit = df.filter(pl.col("player") == player)
+              if hit.height == 0:
+                  return 0.0
+              return float(hit["pass_attempts_mean"].max())
+
+          starters = {
+              "Cooper Rush": 15.0,
+              "Carson Wentz": 15.0,
+              "Drew Lock": 15.0,
+          }
+          unavailable = {
+              "Michael Penix Jr.": 1.0,
+              "Kyler Murray": 1.0,
+              "Sam Darnold": 1.0,
+          }
+
+          for player, floor in starters.items():
+              value = pass_mean(player)
+              if value < floor:
+                  raise SystemExit(f"{player} not receiving starter passing volume: {value}")
+
+          for player, ceiling in unavailable.items():
+              value = pass_mean(player)
+              if value > ceiling:
+                  raise SystemExit(f"{player} still receiving meaningful passing volume: {value}")
+
+          print("Confirmed QB simulation-role gate passed.")
+          PY
+
+      - name: Audit QB rushing families
+        run: >-
+          uv run python scripts/audit_simulated_qb_rush_families_v7.py
+          --simulation artifacts/week2-v720-live
+          --out artifacts/week2-v720-live-qb-rush
+
+      - name: Build live Week 2 prediction capsule
+        run: |
+          uv run python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+
+          import polars as pl
+
+          src = Path("artifacts/week2-v720-live")
+          box = Path("artifacts/week2-v720-live-box")
+          health = Path("artifacts/week2-live-health")
+          out = Path("artifacts/week2-v720-live-capsule")
+          out.mkdir(parents=True, exist_ok=True)
+
+          for name in ("manifest.json", "game_distributions.csv", "player_distributions.csv"):
+              shutil.copy2(src / name, out / name)
+
+          shutil.copy2(
+              box / "offensive_player_box_score_distributions.csv",
+              out / "offensive_player_box_score_distributions.csv",
+          )
+          for name in ("health_concerns.csv", "health_by_team.csv", "participation_by_team.csv"):
+              if (health / name).exists():
+                  shutil.copy2(health / name, out / name)
+
+          players = pl.read_csv(src / "player_distributions.csv")
+          games = pl.read_csv(src / "game_distributions.csv")
+
+          players.sort("fanduel_mean", descending=True).head(200).write_csv(
+              out / "top_200_fantasy_players.csv"
+          )
+
+          game_cols = [
+              "game",
+              "worlds",
+              "away",
+              "home",
+              "away_points_mean",
+              "home_points_mean",
+              "total_mean",
+              "margin_mean",
+              "away_win_probability",
+              "home_win_probability",
+              "overtime_probability",
+              "projected_winner",
+              "projected_score",
+              "winner_probability",
+          ]
+          games.select([c for c in game_cols if c in games.columns]).write_csv(
+              out / "game_projection_summary.csv"
+          )
+
+          manifest = {
+              "experiment": "MONSTER V7.2 Week 2 2026 live pregame distribution",
+              "worlds_per_game": 120,
+              "games": int(games.height),
+              "seed": 2026091902,
+              "information_cutoff": "2026-09-19",
+              "det_buf_excluded_already_played": True,
+              "week1_real_football_allowed": True,
+              "week2_game_results_allowed": False,
+              "week2_market_data_allowed": False,
+              "live_roster_depth_injury_information_allowed": True,
+              "runtime": "V7.2 frozen football runtime",
+              "purpose": "Actionable pre-lock Sunday/Monday Week 2 football and fantasy distributions.",
+          }
+          (out / "capsule_manifest.json").write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          print(json.dumps(manifest, indent=2))
+          print(
+              players.select(
+                  [
+                      "game",
+                      "player",
+                      "position",
+                      "fanduel_mean",
+                      "fanduel_p50",
+                      "fanduel_p90",
+                      "fanduel_p99",
+                      "fanduel_20_plus_probability",
+                  ]
+              )
+              .sort("fanduel_mean", descending=True)
+              .head(40)
+          )
+          PY
+
+      - name: Upload compact live prediction capsule
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v720-week2-live-capsule-${{ github.run_id }}
+          path: |
+            artifacts/week2-v720-live-capsule/
+            artifacts/week2-live-pregame/manifest.json
+            artifacts/week2-live-policy/manifest.json
+            artifacts/week2-live-health/manifest.json
+            artifacts/week2-live-continuity-policy/
+            artifacts/week2-v720-live-qb-rush/
+            config/health/week2_2026_live_2026-09-19.csv
+          retention-days: 30
+
+      - name: Upload full live simulation evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v720-week2-live-full-worlds-${{ github.run_id }}
+          path: |
+            artifacts/week2-v720-live/
+            artifacts/week2-v720-live-box/
+          retention-days: 30
