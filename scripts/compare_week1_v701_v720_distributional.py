@@ -329,8 +329,14 @@ def _ecology_arm(
     by_world: dict[int, dict[str, float]] = defaultdict(
         lambda: defaultdict(float)
     )
+    # football_weirdness_worlds.csv is one row per game-world but intentionally
+    # omits an explicit world column. Recover the common-random world index from
+    # each game's stable row order instead of collapsing all 120 worlds into 0.
+    next_world_by_game: dict[str, int] = defaultdict(int)
     for row in rows:
-        world = int(_f(row.get("world")))
+        game = str(row.get("game", ""))
+        world = next_world_by_game[game]
+        next_world_by_game[game] += 1
         for field in fields:
             by_world[world][field] += _f(row.get(field))
 
@@ -578,8 +584,24 @@ def _participation_arm(
     simulation: Path,
     box: Path,
     snaps_truth: Path,
+    personnel_path: Path,
 ) -> dict[str, object]:
     name_map = _player_name_map(box)
+    for row in _read(personnel_path):
+        player_id = str(row.get("gsis_id", ""))
+        if not player_id:
+            continue
+        player_name = (
+            row.get("display_name")
+            or row.get("full_name")
+            or row.get("football_name")
+            or player_id
+        )
+        name_map[player_id] = (
+            str(player_name),
+            _team(row.get("team_id") or row.get("team")),
+            str(row.get("position", "")),
+        )
     player_counts: dict[
         tuple[str, int, str, str, str],
         int,
@@ -754,60 +776,18 @@ def _defense_arm(
 
 
 def _qb_family_arm(
-    simulation: Path,
-    box: Path,
+    qb_manifest: Path,
     historical: dict[str, object],
 ) -> dict[str, object]:
-    name_map = _player_name_map(box)
-    qb_ids = {
-        player_id
-        for player_id, (_, _, position) in name_map.items()
-        if position.upper() == "QB"
-    }
-    team_by_id = {
-        player_id: team
-        for player_id, (_, team, _) in name_map.items()
-    }
-    weird_rows = _read(simulation / "football_weirdness_worlds.csv")
-    worlds = max(
-        len({int(_f(row.get("world"))) for row in weird_rows}),
-        1,
-    )
-    denominator = 32 * worlds
-
-    designed_rows = _read(simulation / "same_world_designed_runs.csv")
-    designed_non_sneak = [
-        row
-        for row in designed_rows
-        if row.get("rusher_id") in qb_ids
-        and row.get("category") != "qb_sneak"
-    ]
-    scramble_rows = [
-        row
-        for row in _read(simulation / "same_world_scrambles.csv")
-        if row.get("player_id") in qb_ids
-    ]
-
-    designed_counts: dict[tuple[str, int, str], int] = defaultdict(int)
-    for row in designed_non_sneak:
-        key = (
-            row.get("game", ""),
-            int(_f(row.get("world"))),
-            team_by_id.get(row.get("rusher_id", ""), ""),
-        )
-        designed_counts[key] += 1
-    scramble_counts: dict[tuple[str, int, str], int] = defaultdict(int)
-    for row in scramble_rows:
-        key = (
-            row.get("game", ""),
-            int(_f(row.get("world"))),
-            team_by_id.get(row.get("player_id", ""), ""),
-        )
-        scramble_counts[key] += 1
-
-    designed_mean = len(designed_non_sneak) / denominator
-    scramble_mean = len(scramble_rows) / denominator
+    simulated = json.loads(qb_manifest.read_text(encoding="utf-8"))
     family = historical["family_summary"]
+    designed_mean = _f(
+        simulated["family_summary"]["designed_non_sneak"]["attempts_mean"]
+    )
+    scramble_mean = _f(simulated["scramble_attempts"]["mean"])
+    competitive_mean = _f(
+        simulated["competitive_qb_rushing"]["attempts_mean"]
+    )
     historical_designed = _f(
         family["designed_non_sneak"]["mean_attempts_per_start_game_population"]
     )
@@ -817,41 +797,25 @@ def _qb_family_arm(
     competitive_hist = _f(
         historical["competitive_qb_rushing"]["mean_attempts_per_start"]
     )
-    competitive_mean = designed_mean + scramble_mean
     return {
-        "worlds_per_game": worlds,
-        "designed_non_sneak_attempts_per_team_world": designed_mean,
+        "qb_world_rows": int(simulated.get("qb_world_rows", 0)),
+        "designed_non_sneak_attempts_per_qb_world": designed_mean,
         "historical_designed_non_sneak": historical_designed,
         "designed_absolute_error": abs(designed_mean - historical_designed),
-        "scrambles_per_team_world": scramble_mean,
+        "designed_p90": _f(
+            simulated["family_summary"]["designed_non_sneak"]["attempts_p90"]
+        ),
+        "scrambles_per_qb_world": scramble_mean,
         "historical_scrambles": historical_scramble,
         "scramble_absolute_error": abs(scramble_mean - historical_scramble),
-        "competitive_attempts_per_team_world": competitive_mean,
+        "scramble_p90": _f(simulated["scramble_attempts"]["p90"]),
+        "competitive_attempts_per_qb_world": competitive_mean,
         "historical_competitive_attempts": competitive_hist,
         "competitive_absolute_error": abs(
             competitive_mean - competitive_hist
         ),
-        "designed_team_world_p90": _quantile(
-            [
-                designed_counts.get((game, world, team), 0)
-                for game in {
-                    row.get("game", "") for row in weird_rows
-                }
-                for world in range(worlds)
-                for team in game.split("@")
-            ],
-            0.90,
-        ),
-        "scramble_team_world_p90": _quantile(
-            [
-                scramble_counts.get((game, world, team), 0)
-                for game in {
-                    row.get("game", "") for row in weird_rows
-                }
-                for world in range(worlds)
-                for team in game.split("@")
-            ],
-            0.90,
+        "competitive_p90": _f(
+            simulated["competitive_qb_rushing"]["attempts_p90"]
         ),
     }
 
@@ -874,7 +838,8 @@ def _substitution_arm(
         tuple[str, int, str],
         set[str],
     ] = defaultdict(set)
-    for row in _read(simulation / "player_world_fanduel.csv"):
+    player_world_rows = _read(simulation / "player_world_fanduel.csv")
+    for row in player_world_rows:
         player_id = row.get("player_id", "")
         if position_by_id.get(player_id, "").upper() != "QB":
             continue
@@ -887,14 +852,14 @@ def _substitution_arm(
         )
         qbs_by_team_world[key].add(player_id)
 
-    weird_rows = _read(simulation / "football_weirdness_worlds.csv")
     worlds = max(
-        len({int(_f(row.get("world"))) for row in weird_rows}),
+        len({int(_f(row.get("world"))) for row in player_world_rows}),
         1,
     )
+    games = {str(row.get("game", "")) for row in player_world_rows}
     game_teams = [
         (game, team)
-        for game in {row.get("game", "") for row in weird_rows}
+        for game in games
         for team in game.split("@")
     ]
     indicators = [
@@ -1243,6 +1208,7 @@ def _arm_summary(
     snap_truth: Path,
     pfr_truth: Path,
     personnel: Path,
+    qb_manifest: Path,
     historical: dict[str, object],
 ) -> tuple[dict[str, object], dict[int, dict[str, float]], list[dict[str, object]]]:
     scoreboard, score_detail = _scoreboard_arm(simulation, actual_games)
@@ -1271,9 +1237,10 @@ def _arm_summary(
             simulation,
             box,
             snap_truth,
+            personnel,
         ),
         "defense": _defense_arm(box, players, pfr_truth),
-        "qb_family": _qb_family_arm(simulation, box, historical),
+        "qb_family": _qb_family_arm(qb_manifest, historical),
         "substitution": _substitution_arm(simulation, box, players),
         "special_teams": _special_teams_arm(
             simulation,
@@ -1298,7 +1265,8 @@ def _markdown(
     lines = [
         "# MONSTER V7.1 vs V7.2 paired Week 1 validation",
         "",
-        f"Common-random-number worlds per game per arm: **{worlds}**.",
+        f"Common-random-number worlds per game per arm: **{worlds}** "
+        f"({worlds * 16:,} simulated games per arm).",
         "",
         "## Headline",
         "",
@@ -1420,6 +1388,8 @@ def main() -> None:
     parser.add_argument("--snap-truth", type=Path, required=True)
     parser.add_argument("--pfr-defense-truth", type=Path, required=True)
     parser.add_argument("--personnel", type=Path, required=True)
+    parser.add_argument("--control-qb", type=Path, required=True)
+    parser.add_argument("--challenger-qb", type=Path, required=True)
     parser.add_argument("--historical-qb", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -1441,6 +1411,7 @@ def main() -> None:
         snap_truth=args.snap_truth,
         pfr_truth=args.pfr_defense_truth,
         personnel=args.personnel,
+        qb_manifest=args.control_qb,
         historical=historical,
     )
     challenger, challenger_worlds, challenger_scores = _arm_summary(
@@ -1451,6 +1422,7 @@ def main() -> None:
         snap_truth=args.snap_truth,
         pfr_truth=args.pfr_defense_truth,
         personnel=args.personnel,
+        qb_manifest=args.challenger_qb,
         historical=historical,
     )
     comparison = _comparison_summary(control, challenger)
