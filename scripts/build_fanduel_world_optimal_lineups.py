@@ -13,7 +13,6 @@ import polars as pl
 
 from monster.dfs.optimizer_milp import solve_world_optimal_milp
 
-
 ALIASES = {
     "marquisebrown": "hollywoodbrown",
     "joshpalmer": "joshuapalmer",
