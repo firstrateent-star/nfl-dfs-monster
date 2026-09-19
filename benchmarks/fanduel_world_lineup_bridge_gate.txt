@@ -2,3 +2,4 @@ Validate exact FanDuel lineup bridge from complete MONSTER world matrix.
 football_runtime_changed: false
 salary_downstream_only: true
 ownership_used: false
+retry_after_import_cleanup: true
