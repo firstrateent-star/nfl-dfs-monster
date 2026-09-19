@@ -1,0 +1,16 @@
+v6.3.9 final paired Week 1 closeout
+
+branch=work/v639-gadget-entry-calibration
+frozen_control=v6.3.8@374988076b0a443c1b6eaa368e7641439f078b21
+challenger=v6.3.9
+worlds_per_game_each_arm=300
+shared_seed=2026091701
+common_random_numbers=true
+shared_pregame_inputs=true
+week1_truth_consumed_after_both_simulations=true
+market_blind=true
+
+purpose:
+freeze the final v6 scientific baseline before v7 architecture work
+
+no_new_football_coefficients=true
