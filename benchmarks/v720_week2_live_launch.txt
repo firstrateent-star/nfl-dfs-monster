@@ -1,0 +1,12 @@
+MONSTER V7.2 Week 2 live pregame distribution launch
+launched_at_context: 2026-09-19
+information_cutoff: 2026-09-19
+remaining_games: 15
+worlds_per_game: 120
+seed: 2026091902
+week1_real_football_allowed: true
+week2_game_results_allowed: false
+week2_market_data_allowed: false
+live_roster_depth_injury_information_allowed: true
+det_buf_excluded_already_played: true
+runtime_change: none
