@@ -40,6 +40,8 @@ from monster.sim.intent_ecology import build_intent_ecology
 from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
 
+_WORLD_POOL_HOOK = None
+
 
 def _progress(
     completed: int,
@@ -186,11 +188,16 @@ def main() -> None:
         print(f"Starting {game}: {args.worlds:,} worlds", flush=True)
         for world in range(args.worlds):
             seed = args.seed + game_idx * 1_000_003 + world
+            world_pools = (
+                pools
+                if _WORLD_POOL_HOOK is None
+                else _WORLD_POOL_HOOK(pools, seed=seed, game=game)
+            )
             away_plan = sample_event_rush_share_plan(
-                pools[away], rng=np.random.default_rng(seed + 101_003)
+                world_pools[away], rng=np.random.default_rng(seed + 101_003)
             )
             home_plan = sample_event_rush_share_plan(
-                pools[home], rng=np.random.default_rng(seed + 202_007)
+                world_pools[home], rng=np.random.default_rng(seed + 202_007)
             )
             for team_id, plan in ((away, away_plan), (home, home_plan)):
                 for player in pools[team_id].players:
@@ -198,9 +205,31 @@ def main() -> None:
                         float(plan.get(player.player_id, 0.0))
                     )
 
+            away_team = teams[away]
+            home_team = teams[home]
+            if world_pools[away] is not pools[away]:
+                away_team = _team_identity(
+                    away,
+                    world_pools[away],
+                    reality,
+                    units[away],
+                    states[away],
+                    league_neutral_pass_rate=league_neutral_pass_rate,
+                    situational_pass_rates=situational_pass_rates,
+                )
+            if world_pools[home] is not pools[home]:
+                home_team = _team_identity(
+                    home,
+                    world_pools[home],
+                    reality,
+                    units[home],
+                    states[home],
+                    league_neutral_pass_rate=league_neutral_pass_rate,
+                    situational_pass_rates=situational_pass_rates,
+                )
             result = simulate_game(
-                _with_event_rush_plan(teams[away], away_plan),
-                _with_event_rush_plan(teams[home], home_plan),
+                _with_event_rush_plan(away_team, away_plan),
+                _with_event_rush_plan(home_team, home_plan),
                 away_defense=defenses[away],
                 home_defense=defenses[home],
                 seed=seed,
