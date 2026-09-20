@@ -208,7 +208,7 @@ def main() -> None:
             away_team = teams[away]
             home_team = teams[home]
             if world_pools[away] is not pools[away]:
-                away_team = _team_identity(
+                away_world_identity = _team_identity(
                     away,
                     world_pools[away],
                     reality,
@@ -217,8 +217,13 @@ def main() -> None:
                     league_neutral_pass_rate=league_neutral_pass_rate,
                     situational_pass_rates=situational_pass_rates,
                 )
+                away_team = replace(
+                    away_world_identity,
+                    game_flow_policy=teams[away].game_flow_policy,
+                    intent_ecology=teams[away].intent_ecology,
+                )
             if world_pools[home] is not pools[home]:
-                home_team = _team_identity(
+                home_world_identity = _team_identity(
                     home,
                     world_pools[home],
                     reality,
@@ -226,6 +231,11 @@ def main() -> None:
                     states[home],
                     league_neutral_pass_rate=league_neutral_pass_rate,
                     situational_pass_rates=situational_pass_rates,
+                )
+                home_team = replace(
+                    home_world_identity,
+                    game_flow_policy=teams[home].game_flow_policy,
+                    intent_ecology=teams[home].intent_ecology,
                 )
             result = simulate_game(
                 _with_event_rush_plan(away_team, away_plan),
