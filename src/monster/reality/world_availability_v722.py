@@ -19,7 +19,7 @@ def _draw(seed: int, player_id: str, probability: float) -> bool:
     if p >= 1.0:
         return True
     digest = blake2b(
-        f"v722-world-active:{seed}:{player_id}".encode("utf-8"),
+        f"v722-world-active:{seed}:{player_id}".encode(),
         digest_size=8,
     ).digest()
     u = (int.from_bytes(digest, "big") + 0.5) / (2**64)
