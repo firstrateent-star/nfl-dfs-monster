@@ -7,9 +7,9 @@ from hashlib import blake2b
 import numpy as np
 import polars as pl
 
+from monster.reality.world_availability_v722 import active_this_world_v722
 from monster.sim import current_role_guard_v638 as v638
 from monster.sim import snap_ecology
-from monster.reality.world_availability_v722 import active_this_world_v722
 
 
 @dataclass(frozen=True)
