@@ -9,6 +9,7 @@ import polars as pl
 
 from monster.sim import current_role_guard_v638 as v638
 from monster.sim import snap_ecology
+from monster.reality.world_availability_v722 import active_this_world_v722
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,10 @@ def participation_multiplier(
         return 1.0
     if role.status != "ACT" or role.active_probability < 0.10:
         return 0.01
+    world_active = active_this_world_v722(player_id, role.active_probability)
+    if world_active is False:
+        return 0.01
+    availability = 1.0 if world_active is True else role.active_probability
     share = {
         "offense": role.conditional_offense_snap_share,
         "defense": role.conditional_defense_snap_share,
@@ -146,13 +151,17 @@ def participation_multiplier(
     current = 0.62 * _depth_multiplier(role.depth_rank) + 0.38 * np.sqrt(
         max(share, 0.0)
     )
-    return float(np.clip(role.active_probability * current, 0.03, 1.55))
+    return float(np.clip(availability * current, 0.03, 1.55))
 
 
 def starter_authority(player_id: str, *, unit: str = "offense") -> float:
     role = role_for(player_id)
     if role is None or role.status != "ACT":
         return 0.0
+    world_active = active_this_world_v722(player_id, role.active_probability)
+    if world_active is False:
+        return 0.0
+    availability = 1.0 if world_active is True else role.active_probability
     share = (
         role.conditional_offense_snap_share
         if unit == "offense"
@@ -161,7 +170,7 @@ def starter_authority(player_id: str, *, unit: str = "offense") -> float:
     starter = 1.0 if role.depth_rank == 1 else 0.0
     return float(
         np.clip(
-            role.active_probability * (0.72 * starter + 0.28 * np.sqrt(max(share, 0.0))),
+            availability * (0.72 * starter + 0.28 * np.sqrt(max(share, 0.0))),
             0.0,
             1.0,
         )
@@ -179,11 +188,12 @@ def canonical_ol_seat(player_id: str, fallback_position: str = "OL") -> str:
 def _ol_candidate_key(player: object, seat: str) -> tuple[float, float, str]:
     player_id = str(getattr(player, "player_id", ""))
     role = role_for(player_id)
-    active = (
-        1.0
-        if role is None
-        else float(role.status == "ACT") * role.active_probability
-    )
+    if role is None:
+        active = 1.0
+    else:
+        world_active = active_this_world_v722(player_id, role.active_probability)
+        availability = 1.0 if world_active is True else (0.0 if world_active is False else role.active_probability)
+        active = float(role.status == "ACT") * availability
     rank = 99 if role is None or role.depth_rank <= 0 else role.depth_rank
     seat_match = 1.0 if canonical_ol_seat(player_id, getattr(player, "position", "")) == seat else 0.0
     snap = float(getattr(player, "offense_snap_share", 0.0) or 0.0)
