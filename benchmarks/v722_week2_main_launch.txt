@@ -7,3 +7,4 @@ information_cutoff: 2026-09-19
 purpose: corrected binary availability + role redistribution for final 61 ceiling-first FanDuel lineups
 retry_after_lint_fix: true
 retry_after_second_lint_fix: true
+retry_preserve_team_policies: true
