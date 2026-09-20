@@ -12,7 +12,6 @@ import run_reality_loop_v700 as v700
 import run_reality_loop_v701 as v701
 import run_reality_loop_v720 as v720
 import run_reality_loop_v721 as v721
-
 from runtime_v722_composer import compose_v722_runtime, write_runtime_fingerprint_v722
 
 
