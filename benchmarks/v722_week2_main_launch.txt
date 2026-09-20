@@ -5,3 +5,4 @@ total_game_simulations: 1560
 seed: 2026092022
 information_cutoff: 2026-09-19
 purpose: corrected binary availability + role redistribution for final 61 ceiling-first FanDuel lineups
+retry_after_lint_fix: true
