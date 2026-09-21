@@ -27,8 +27,14 @@ def _record_v722_manifest(out) -> None:
             "v722_world_binary_availability_active": True,
             "v722_role_redistribution_after_inactive_draw": True,
             "v722_pregame_probability_not_snap_dilution": True,
+            "v722_offensive_collapse_state_active": True,
+            "v722_scoring_finish_friction_active": True,
+            "v722_performance_qb_benching_active": True,
+            "v722_live_exit_failure_path_capture_active": True,
+            "v722_failure_path_portfolio_ready": True,
             "market_inputs_used_for_football": False,
             "direct_fantasy_adjustment": False,
+            "direct_score_adjustment": False,
             "promotion_status": "SHADOW_NOT_PROMOTED",
         }
     )
