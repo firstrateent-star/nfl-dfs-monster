@@ -36,6 +36,8 @@ jobs:
           scripts/runtime_v723_composer.py
           scripts/run_reality_loop_v723.py
           scripts/run_week2_v723_main_slate.py
+          scripts/audit_v723_premise_robustness.py
+          scripts/benchmark_v723_week2_reality.py
           src/monster/reality/world_premise_v723.py
           tests/test_v723_world_premise.py
 
@@ -102,6 +104,22 @@ jobs:
           --progress-every "$WORLDS"
           --first-out artifacts/week2-v723-main
           --box-out artifacts/week2-v723-main-box
+
+      - name: Build premise-robustness audit
+        run: >-
+          uv run python scripts/audit_v723_premise_robustness.py
+          --player-world artifacts/week2-v723-main/player_world_fanduel.csv
+          --premise artifacts/week2-v723-main/world_premise_v723.csv
+          --out artifacts/week2-v723-main/premise_robustness_v723.csv
+          --minimum-regime-worlds 3
+
+      - name: Grade game distributions against Week 2 reality
+        run: >-
+          uv run python scripts/benchmark_v723_week2_reality.py
+          --projected artifacts/week2-v723-main/game_distributions.csv
+          --actual benchmarks/week2_2026_main_slate_actual_scores.csv
+          --detail-out artifacts/week2-v723-main/week2_reality_detail_v723.csv
+          --summary-out artifacts/week2-v723-main/week2_reality_summary_v723.json
 
       - name: Require premise telemetry and runtime fingerprint
         run: |
