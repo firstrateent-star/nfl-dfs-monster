@@ -204,6 +204,9 @@ def compile_pass_intent_policy(
     yac = pl.col("yards_after_catch").cast(pl.Float64)
     completion_yards = yards.filter(completions == 1.0)
     forty_plus_completion_yards = yards.filter((completions == 1.0) & (yards >= 40.0))
+    early_down = pl.col("down").is_in([1, 2])
+    early_down_completion = (completions == 1.0) & early_down
+    early_down_completion_yards = yards.filter(early_down_completion)
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -226,6 +229,18 @@ def compile_pass_intent_policy(
             yac.filter(completions == 1.0).std().fill_null(0.0).alias("yac_sd_completed"),
             (completion_yards < 0).mean().fill_null(0.0).alias("negative_completion_rate"),
             (completion_yards == 0).mean().fill_null(0.0).alias("zero_completion_rate"),
+            early_down.cast(pl.Int64).sum().alias("early_down_attempts"),
+            early_down_completion.cast(pl.Int64).sum().alias(
+                "early_down_completion_attempts"
+            ),
+            (early_down_completion_yards < 0)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_negative_completion_rate"),
+            (early_down_completion_yards == 0)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_zero_completion_rate"),
         )
         .sort("category")
     )
@@ -277,6 +292,8 @@ def compile_run_intent_policy(
 
     yards = pl.col("yards_gained").fill_null(0.0).cast(pl.Float64)
     forty_plus_yards = yards.filter(yards >= 40.0)
+    early_down = pl.col("down").is_in([1, 2])
+    early_down_yards = yards.filter(early_down)
     outcomes = (
         frame.group_by("category")
         .agg(
@@ -298,6 +315,33 @@ def compile_run_intent_policy(
             yards.quantile(0.50).alias("yards_p50"),
             yards.quantile(0.90).alias("yards_p90"),
             yards.quantile(0.99).alias("yards_p99"),
+            early_down.cast(pl.Int64).sum().alias("early_down_attempts"),
+            early_down_yards.mean().fill_null(0.0).alias("early_down_yards_mean"),
+            early_down_yards.std().fill_null(0.0).alias("early_down_yards_sd"),
+            (early_down_yards < 0)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_negative_rate"),
+            (early_down_yards == 0)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_zero_rate"),
+            (early_down_yards >= 5)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_gain_5plus_rate"),
+            (early_down_yards >= 10)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_explosive_10_rate"),
+            (early_down_yards >= 15)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_explosive_15_rate"),
+            (early_down_yards >= 20)
+            .mean()
+            .fill_null(0.0)
+            .alias("early_down_explosive_20_rate"),
         )
         .sort("category")
     )
