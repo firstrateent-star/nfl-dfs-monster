@@ -1,0 +1,5 @@
+V7.2.4 Week 2 drive-anatomy audit launch.
+This is observational only. It downloads the exact completed V7.2.4 replay from run 35656851306,
+compares its same-world drive traces against completed 2026 Week 2 main-slate NFL play-by-play,
+and triangulates both against definition-safe 2025 regular-season drive ecology.
+No Week 2 truth enters simulation, no sportsbook data enters football, and no coefficients are changed.
