@@ -14,3 +14,5 @@ Initial smoke scale: 40 worlds/game across the 13-game Week 2 main slate.
 Retry: after Ruff import-block normalization; football/runtime code unchanged.
 
 Relaunch current head: neutral-centered premises + robustness/reality diagnostics.
+
+Relaunch after benchmark-module Ruff spacing fix.
