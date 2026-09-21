@@ -1,0 +1,112 @@
+name: V7.2.4 Week 2 Drive Anatomy Audit
+
+on:
+  push:
+    branches: [work/v724-drive-anatomy-audit]
+    paths:
+      - benchmarks/v724_drive_anatomy_audit_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v724-drive-anatomy-audit-\${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  V724_RUN_ID: "35656851306"
+  V724_ARTIFACT: monster-v724-week2-consequence-worlds-35656851306
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Lint observational audit
+        run: >-
+          uv run ruff check
+          scripts/audit_week2_drive_anatomy_v724.py
+          scripts/audit_historical_drive_reality.py
+          scripts/audit_week1_drive_reality.py
+
+      - name: Download exact completed V7.2.4 replay artifact
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          mkdir -p artifacts/v724-source
+          gh run download "$V724_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$V724_ARTIFACT" \
+            --dir artifacts/v724-source
+          find artifacts/v724-source -maxdepth 4 -type f | sort
+          test -f artifacts/v724-source/artifacts/week2-v724-main/same_world_drive_traces.csv
+          test -f artifacts/v724-source/artifacts/week2-v724-main/manifest.json
+          test -f artifacts/v724-source/artifacts/week2-v724-main/runtime_fingerprint_v724.json
+
+      - name: Verify source replay identity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path("artifacts/v724-source/artifacts/week2-v724-main")
+          fingerprint = json.loads((root / "runtime_fingerprint_v724.json").read_text())
+          manifest = json.loads((root / "manifest.json").read_text())
+          assert fingerprint["runtime_hash"] == "2d5f235d19c52e6b392c10d0f5e25319485cd2458a56e5d731c5d2e455bd3d87"
+          assert fingerprint["direct_score_adjustment"] is False
+          assert fingerprint["market_inputs_to_football"] is False
+          assert manifest["worlds_per_game"] == 120
+          assert manifest["games"] == 13
+          assert manifest["week2_results_allowed"] is False
+          print(json.dumps({"fingerprint": fingerprint, "manifest": manifest}, indent=2))
+          PY
+
+      - name: Build 2025 historical drive baseline
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --out artifacts/historical-drive-reality-2025
+
+      - name: Compare Actual Week 2, V7.2.4, and 2025 drive ecology
+        run: >-
+          uv run python scripts/audit_week2_drive_anatomy_v724.py
+          --season 2026
+          --week 2
+          --simulated artifacts/v724-source/artifacts/week2-v724-main/same_world_drive_traces.csv
+          --sim-manifest artifacts/v724-source/artifacts/week2-v724-main/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v724-week2-drive-anatomy
+
+      - name: Require observational integrity and complete slate
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/v724-week2-drive-anatomy")
+          manifest = json.loads((p / "manifest.json").read_text())
+          diagnosis = json.loads((p / "diagnosis.json").read_text())
+          assert manifest["games"] == 13
+          assert manifest["simulation_worlds_per_game"] == 120
+          assert manifest["postgame_truth_used_only_for_audit"] is True
+          assert manifest["simulation_behavior_changed_by_audit"] is False
+          assert manifest["market_or_sportsbook_inputs_added"] is False
+          assert manifest["direct_score_adjustment"] is False
+          assert manifest["actual"]["definition_safe_drives"] > 200
+          print(json.dumps(diagnosis, indent=2))
+          PY
+
+      - name: Upload V7.2.4 drive anatomy audit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v724-week2-drive-anatomy-\${{ github.run_id }}
+          path: |
+            artifacts/v724-week2-drive-anatomy/
+            artifacts/historical-drive-reality-2025/
+          retention-days: 30
