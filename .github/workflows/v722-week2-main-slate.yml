@@ -1,8 +1,8 @@
-name: v7.2.2 Week 2 Main Slate World Availability
+name: v7.2.2 Week 2 Main Slate Reality
 
 on:
   push:
-    branches: [work/v721-game-script]
+    branches: [work/v722-week2-reality]
     paths:
       - benchmarks/v722_week2_main_launch.txt
   workflow_dispatch:
@@ -31,14 +31,21 @@ jobs:
           scripts/runtime_v722_composer.py
           scripts/run_reality_loop_v722.py
           scripts/run_week2_v722_main_slate.py
+          src/monster/reality/failure_paths_v722.py
           src/monster/reality/world_availability_v722.py
           src/monster/reality/participation_authority_v72.py
+          src/monster/dfs/portfolio.py
+          scripts/build_failure_path_portfolio.py
+          tests/test_v722_failure_paths.py
           tests/test_v722_world_availability.py
+          tests/test_failure_path_portfolio.py
 
       - name: Require V7.2.2 and inherited causal gates
         run: >-
           uv run pytest -q
+          tests/test_v722_failure_paths.py
           tests/test_v722_world_availability.py
+          tests/test_failure_path_portfolio.py
           tests/test_v721_game_script.py
           tests/test_v72_reality_engine.py
           tests/test_v701_runtime.py
@@ -104,6 +111,12 @@ jobs:
           p = json.load(open("artifacts/week2-v722-main/runtime_fingerprint_v722.json"))
           assert p["world_binary_availability_active"] is True
           assert p["role_redistribution_after_availability"] is True
+          assert p["offensive_collapse_active"] is True
+          assert p["scoring_finish_friction_active"] is True
+          assert p["performance_benching_active"] is True
+          assert p["live_exit_scenario_capture_active"] is True
+          assert p["failure_path_telemetry_active"] is True
+          assert p["direct_score_adjustment"] is False
           print(p)
           PY
 
@@ -111,7 +124,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-v722-week2-main-worlds-${{ github.run_id }}
+          name: monster-v722-week2-reality-worlds-${{ github.run_id }}
           path: |
             artifacts/week2-v722-main/
             artifacts/week2-v722-main-box/
