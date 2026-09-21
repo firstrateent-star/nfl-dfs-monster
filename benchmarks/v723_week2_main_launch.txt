@@ -11,3 +11,4 @@ direct_score_adjustment: false
 market_blind_football: true
 relaunch_after_green_reality_gate: true
 relaunch_after_scramble_conservation_fix: true
+relaunch_after_fumble_conservation_fix: true
