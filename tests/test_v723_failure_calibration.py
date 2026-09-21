@@ -211,3 +211,30 @@ def test_v723_non_scoring_territory_preserves_event() -> None:
         event=event,
     )
     assert adjusted == event
+
+
+def test_v723_failed_qb_scramble_preserves_rush_ownership(monkeypatch) -> None:
+    world = _world()
+    assert world is not None
+    world.teams["A"].finishing_friction = 0.38
+    monkeypatch.setattr(v723, "_stable_uniform", lambda *args: 0.0)
+    state = _state(down=3, distance=5.0)
+    event = PlayEvent(
+        play_type=PlayType.PASS,
+        elapsed_seconds=7,
+        passer_id="qb1",
+        rusher_id="qb1",
+        pass_result=PassResult.SCRAMBLE,
+        yards=9.0,
+        touchdown=False,
+    )
+    adjusted = v723.apply_drive_finishing_v723(
+        state=state,
+        offense=_offense(),
+        event=event,
+    )
+    assert adjusted.pass_result == PassResult.SCRAMBLE
+    assert adjusted.rusher_id == "qb1"
+    assert adjusted.target_id is None
+    assert adjusted.yards < state.distance
+    assert adjusted.touchdown is False
