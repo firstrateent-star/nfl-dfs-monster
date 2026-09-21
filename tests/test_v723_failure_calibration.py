@@ -238,3 +238,27 @@ def test_v723_failed_qb_scramble_preserves_rush_ownership(monkeypatch) -> None:
     assert adjusted.target_id is None
     assert adjusted.yards < state.distance
     assert adjusted.touchdown is False
+
+
+def test_v723_existing_turnover_is_never_rewritten(monkeypatch) -> None:
+    world = _world()
+    assert world is not None
+    world.teams["A"].finishing_friction = 0.38
+    monkeypatch.setattr(v723, "_stable_uniform", lambda *args: 0.0)
+    state = _state(down=3, distance=5.0)
+    event = PlayEvent(
+        play_type=PlayType.RUN,
+        elapsed_seconds=7,
+        rusher_id="rb1",
+        fumbler_id="rb1",
+        yards=8.0,
+        turnover=True,
+    )
+    adjusted = v723.apply_drive_finishing_v723(
+        state=state,
+        offense=_offense(),
+        event=event,
+    )
+    assert adjusted == event
+    assert adjusted.turnover is True
+    assert adjusted.fumbler_id == "rb1"
