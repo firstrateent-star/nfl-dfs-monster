@@ -148,20 +148,20 @@ def build_premise_robustness(
         )
 
     result = result.with_columns(
-        pl.min_horizontal(valid_offense_means).alias("worst_regime_fd_mean"),
+        pl.min_horizontal(*valid_offense_means).alias("worst_regime_fd_mean"),
         (
-            pl.max_horizontal(valid_offense_means)
-            - pl.min_horizontal(valid_offense_means)
+            pl.max_horizontal(*valid_offense_means)
+            - pl.min_horizontal(*valid_offense_means)
         ).alias("regime_fd_mean_span"),
-        pl.min_horizontal(valid_offense_probs).alias(
+        pl.min_horizontal(*valid_offense_probs).alias(
             "worst_regime_fd_20_plus_probability"
         ),
-        pl.when(pl.col("normal_fd_mean") > 0.0)
-        .then(pl.col("collapse_fd_mean") / pl.col("normal_fd_mean"))
+        pl.when(pl.col("_normal_valid_mean") > 0.0)
+        .then(pl.col("_collapse_valid_mean") / pl.col("_normal_valid_mean"))
         .otherwise(None)
         .alias("collapse_retention_vs_normal"),
-        pl.when(pl.col("normal_fd_mean") > 0.0)
-        .then(pl.col("fragile_fd_mean") / pl.col("normal_fd_mean"))
+        pl.when(pl.col("_normal_valid_mean") > 0.0)
+        .then(pl.col("_fragile_valid_mean") / pl.col("_normal_valid_mean"))
         .otherwise(None)
         .alias("fragile_retention_vs_normal"),
     )
