@@ -5,6 +5,10 @@ from hashlib import blake2b
 
 import numpy as np
 
+from monster.reality.failure_paths_v722 import (
+    begin_failure_path_world_v722,
+    record_pregame_availability_v722,
+)
 from monster.snapshot.player import TeamPlayerPool
 
 _WORLD_SEED: int | None = None
@@ -87,6 +91,11 @@ def materialize_world_pools_v722(
     """
 
     begin_world_availability_v722(seed=seed, game=game)
+    begin_failure_path_world_v722(
+        seed=seed,
+        game=game,
+        team_ids=tuple(sorted(pools)),
+    )
     result: dict[str, TeamPlayerPool] = {}
 
     for team_id, pool in pools.items():
@@ -113,6 +122,20 @@ def materialize_world_pools_v722(
             )
             active[winner] = True
             _WORLD_ACTIVE[players[winner].player_id] = True
+
+        record_pregame_availability_v722(
+            team_id,
+            active_player_ids=(
+                player.player_id
+                for player, is_active in zip(players, active)
+                if is_active
+            ),
+            inactive_player_ids=(
+                player.player_id
+                for player, is_active in zip(players, active)
+                if not is_active
+            ),
+        )
 
         changed = any(
             (player.active_probability < 0.999999) or not is_active
