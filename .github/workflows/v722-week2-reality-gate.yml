@@ -33,11 +33,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
 
-      - name: Show canonical import fix
-        run: |
-          uv run ruff check --fix scripts/runtime_v722_composer.py
-          cat scripts/runtime_v722_composer.py
-
       - name: Lint V7.2.2 reality patch
         run: >-
           uv run ruff check
