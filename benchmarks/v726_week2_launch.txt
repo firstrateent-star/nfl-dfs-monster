@@ -9,3 +9,5 @@ Protected:
 - V7.2.4 collapse calibration
 - third-down execution has no direct adjustment
 - event-derived scoreboard and market-blind football
+
+Relaunch after progressive-skill wrapper propagation fix.
