@@ -1,0 +1,12 @@
+V7.2.3 Week 2 assumption-regime shadow launch
+
+Purpose:
+- preserve V7.2.1 game-script and causal play runtime
+- reuse V7.2.2 binary pregame availability
+- reuse existing V6.3.5/V7 role uncertainty rather than double-sampling roles
+- activate existing coherent game-day latents through bounded football mechanisms
+- test whether epistemic premises create the missing left-tail/offensive-collapse worlds
+  without direct score, fantasy, salary, ownership, or optimizer authority
+
+Frozen information cutoff: 2026-09-19
+Initial smoke scale: 40 worlds/game across the 13-game Week 2 main slate.
