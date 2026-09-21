@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
-
 from monster.reality import failure_paths_v722 as v722
 from monster.reality import failure_paths_v723 as v723
 from monster.sim.football_state import FootballState
 from monster.sim.play_kernel import (
     PassResult,
-    PlayEvent,
     PlayerIdentity,
+    PlayEvent,
     PlayType,
     TeamIdentity,
 )
