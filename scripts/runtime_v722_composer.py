@@ -8,7 +8,6 @@ from pathlib import Path
 import run_reality_loop_v2_smoke as v61
 import runtime_v721_composer as v721
 
-from monster.sim import game_loop_v13
 from monster.reality.failure_paths_v722 import (
     configure_failure_path_scrimmage_v722,
     reset_failure_paths_v722,
@@ -16,7 +15,7 @@ from monster.reality.failure_paths_v722 import (
     write_failure_path_telemetry_v722,
 )
 from monster.reality.world_availability_v722 import materialize_world_pools_v722
-
+from monster.sim import game_loop_v13
 
 _BASE_V721_FINGERPRINT = None
 
