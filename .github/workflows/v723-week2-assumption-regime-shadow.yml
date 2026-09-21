@@ -39,12 +39,16 @@ jobs:
           scripts/audit_v723_premise_robustness.py
           scripts/benchmark_v723_week2_reality.py
           src/monster/reality/world_premise_v723.py
+          src/monster/reality/premise_robustness_v723.py
+          src/monster/reality/week2_reality_benchmark_v723.py
           tests/test_v723_world_premise.py
+          tests/test_v723_diagnostics.py
 
       - name: Require V7.2.3 and inherited causal gates
         run: >-
           uv run pytest -q
           tests/test_v723_world_premise.py
+          tests/test_v723_diagnostics.py
           tests/test_v722_world_availability.py
           tests/test_v721_game_script.py
           tests/test_v72_reality_engine.py
