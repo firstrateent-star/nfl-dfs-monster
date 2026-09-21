@@ -11,3 +11,5 @@ Protected:
 - event-derived scoreboard
 - market-blind football and downstream-only fantasy scoring
 This experiment is not promoted automatically.
+
+Launch trigger: paired 120-world V7.2.5 drive-reality gate.
