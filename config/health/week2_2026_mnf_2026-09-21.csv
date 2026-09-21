@@ -1,0 +1,6 @@
+team_id,display_name,health_availability_probability,health_effectiveness_if_active,health_uncertainty,health_state,health_evidence,health_injury,source_url,as_of_date,notes
+LAR,Puka Nacua,0.0,0.50,0.01,out,official_team,hip,https://www.therams.com/news/puka-nacua-among-rams-inactives-for-monday-night-football-vs-giants-week-2-2026,2026-09-21,Officially inactive for Monday Night Football
+LAR,Jordan Whittington,0.0,0.50,0.01,out,official_team,quadricep,https://www.therams.com/news/puka-nacua-among-rams-inactives-for-monday-night-football-vs-giants-week-2-2026,2026-09-21,Officially inactive for Monday Night Football
+LAR,Kamren Kinchens,0.0,0.50,0.01,out,official_team,hamstring,https://www.therams.com/news/puka-nacua-among-rams-inactives-for-monday-night-football-vs-giants-week-2-2026,2026-09-21,Officially inactive for Monday Night Football
+NYG,Deonte Banks,0.0,0.50,0.01,out,official_team,calf,https://www.giants.com/news/inactives-who-s-in-who-s-out-for-monday-night-football-deonte-banks-micah-mcfadden-puka-nacua-week-2,2026-09-21,Officially inactive for Monday Night Football
+NYG,Micah McFadden,0.0,0.50,0.01,out,official_team,neck,https://www.giants.com/news/inactives-who-s-in-who-s-out-for-monday-night-football-deonte-banks-micah-mcfadden-puka-nacua-week-2,2026-09-21,Officially inactive for Monday Night Football
