@@ -413,6 +413,7 @@ def main() -> None:
             "player_id": player_id,
             "player": names.get(player_id, player_id),
             "position": positions.get(player_id, ""),
+            "team": player_teams.get(player_id, ""),
         }
         for key, arr in arrays.items():
             row[f"{key}_mean"] = float(arr.mean())
@@ -439,6 +440,7 @@ def main() -> None:
                 "player_id": player_id,
                 "player": names.get(player_id, player_id),
                 "position": positions.get(player_id, ""),
+                "team": player_teams.get(player_id, ""),
                 "fanduel_points": float(fd_points),
             }
             for key, arr in arrays.items():
