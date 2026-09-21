@@ -57,7 +57,14 @@ def _latents_for(*, seed: int, game: str, world: int) -> GameDayLatents:
 
 
 def _bounded_multiplier(effective_value: float, *, low: float, high: float) -> float:
-    return float(np.clip(np.exp(float(effective_value)), low, high))
+    """Neutral-centered bounded mechanism multiplier.
+
+    tanh is odd around zero, so symmetric latent uncertainty does not acquire the
+    Jensen uplift produced by exp(x). Symmetric bounds keep positive and negative
+    game-day premise shocks equal in magnitude around 1.0.
+    """
+
+    return float(np.clip(1.0 + np.tanh(float(effective_value)), low, high))
 
 
 def _player_with_execution(
@@ -71,7 +78,7 @@ def _player_with_execution(
         efficiency=float(
             np.clip(
                 float(player.efficiency)
-                * _bounded_multiplier(efficiency_effect, low=0.82, high=1.22),
+                * _bounded_multiplier(efficiency_effect, low=0.82, high=1.18),
                 0.52,
                 1.72,
             )
@@ -79,7 +86,7 @@ def _player_with_execution(
         explosive=float(
             np.clip(
                 float(player.explosive)
-                * _bounded_multiplier(explosive_effect, low=0.90, high=1.12),
+                * _bounded_multiplier(explosive_effect, low=0.90, high=1.10),
                 0.52,
                 1.78,
             )
@@ -267,7 +274,7 @@ def materialize_world_team_v723(
         pass_protection=float(
             np.clip(
                 float(team.pass_protection)
-                * _bounded_multiplier(protection_effect, low=0.86, high=1.16),
+                * _bounded_multiplier(protection_effect, low=0.86, high=1.14),
                 0.74,
                 1.28,
             )
@@ -275,7 +282,7 @@ def materialize_world_team_v723(
         run_blocking=float(
             np.clip(
                 float(team.run_blocking)
-                * _bounded_multiplier(run_block_effect, low=0.86, high=1.16),
+                * _bounded_multiplier(run_block_effect, low=0.86, high=1.14),
                 0.74,
                 1.28,
             )
@@ -312,7 +319,7 @@ def _defender_with_execution(
         pass_rush=float(
             np.clip(
                 float(player.pass_rush)
-                * _bounded_multiplier(pass_rush_effect, low=0.84, high=1.18),
+                * _bounded_multiplier(pass_rush_effect, low=0.84, high=1.16),
                 0.50,
                 1.72,
             )
@@ -320,7 +327,7 @@ def _defender_with_execution(
         coverage=float(
             np.clip(
                 float(player.coverage)
-                * _bounded_multiplier(coverage_effect, low=0.84, high=1.18),
+                * _bounded_multiplier(coverage_effect, low=0.84, high=1.16),
                 0.50,
                 1.72,
             )
@@ -328,7 +335,7 @@ def _defender_with_execution(
         ball_hawk=float(
             np.clip(
                 float(player.ball_hawk)
-                * _bounded_multiplier(0.65 * coverage_effect, low=0.90, high=1.12),
+                * _bounded_multiplier(0.65 * coverage_effect, low=0.90, high=1.10),
                 0.55,
                 1.65,
             )
@@ -336,7 +343,7 @@ def _defender_with_execution(
         run_defense=float(
             np.clip(
                 float(player.run_defense)
-                * _bounded_multiplier(run_fit_effect, low=0.84, high=1.18),
+                * _bounded_multiplier(run_fit_effect, low=0.84, high=1.16),
                 0.50,
                 1.72,
             )
@@ -344,7 +351,7 @@ def _defender_with_execution(
         tackling=float(
             np.clip(
                 float(player.tackling)
-                * _bounded_multiplier(tackling_effect, low=0.86, high=1.16),
+                * _bounded_multiplier(tackling_effect, low=0.86, high=1.14),
                 0.52,
                 1.68,
             )
@@ -415,7 +422,7 @@ def materialize_world_defense_v723(
         pressure_rate=float(
             np.clip(
                 float(defense.pressure_rate)
-                * _bounded_multiplier(0.45 * pass_rush_effect, low=0.93, high=1.08),
+                * _bounded_multiplier(0.45 * pass_rush_effect, low=0.93, high=1.07),
                 0.12,
                 0.50,
             )
@@ -423,7 +430,7 @@ def materialize_world_defense_v723(
         run_stuff_rate=float(
             np.clip(
                 float(defense.run_stuff_rate)
-                * _bounded_multiplier(0.45 * run_fit_effect, low=0.93, high=1.08),
+                * _bounded_multiplier(0.45 * run_fit_effect, low=0.93, high=1.07),
                 0.08,
                 0.32,
             )
