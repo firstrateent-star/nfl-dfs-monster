@@ -147,11 +147,10 @@ class DriveTraceRecorder:
         elif before.down == 4:
             self.fourth_down_snaps += 1
 
-        converted = (
-            not event.touchdown
-            and not event.turnover
-            and yards >= float(before.distance)
-        )
+        # Definition parity with nflverse: a scoring play that reaches the line to gain
+        # is still a successful series/third-down conversion. The observer must not erase
+        # that conversion merely because the same event also terminates the possession.
+        converted = not event.turnover and yards >= float(before.distance)
         if converted:
             self.first_downs += 1
             self.series_converted += 1

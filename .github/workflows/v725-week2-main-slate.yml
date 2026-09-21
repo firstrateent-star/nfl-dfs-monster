@@ -1,0 +1,168 @@
+name: V7.2.5 Week 2 Possession Ecology
+
+on:
+  push:
+    branches: [work/v725-possession-ecology]
+    paths:
+      - benchmarks/v725_week2_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v725-week2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulate-and-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Lint V7.2.5
+        run: >-
+          uv run ruff check
+          src/monster/sim/drive_trace.py
+          src/monster/feature_compile/chaos_priors.py
+          src/monster/sim/possession_ecology_v725.py
+          scripts/runtime_v725_composer.py
+          scripts/run_reality_loop_v725.py
+          scripts/run_week2_v725_main_slate.py
+          scripts/audit_week2_drive_anatomy_v725.py
+          tests/test_v725_possession_ecology.py
+          tests/test_drive_trace.py
+
+      - name: Require V7.2.5 and inherited causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_v725_possession_ecology.py
+          tests/test_drive_trace.py
+          tests/test_v724_collapse_consequence.py
+          tests/test_v723_failure_calibration.py
+          tests/test_v722_failure_paths.py
+          tests/test_v722_world_availability.py
+          tests/test_v721_game_script.py
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_market_blind_guard.py
+
+      - name: Build Saturday live Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_live_pregame.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-live-pregame
+
+      - name: Build Week 1-only Week 2 policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-live-policy
+
+      - name: Build older continuity policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build Saturday health state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-live-pregame/league_personnel.parquet
+          --injuries artifacts/week2-live-pregame/raw_injuries.parquet
+          --overrides config/health/week2_2026_live_2026-09-19.csv
+          --season 2026
+          --out artifacts/week2-live-health
+
+      - name: Build continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-live-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --out artifacts/week2-live-continuity-policy
+
+      - name: Run V7.2.5 Week 2 possession-ecology worlds
+        run: >-
+          uv run python scripts/run_week2_v725_main_slate.py
+          --policy artifacts/week2-live-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --player-usage artifacts/week2-live-policy/player_usage.parquet
+          --situation-context artifacts/week2-live-policy/situational_pass_context.parquet
+          --worlds 120
+          --seed 2026092022
+          --progress-every 120
+          --first-out artifacts/week2-v725-main
+          --box-out artifacts/week2-v725-main-box
+
+      - name: Require V7.2.5 runtime fingerprint
+        run: |
+          test -f artifacts/week2-v725-main/runtime_fingerprint_v725.json
+          uv run python - <<'PY'
+          import json
+          p=json.load(open("artifacts/week2-v725-main/runtime_fingerprint_v725.json"))
+          assert p["drive_conversion_observer_definition_repaired"] is True
+          assert p["empirical_field_goal_ecology_active"] is True
+          assert p["empirical_kickoff_geometry_active"] is True
+          assert p["empirical_fumble_return_geometry_active"] is True
+          assert p["punt_ecology_changed"] is False
+          assert p["v724_collapse_sampler_preserved"] is True
+          assert p["scoring_event_authority_preserved"] is True
+          assert p["market_inputs_to_football"] is False
+          assert p["direct_score_adjustment"] is False
+          print(json.dumps(p, indent=2))
+          PY
+
+      - name: Build 2025 historical drive baseline
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --out artifacts/historical-drive-reality-2025
+
+      - name: Audit V7.2.5 drive anatomy
+        run: >-
+          uv run python scripts/audit_week2_drive_anatomy_v725.py
+          --season 2026
+          --week 2
+          --simulated artifacts/week2-v725-main/same_world_drive_traces.csv
+          --sim-manifest artifacts/week2-v725-main/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v725-week2-drive-anatomy
+
+      - name: Require observational integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("artifacts/v725-week2-drive-anatomy")
+          m=json.loads((p/"manifest.json").read_text())
+          assert m["games"] == 13
+          assert m["simulation_worlds_per_game"] == 120
+          assert m["postgame_truth_used_only_for_audit"] is True
+          assert m["simulation_behavior_changed_by_audit"] is False
+          assert m["market_or_sportsbook_inputs_added"] is False
+          assert m["direct_score_adjustment"] is False
+          print((p/"diagnosis.json").read_text())
+          PY
+
+      - name: Upload V7.2.5 worlds and audit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v725-week2-possession-ecology-${{ github.run_id }}
+          path: |
+            artifacts/week2-v725-main/
+            artifacts/week2-v725-main-box/
+            artifacts/v725-week2-drive-anatomy/
+            artifacts/historical-drive-reality-2025/
+            artifacts/week2-live-policy/chaos_ecology.csv
+          retention-days: 30

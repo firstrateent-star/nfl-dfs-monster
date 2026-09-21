@@ -1,0 +1,13 @@
+V7.2.5 Week 2 possession-ecology shadow launch.
+Base: V7.2.4 commit fd1a202669ed344bac67c39c5ff2b49dd996d977.
+Repairs:
+- drive conversion telemetry definition parity for scoring conversions
+- leakage-safe historical field-goal make ecology by distance
+- activation of already-compiled physical kickoff and fumble-return geometry
+- modest matchup-authority recenter toward historical marginal play ecology
+Protected:
+- V7.2.4 collapse sampler and consequence calibration
+- punt ecology
+- event-derived scoreboard
+- market-blind football and downstream-only fantasy scoring
+This experiment is not promoted automatically.

@@ -91,6 +91,44 @@ def _fraction(numerator: int, denominator: int, default: float) -> float:
     return default if denominator <= 0 else float(numerator / denominator)
 
 
+
+def _field_goal_bucket(
+    frame: pl.DataFrame,
+    *,
+    low: float,
+    high: float | None,
+    default_make: float,
+) -> tuple[int, int, float]:
+    """Compile conditional make probability after excluding blocked attempts.
+
+    Block probability remains a separate live-ball mechanism. This prevents a blocked kick
+    from being counted once in the blocked branch and again inside ordinary make probability.
+    """
+    if (
+        not frame.height
+        or "kick_distance" not in frame.columns
+        or "field_goal_result" not in frame.columns
+    ):
+        return 0, 0, default_make
+    distance = pl.col("kick_distance").cast(pl.Float64, strict=False)
+    condition = distance >= low
+    if high is not None:
+        condition = condition & (distance <= high)
+    bucket = frame.filter(condition & distance.is_not_null())
+    if not bucket.height:
+        return 0, 0, default_make
+    result = pl.col("field_goal_result").cast(pl.Utf8).str.to_lowercase()
+    unblocked = bucket.filter(result != "blocked")
+    if not unblocked.height:
+        return bucket.height, 0, default_make
+    make_rate = float(
+        unblocked.select((result == "made").cast(pl.Float64).mean()).item()
+    )
+    # Sparse current-week evidence cannot seize authority from the full prior-season sample.
+    weight = float(unblocked.height / (unblocked.height + 40.0))
+    rate = default_make + weight * (make_rate - default_make)
+    return bucket.height, unblocked.height, float(min(max(rate, 0.05), 0.995))
+
 def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
     """Compile rare-event and return priors without mixing return selection and distance.
 
@@ -240,6 +278,14 @@ def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
             fg_blocked,
         )
 
+    fg_buckets = {
+        "00_29": _field_goal_bucket(fg, low=0.0, high=29.0, default_make=0.985),
+        "30_39": _field_goal_bucket(fg, low=30.0, high=39.0, default_make=0.955),
+        "40_49": _field_goal_bucket(fg, low=40.0, high=49.0, default_make=0.885),
+        "50_59": _field_goal_bucket(fg, low=50.0, high=59.0, default_make=0.735),
+        "60_plus": _field_goal_bucket(fg, low=60.0, high=None, default_make=0.480),
+    }
+
     # Legacy field retained so prior runners remain bit-for-bit compatible with their previous
     # policy semantics. v6.3.2 consumes kickoff_touchback_rate_explicit instead.
     legacy_touchback = d.kickoff_touchback_rate
@@ -315,6 +361,21 @@ def compile_chaos_ecology(pbp: pl.DataFrame) -> pl.DataFrame:
                 "kickoff_muff_kicking_recovery_rate": d.kickoff_muff_kicking_recovery_rate,
                 "blocked_punt_rate": punt_blocked,
                 "blocked_field_goal_rate": fg_blocked,
+                "v725_fg_00_29_attempts": fg_buckets["00_29"][0],
+                "v725_fg_00_29_unblocked_attempts": fg_buckets["00_29"][1],
+                "v725_fg_00_29_make_rate_unblocked": fg_buckets["00_29"][2],
+                "v725_fg_30_39_attempts": fg_buckets["30_39"][0],
+                "v725_fg_30_39_unblocked_attempts": fg_buckets["30_39"][1],
+                "v725_fg_30_39_make_rate_unblocked": fg_buckets["30_39"][2],
+                "v725_fg_40_49_attempts": fg_buckets["40_49"][0],
+                "v725_fg_40_49_unblocked_attempts": fg_buckets["40_49"][1],
+                "v725_fg_40_49_make_rate_unblocked": fg_buckets["40_49"][2],
+                "v725_fg_50_59_attempts": fg_buckets["50_59"][0],
+                "v725_fg_50_59_unblocked_attempts": fg_buckets["50_59"][1],
+                "v725_fg_50_59_make_rate_unblocked": fg_buckets["50_59"][2],
+                "v725_fg_60_plus_attempts": fg_buckets["60_plus"][0],
+                "v725_fg_60_plus_unblocked_attempts": fg_buckets["60_plus"][1],
+                "v725_fg_60_plus_make_rate_unblocked": fg_buckets["60_plus"][2],
                 "kickoff_touchback_rate": legacy_touchback,
                 "kickoff_touchback_yardline": 35.0,
             }

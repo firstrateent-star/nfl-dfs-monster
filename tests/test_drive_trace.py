@@ -110,3 +110,25 @@ def test_drive_trace_marks_overtime_from_start_state() -> None:
     start = _state(quarter=5, seconds_remaining=600)
     trace = DriveTraceRecorder(start).finish(start, PossessionTerminal.END_GAME, points=0)
     assert trace.overtime is True
+
+
+def test_touchdown_conversion_counts_for_series_and_third_down() -> None:
+    start = _state(yardline_100=92.0, down=3, distance=8.0)
+    recorder = DriveTraceRecorder(start)
+    touchdown = PlayEvent(
+        play_type=PlayType.PASS,
+        elapsed_seconds=7,
+        yards=8.0,
+        passer_id="qb",
+        target_id="wr",
+        pass_result=PassResult.COMPLETE,
+        touchdown=True,
+    )
+    recorder.observe(start, touchdown)
+    scored = replace(start, seconds_remaining=start.seconds_remaining - 7, away_score=7)
+    trace = recorder.finish(scored, PossessionTerminal.TOUCHDOWN)
+
+    assert trace.first_downs == 1
+    assert trace.series_converted == 1
+    assert trace.third_down_conversions == 1
+    assert trace.third_and_long_conversions == 1
