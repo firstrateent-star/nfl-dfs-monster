@@ -1,0 +1,5 @@
+V7.2.6 NYG at LAR Monday Night Football showdown launch.
+Information cutoff: 2026-09-21 pregame.
+Football inputs remain market-blind. Week 2 game results are unavailable to simulation.
+Official inactive overrides include Puka Nacua, Jordan Whittington, Deonte Banks and Micah McFadden.
+World count: 2000. Purpose: FanDuel single-game ceiling and lineup construction.
