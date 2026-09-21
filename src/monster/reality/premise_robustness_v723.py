@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import polars as pl
 
-
 REGIMES = ("collapse", "fragile", "normal", "surge")
 _KEYS = ("game", "player_id", "player", "position", "team")
 
