@@ -29,6 +29,13 @@ MAIN_SLATE_MATCHUPS = (
     ("MIA", "SF"),
 )
 
+TEAM_ALIASES = {"JAX": "JAC"}
+
+
+def _canonical_team(team: str) -> str:
+    return TEAM_ALIASES.get(str(team), str(team))
+
+
 TERMINALS = (
     "touchdown",
     "field_goal",
@@ -137,8 +144,8 @@ def _actual_drive_rows(
     wanted = {f"{away}@{home}" for away, home in MAIN_SLATE_MATCHUPS}
     schedule_rows = []
     for row in slate.to_dicts():
-        away = str(row.get("away_team") or "")
-        home = str(row.get("home_team") or "")
+        away = _canonical_team(str(row.get("away_team") or ""))
+        home = _canonical_team(str(row.get("home_team") or ""))
         game = f"{away}@{home}"
         if game in wanted:
             schedule_rows.append(row)
@@ -149,9 +156,9 @@ def _actual_drive_rows(
 
     game_map = {
         str(row["game_id"]): {
-            "game": f"{row['away_team']}@{row['home_team']}",
-            "away": str(row["away_team"]),
-            "home": str(row["home_team"]),
+            "game": f"{_canonical_team(str(row['away_team']))}@{_canonical_team(str(row['home_team']))}",
+            "away": _canonical_team(str(row["away_team"])),
+            "home": _canonical_team(str(row["home_team"])),
         }
         for row in schedule_rows
     }
@@ -183,7 +190,8 @@ def _actual_drive_rows(
     drive_rows: list[dict[str, object]] = []
     skipped = 0
     for (game_id, fixed_drive, posteam), rows in grouped.items():
-        base = _drive_row(game_id, fixed_drive, posteam, rows)
+        canonical_posteam = _canonical_team(posteam)
+        base = _drive_row(game_id, fixed_drive, canonical_posteam, rows)
         if base is None:
             skipped += 1
             continue
@@ -195,7 +203,7 @@ def _actual_drive_rows(
         meta = game_map[game_id]
         away = str(meta["away"])
         home = str(meta["home"])
-        defense = home if posteam == away else away
+        defense = home if canonical_posteam == away else away
         start_margin = first.get("score_differential")
         if start_margin is None:
             start_margin = _number(first, "posteam_score") - _number(first, "defteam_score")
