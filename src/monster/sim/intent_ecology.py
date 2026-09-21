@@ -38,6 +38,10 @@ class PassDepthOutcome:
     gain_20plus_completion_rate: float = 0.0
     gain_40plus_completion_rate: float = 0.0
     yards_40plus_mean_completed: float = 0.0
+    early_down_attempts: int = 0
+    early_down_completion_attempts: int = 0
+    early_down_negative_completion_rate: float = 0.0
+    early_down_zero_completion_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,15 @@ class RunGeometryOutcome:
     yards_p99: float
     explosive_40_rate: float = 0.0
     yards_40plus_mean: float = 0.0
+    early_down_attempts: int = 0
+    early_down_yards_mean: float = 0.0
+    early_down_yards_sd: float = 1.0
+    early_down_negative_rate: float = 0.0
+    early_down_zero_rate: float = 0.0
+    early_down_gain_5plus_rate: float = 0.0
+    early_down_explosive_10_rate: float = 0.0
+    early_down_explosive_15_rate: float = 0.0
+    early_down_explosive_20_rate: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -102,6 +115,20 @@ def build_pass_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, PassD
             gain_20plus_completion_rate=_float(row, "gain_20plus_completion_rate"),
             gain_40plus_completion_rate=_float(row, "gain_40plus_completion_rate"),
             yards_40plus_mean_completed=_float(row, "yards_40plus_mean_completed"),
+            early_down_attempts=int(_float(row, "early_down_attempts", 0.0)),
+            early_down_completion_attempts=int(
+                _float(row, "early_down_completion_attempts", 0.0)
+            ),
+            early_down_negative_completion_rate=_float(
+                row,
+                "early_down_negative_completion_rate",
+                _float(row, "negative_completion_rate"),
+            ),
+            early_down_zero_completion_rate=_float(
+                row,
+                "early_down_zero_completion_rate",
+                _float(row, "zero_completion_rate"),
+            ),
         )
     return out
 
@@ -130,6 +157,30 @@ def build_run_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, RunGeo
             yards_p99=_float(row, "yards_p99"),
             explosive_40_rate=_float(row, "explosive_40_rate"),
             yards_40plus_mean=_float(row, "yards_40plus_mean"),
+            early_down_attempts=int(_float(row, "early_down_attempts", 0.0)),
+            early_down_yards_mean=_float(
+                row, "early_down_yards_mean", _float(row, "yards_mean")
+            ),
+            early_down_yards_sd=max(
+                _float(row, "early_down_yards_sd", _float(row, "yards_sd", 1.0)),
+                0.35,
+            ),
+            early_down_negative_rate=_float(
+                row, "early_down_negative_rate", _float(row, "negative_rate")
+            ),
+            early_down_zero_rate=_float(
+                row, "early_down_zero_rate", _float(row, "zero_rate")
+            ),
+            early_down_gain_5plus_rate=_float(row, "early_down_gain_5plus_rate"),
+            early_down_explosive_10_rate=_float(
+                row, "early_down_explosive_10_rate", _float(row, "explosive_10_rate")
+            ),
+            early_down_explosive_15_rate=_float(
+                row, "early_down_explosive_15_rate", _float(row, "explosive_15_rate")
+            ),
+            early_down_explosive_20_rate=_float(
+                row, "early_down_explosive_20_rate", _float(row, "explosive_20_rate")
+            ),
         )
     return out
 
