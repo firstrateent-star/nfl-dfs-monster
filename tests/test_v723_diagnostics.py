@@ -3,8 +3,8 @@ from __future__ import annotations
 import polars as pl
 import pytest
 
-from scripts.audit_v723_premise_robustness import build_premise_robustness
-from scripts.benchmark_v723_week2_reality import build_reality_benchmark
+from monster.reality.premise_robustness_v723 import build_premise_robustness
+from monster.reality.week2_reality_benchmark_v723 import build_reality_benchmark
 
 
 def test_premise_robustness_separates_offensive_regimes() -> None:
