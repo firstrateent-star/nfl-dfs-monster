@@ -178,6 +178,29 @@ def _failed_run_event(state: object, event: PlayEvent) -> PlayEvent:
     )
 
 
+def _failed_scramble_event(state: object, event: PlayEvent) -> PlayEvent:
+    distance = float(getattr(state, "distance", 10.0))
+    yardline = float(getattr(state, "yardline_100", 0.0))
+    yards_to_goal = max(100.0 - yardline, 0.0)
+    cap = min(
+        max(distance - 1.0, 0.0),
+        max(yards_to_goal - 1.0, 0.0),
+    )
+    yards = float(min(max(event.yards, -2.0), cap))
+    return replace(
+        event,
+        yards=yards,
+        touchdown=False,
+        turnover=False,
+        pass_result=PassResult.SCRAMBLE,
+        target_id=None,
+        air_yards=0.0,
+        yards_after_catch=0.0,
+        yards_before_contact=min(float(event.yards_before_contact), max(yards, 0.0)),
+        yards_after_contact=0.0,
+    )
+
+
 def _failed_pass_event(
     *,
     seed: int,
@@ -265,7 +288,10 @@ def apply_drive_finishing_v723(
     if draw >= probability:
         return event
 
-    if event.play_type == PlayType.PASS:
+    if event.play_type == PlayType.PASS and event.pass_result == PassResult.SCRAMBLE:
+        adjusted = _failed_scramble_event(state, event)
+        kind = "scramble_short"
+    elif event.play_type == PlayType.PASS:
         adjusted, kind = _failed_pass_event(
             seed=seed,
             state=state,
