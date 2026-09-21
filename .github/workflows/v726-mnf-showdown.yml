@@ -101,16 +101,16 @@ jobs:
           --personnel artifacts/week2-mnf-health/health_personnel.parquet
           --out artifacts/week2-mnf-continuity-policy
 
-      - name: Run 2000 V7.2.6 NYG at LAR worlds
+      - name: Run 600 V7.2.6 NYG at LAR worlds
         run: >-
           uv run python scripts/run_week2_v726_mnf.py
           --policy artifacts/week2-mnf-continuity-policy/team_policy.parquet
           --personnel artifacts/week2-mnf-health/health_personnel.parquet
           --player-usage artifacts/week2-mnf-policy/player_usage.parquet
           --situation-context artifacts/week2-mnf-policy/situational_pass_context.parquet
-          --worlds 2000
+          --worlds 600
           --seed 2026092126
-          --progress-every 200
+          --progress-every 100
           --first-out artifacts/week2-v726-mnf
           --box-out artifacts/week2-v726-mnf-box
 
