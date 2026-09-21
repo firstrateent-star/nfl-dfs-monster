@@ -1,0 +1,50 @@
+name: v7.2.3 Left Tail Reality Gate
+
+on:
+  push:
+    branches: [work/v723-left-tail-calibration]
+    paths:
+      - src/monster/reality/failure_paths_v723.py
+      - scripts/runtime_v723_composer.py
+      - scripts/run_reality_loop_v723.py
+      - scripts/run_week2_v723_main_slate.py
+      - tests/test_v723_failure_calibration.py
+      - .github/workflows/v723-left-tail-reality-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v723-left-tail-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reality-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Lint V7.2.3
+        run: >-
+          uv run ruff check
+          src/monster/reality/failure_paths_v723.py
+          scripts/runtime_v723_composer.py
+          scripts/run_reality_loop_v723.py
+          scripts/run_week2_v723_main_slate.py
+          tests/test_v723_failure_calibration.py
+
+      - name: Run V7.2.3 and inherited causal tests
+        run: >-
+          uv run pytest -q
+          tests/test_v723_failure_calibration.py
+          tests/test_v722_failure_paths.py
+          tests/test_v722_world_availability.py
+          tests/test_v721_game_script.py
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_market_blind_guard.py
