@@ -5,6 +5,7 @@ on:
     branches: [work/v724-drive-anatomy-audit]
     paths:
       - benchmarks/v724_drive_anatomy_audit_launch.txt
+      - .github/workflows/v724-drive-anatomy-audit.yml
   workflow_dispatch:
 
 permissions:
@@ -15,14 +16,10 @@ concurrency:
   group: v724-drive-anatomy-audit-\${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  V724_RUN_ID: "35656851306"
-  V724_ARTIFACT: monster-v724-week2-consequence-worlds-35656851306
-
 jobs:
   audit:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -35,26 +32,76 @@ jobs:
           scripts/audit_historical_drive_reality.py
           scripts/audit_week1_drive_reality.py
 
-      - name: Download exact completed V7.2.4 replay artifact
-        env:
-          GH_TOKEN: \${{ github.token }}
-        run: |
-          mkdir -p artifacts/v724-source
-          gh run download "$V724_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "$V724_ARTIFACT" \
-            --dir artifacts/v724-source
-          find artifacts/v724-source -maxdepth 4 -type f | sort
-          test -f artifacts/v724-source/artifacts/week2-v724-main/same_world_drive_traces.csv
-          test -f artifacts/v724-source/artifacts/week2-v724-main/manifest.json
-          test -f artifacts/v724-source/artifacts/week2-v724-main/runtime_fingerprint_v724.json
+      - name: Require inherited V7.2.4 causal gates
+        run: >-
+          uv run pytest -q
+          tests/test_v724_collapse_consequence.py
+          tests/test_v723_failure_calibration.py
+          tests/test_v722_failure_paths.py
+          tests/test_v722_world_availability.py
+          tests/test_v721_game_script.py
+          tests/test_v72_reality_engine.py
+          tests/test_v701_runtime.py
+          tests/test_market_blind_guard.py
 
-      - name: Verify source replay identity
+      - name: Build Saturday live Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_live_pregame.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-live-pregame
+
+      - name: Build Week 1-only Week 2 policy
+        run: >-
+          uv run python scripts/build_week2_2026_policy.py
+          --prior-seasons 2025
+          --current-season 2026
+          --through-week 1
+          --out artifacts/week2-live-policy
+
+      - name: Build older continuity policy
+        run: >-
+          uv run python scripts/build_league_policy.py
+          --history 2024
+          --out artifacts/league-policy-2024
+
+      - name: Build Saturday health state
+        run: >-
+          uv run python scripts/build_health_snapshot.py
+          --personnel artifacts/week2-live-pregame/league_personnel.parquet
+          --injuries artifacts/week2-live-pregame/raw_injuries.parquet
+          --overrides config/health/week2_2026_live_2026-09-19.csv
+          --season 2026
+          --out artifacts/week2-live-health
+
+      - name: Build continuity-conditioned policy
+        run: >-
+          uv run python scripts/build_continuity_conditioned_policy.py
+          --older-policy artifacts/league-policy-2024/team_policy.parquet
+          --latest-policy artifacts/week2-live-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --out artifacts/week2-live-continuity-policy
+
+      - name: Reproduce exact-seed V7.2.4 Week 2 worlds
+        run: >-
+          uv run python scripts/run_week2_v724_main_slate.py
+          --policy artifacts/week2-live-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-live-health/health_personnel.parquet
+          --player-usage artifacts/week2-live-policy/player_usage.parquet
+          --situation-context artifacts/week2-live-policy/situational_pass_context.parquet
+          --worlds 120
+          --seed 2026092022
+          --progress-every 120
+          --first-out artifacts/week2-v724-audit-source
+          --box-out artifacts/week2-v724-audit-source-box
+
+      - name: Verify reproduced V7.2.4 runtime identity
         run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
-          root = Path("artifacts/v724-source/artifacts/week2-v724-main")
+          root = Path("artifacts/week2-v724-audit-source")
           fingerprint = json.loads((root / "runtime_fingerprint_v724.json").read_text())
           manifest = json.loads((root / "manifest.json").read_text())
           assert fingerprint["runtime_hash"] == "2d5f235d19c52e6b392c10d0f5e25319485cd2458a56e5d731c5d2e455bd3d87"
@@ -77,8 +124,8 @@ jobs:
           uv run python scripts/audit_week2_drive_anatomy_v724.py
           --season 2026
           --week 2
-          --simulated artifacts/v724-source/artifacts/week2-v724-main/same_world_drive_traces.csv
-          --sim-manifest artifacts/v724-source/artifacts/week2-v724-main/manifest.json
+          --simulated artifacts/week2-v724-audit-source/same_world_drive_traces.csv
+          --sim-manifest artifacts/week2-v724-audit-source/manifest.json
           --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
           --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
           --out artifacts/v724-week2-drive-anatomy
@@ -109,4 +156,6 @@ jobs:
           path: |
             artifacts/v724-week2-drive-anatomy/
             artifacts/historical-drive-reality-2025/
+            artifacts/week2-v724-audit-source/runtime_fingerprint_v724.json
+            artifacts/week2-v724-audit-source/manifest.json
           retention-days: 30
