@@ -8,12 +8,11 @@ import polars as pl
 
 from monster.reality.game_latents import sample_game_day_latents, team_latent_vector
 from monster.reality.latent_authority import LatentMechanism, route_team_latent
-from monster.reality.world_state import GameDayLatents, WorldKey
 from monster.reality.world_availability_v722 import materialize_world_pools_v722
+from monster.reality.world_state import GameDayLatents, WorldKey
 from monster.sim.matchup_kernel import DefensiveIdentity, DefensiveUnit
 from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
 from monster.snapshot.player import TeamPlayerPool
-
 
 _LATENT_CACHE: dict[tuple[str, int, int], GameDayLatents] = {}
 _PREMISE_ROWS: list[dict[str, object]] = []
