@@ -41,6 +41,8 @@ from monster.sim.rushing_roles import sample_event_rush_share_plan
 from monster.snapshot.league import compile_team_state_map
 
 _WORLD_POOL_HOOK = None
+_WORLD_TEAM_HOOK = None
+_WORLD_DEFENSE_HOOK = None
 
 
 def _progress(
@@ -237,11 +239,38 @@ def main() -> None:
                     game_flow_policy=teams[home].game_flow_policy,
                     intent_ecology=teams[home].intent_ecology,
                 )
+            if _WORLD_TEAM_HOOK is not None:
+                away_team = _WORLD_TEAM_HOOK(
+                    away_team, seed=seed, game=game, world=world
+                )
+                home_team = _WORLD_TEAM_HOOK(
+                    home_team, seed=seed, game=game, world=world
+                )
+
+            away_defense = defenses[away]
+            home_defense = defenses[home]
+            if _WORLD_DEFENSE_HOOK is not None:
+                away_defense = _WORLD_DEFENSE_HOOK(
+                    away_defense,
+                    team_id=away,
+                    seed=seed,
+                    game=game,
+                    world=world,
+                )
+                home_defense = _WORLD_DEFENSE_HOOK(
+                    home_defense,
+                    team_id=home,
+                    seed=seed,
+                    game=game,
+                    world=world,
+                )
+            world_defenses = {away: away_defense, home: home_defense}
+
             result = simulate_game(
                 _with_event_rush_plan(away_team, away_plan),
                 _with_event_rush_plan(home_team, home_plan),
-                away_defense=defenses[away],
-                home_defense=defenses[home],
+                away_defense=away_defense,
+                home_defense=home_defense,
                 seed=seed,
             )
             assert_event_conservation(result)
@@ -282,7 +311,7 @@ def main() -> None:
 
                 attributed = attribute_defensive_box_score(
                     _defensive_plays(result.plays, opponent, player_teams),
-                    defenses[team],
+                    world_defenses[team],
                     seed=seed + attribution_offset,
                 )
                 for player_id in defense_ids[team]:
