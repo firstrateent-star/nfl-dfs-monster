@@ -4,7 +4,13 @@ import pytest
 
 from monster.reality import failure_paths_v722 as failure
 from monster.sim.football_state import FootballState
-from monster.sim.play_kernel import PlayerIdentity, TeamIdentity
+from monster.sim.play_kernel import (
+    PassResult,
+    PlayEvent,
+    PlayerIdentity,
+    PlayType,
+    TeamIdentity,
+)
 
 
 def _offense() -> TeamIdentity:
@@ -125,3 +131,57 @@ def test_collapse_state_depresses_offense_without_direct_score_edit() -> None:
         adjusted.quarterback.turnover_security
         < offense.quarterback.turnover_security
     )
+
+
+def test_severe_second_half_qb_failure_can_trigger_backup(monkeypatch) -> None:
+    from monster.reality import game_script_v721
+
+    failure.reset_failure_paths_v722()
+    failure.begin_failure_path_world_v722(
+        seed=722004,
+        game="A@B",
+        team_ids=("A", "B"),
+    )
+    team = failure.team_failure_state_v722("A")
+    assert team is not None
+    team.qb_dropbacks = 13
+    team.qb_failures = 8
+    team.qb_turnovers = 1
+
+    backup = PlayerIdentity("qb2", "QB2", "QB", usage_weight=0.01)
+    monkeypatch.setattr(
+        game_script_v721,
+        "_backup_qb",
+        lambda team_id, starter_id: backup,
+    )
+    state = FootballState(
+        possession="A",
+        defense="B",
+        quarter=3,
+        seconds_remaining=1200,
+        yardline_100=50.0,
+        down=2,
+        distance=9.0,
+        away_score=3,
+        home_score=24,
+        away_team_id="A",
+        home_team_id="B",
+    )
+    offense = _offense()
+    event = PlayEvent(
+        play_type=PlayType.PASS,
+        elapsed_seconds=6,
+        passer_id="qb1",
+        pass_result=PassResult.INTERCEPTION,
+        turnover=True,
+    )
+
+    failure._update_qb_performance_v722(
+        state=state,
+        offense=offense,
+        event=event,
+    )
+
+    assert team.benched_qb_id == "qb1"
+    assert team.replacement_qb_id == "qb2"
+    assert "turnovers=2" in team.bench_reason
