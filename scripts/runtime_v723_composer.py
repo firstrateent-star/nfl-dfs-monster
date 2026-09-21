@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import run_reality_loop_v2_smoke as v61
+import runtime_v721_composer as v721
 import runtime_v722_composer as v722
 
 from monster.reality.world_premise_v723 import (
@@ -74,7 +75,10 @@ def assert_v723_runtime() -> RuntimeFingerprintV723:
         errors.append("V7.2.3 world-defense premise hook is not active")
     if errors:
         raise RuntimeError("v7.2.3 runtime integrity failure: " + "; ".join(errors))
-    v722.assert_v722_runtime()
+    # V7.2.3 intentionally wraps V7.2.2's pool hook, so V7.2.2's exact-hook
+    # assertion would reject the delegated wrapper. Assert the inherited V7.2.1
+    # football runtime and verify the V7.2.3 hooks above instead.
+    v721.assert_v721_runtime()
     return runtime_fingerprint_v723()
 
 
