@@ -63,7 +63,7 @@ def _number(row: Mapping[str, object], key: str, default: float) -> float:
 
 
 def _integer(row: Mapping[str, object], key: str, default: int = 0) -> int:
-    return max(int(round(_number(row, key, float(default)))), 0)
+    return max(round(_number(row, key, float(default))), 0)
 
 
 def field_goal_ecology_from_policy_row(
