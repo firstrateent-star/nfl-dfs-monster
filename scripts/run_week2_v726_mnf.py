@@ -39,7 +39,7 @@ def _rewrite_manifest(path: Path | None) -> None:
             "season": 2026,
             "week": 2,
             "games": 1,
-            "worlds_per_game": _arg_int("--worlds", 2000),
+            "worlds_per_game": _arg_int("--worlds", 600),
             "information_cutoff": INFORMATION_CUTOFF.isoformat(),
             "matchups": ["NYG@LAR"],
             "single_game_showdown": True,
