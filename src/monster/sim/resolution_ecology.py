@@ -101,6 +101,7 @@ def sample_yac(
     coverage_strength: float,
     rng: np.random.Generator,
     air_yards: float | None = None,
+    early_down: bool = False,
 ) -> float:
     """Sample YAC while preserving the measured relationship to signed throw geometry.
 
@@ -125,10 +126,24 @@ def sample_yac(
         return float(np.clip(_gamma_draw(target_mean, sd, rng), 0.0, 65.0))
 
     threshold = max(-float(air_yards), 0.01)
-    negative_p = float(np.clip(profile.negative_completion_rate, 0.0, 0.85))
-    zero_p = float(
-        np.clip(profile.zero_completion_rate, 0.0, max(0.0, 0.90 - negative_p))
-    )
+    if early_down and profile.early_down_completion_attempts > 0:
+        weight = float(
+            profile.early_down_completion_attempts
+            / (profile.early_down_completion_attempts + 80.0)
+        )
+        negative_base = (
+            (1.0 - weight) * profile.negative_completion_rate
+            + weight * profile.early_down_negative_completion_rate
+        )
+        zero_base = (
+            (1.0 - weight) * profile.zero_completion_rate
+            + weight * profile.early_down_zero_completion_rate
+        )
+    else:
+        negative_base = profile.negative_completion_rate
+        zero_base = profile.zero_completion_rate
+    negative_p = float(np.clip(negative_base, 0.0, 0.85))
+    zero_p = float(np.clip(zero_base, 0.0, max(0.0, 0.90 - negative_p)))
     positive_p = max(1.0 - negative_p - zero_p, 1e-6)
 
     negative_mean = threshold * (2.2 / (2.2 + 1.8))
@@ -309,6 +324,157 @@ def _resolve_other_run(
     return RunAnatomy(False, ContactResult.TACKLED, yards, 0.0, yards)
 
 
+
+def _resolve_early_down_run(
+    profile: RunGeometryOutcome,
+    *,
+    stuff_factor: float,
+    power_factor: float,
+    efficiency_factor: float,
+    explosive_factor: float,
+    rng: np.random.Generator,
+) -> RunAnatomy:
+    """Resolve early downs from observed series-survival anatomy.
+
+    The historical early-down distribution owns the frequencies of failures,
+    five-to-nine-yard chain-moving gains and explosive gains. Current matchup
+    evidence can move those frequencies, but it cannot erase the league-wide
+    relationship between ordinary early-down success and sustained drives.
+    """
+
+    weight = float(profile.early_down_attempts / (profile.early_down_attempts + 120.0))
+
+    def blend(early: float, overall: float) -> float:
+        return (1.0 - weight) * overall + weight * early
+
+    base_negative = blend(profile.early_down_negative_rate, profile.negative_rate)
+    base_zero = blend(profile.early_down_zero_rate, profile.zero_rate)
+    base_gain5 = blend(profile.early_down_gain_5plus_rate, profile.gain_5plus_rate)
+    base_10 = blend(profile.early_down_explosive_10_rate, profile.explosive_10_rate)
+    base_15 = blend(profile.early_down_explosive_15_rate, profile.explosive_15_rate)
+    base_20 = blend(profile.early_down_explosive_20_rate, profile.explosive_20_rate)
+    base_mean = blend(profile.early_down_yards_mean, profile.yards_mean)
+    base_sd = max(blend(profile.early_down_yards_sd, profile.yards_sd), 0.35)
+
+    negative_p = float(
+        np.clip(base_negative * stuff_factor / np.sqrt(power_factor), 0.02, 0.30)
+    )
+    zero_p = float(
+        np.clip(base_zero * stuff_factor**0.30 / power_factor**0.18, 0.01, 0.18)
+    )
+    explosive_20_p = float(np.clip(base_20 * explosive_factor, 0.0, 0.10))
+    explosive_15_p = float(
+        np.clip(max(base_15 - base_20, 0.0) * explosive_factor, 0.0, 0.10)
+    )
+    explosive_10_p = float(
+        np.clip(max(base_10 - base_15, 0.0) * explosive_factor, 0.0, 0.16)
+    )
+
+    live_gain5 = float(
+        np.clip(
+            base_gain5 * efficiency_factor**0.55,
+            explosive_10_p + explosive_15_p + explosive_20_p,
+            0.78,
+        )
+    )
+    five_to_nine_p = max(
+        live_gain5 - explosive_10_p - explosive_15_p - explosive_20_p,
+        0.0,
+    )
+
+    fixed_total = (
+        negative_p
+        + zero_p
+        + five_to_nine_p
+        + explosive_10_p
+        + explosive_15_p
+        + explosive_20_p
+    )
+    if fixed_total > 0.94:
+        scale = 0.94 / fixed_total
+        negative_p *= scale
+        zero_p *= scale
+        five_to_nine_p *= scale
+        explosive_10_p *= scale
+        explosive_15_p *= scale
+        explosive_20_p *= scale
+
+    routine_p = max(
+        1.0
+        - negative_p
+        - zero_p
+        - five_to_nine_p
+        - explosive_10_p
+        - explosive_15_p
+        - explosive_20_p,
+        1e-6,
+    )
+    live_mean = float(np.clip(base_mean * efficiency_factor, 0.2, 8.5))
+    known_mean = negative_p * _conditional_loss_mean(profile)
+    known_mean += five_to_nine_p * 6.9
+    known_mean += explosive_10_p * 12.5 + explosive_15_p * 17.5
+    known_mean += explosive_20_p * (20.0 + _breakaway_scale(profile))
+    routine_mean = float(np.clip((live_mean - known_mean) / routine_p, 0.20, 4.85))
+    routine_sd = float(np.clip(base_sd * 0.38, 0.85, 1.85))
+    routine_center = _center_for_truncated_mean(
+        routine_mean,
+        routine_sd,
+        low=0.1,
+        high=4.999,
+    )
+
+    draw = rng.random()
+    if draw < negative_p:
+        yards = _sample_negative_run(profile, rng)
+        return RunAnatomy(True, ContactResult.STUFF, yards, 0.0, yards)
+
+    draw -= negative_p
+    if draw < zero_p:
+        return RunAnatomy(True, ContactResult.STUFF, 0.0, 0.0, 0.0)
+
+    draw -= zero_p
+    if draw < explosive_20_p:
+        yards = float(
+            np.clip(20.0 + rng.exponential(_breakaway_scale(profile)), 20.0, 75.0)
+        )
+        before = float(np.clip(rng.normal(5.0, 1.7), 2.0, min(12.0, yards)))
+        return RunAnatomy(False, ContactResult.BROKEN_TACKLE, before, yards - before, yards)
+
+    draw -= explosive_20_p
+    if draw < explosive_15_p:
+        yards = float(rng.uniform(15.0, 20.0))
+        before = float(np.clip(rng.normal(4.8, 1.5), 1.5, min(10.0, yards)))
+        return RunAnatomy(False, ContactResult.BROKEN_TACKLE, before, yards - before, yards)
+
+    draw -= explosive_15_p
+    if draw < explosive_10_p:
+        yards = float(rng.uniform(10.0, 15.0))
+        before = float(np.clip(rng.normal(4.5, 1.4), 1.0, min(9.0, yards)))
+        return RunAnatomy(False, ContactResult.BROKEN_TACKLE, before, yards - before, yards)
+
+    draw -= explosive_10_p
+    if draw < five_to_nine_p:
+        yards = float(rng.triangular(5.0, 6.4, 9.999))
+        before = float(np.clip(rng.normal(min(3.6, yards), 1.0), 0.0, yards))
+        after = yards - before
+        contact = (
+            ContactResult.TACKLED if after <= 2.5 else ContactResult.BROKEN_TACKLE
+        )
+        return RunAnatomy(False, contact, before, after, yards)
+
+    yards = _sample_truncated_normal(
+        routine_center,
+        routine_sd,
+        rng,
+        low=0.1,
+        high=4.999,
+    )
+    before = float(np.clip(rng.normal(min(2.8, yards), 0.9), 0.0, yards))
+    after = yards - before
+    contact = ContactResult.TACKLED if after <= 2.5 else ContactResult.BROKEN_TACKLE
+    return RunAnatomy(False, contact, before, after, yards)
+
+
 def resolve_run_ecology(
     profile: RunGeometryOutcome,
     *,
@@ -318,6 +484,7 @@ def resolve_run_ecology(
     tackling: float,
     explosiveness: float,
     rng: np.random.Generator,
+    early_down: bool = False,
 ) -> RunAnatomy:
     """Resolve a run through explicit failure/routine/crease/breakaway branches.
 
@@ -346,6 +513,16 @@ def resolve_run_ecology(
         low=0.65,
         high=1.45,
     )
+
+    if early_down and profile.early_down_attempts > 0:
+        return _resolve_early_down_run(
+            profile,
+            stuff_factor=stuff_factor,
+            power_factor=power_factor,
+            efficiency_factor=efficiency_factor,
+            explosive_factor=explosive_factor,
+            rng=rng,
+        )
 
     negative_p = float(
         np.clip(
