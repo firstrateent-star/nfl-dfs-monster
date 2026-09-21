@@ -1,0 +1,11 @@
+MONSTER V7.2.3 Week 2 left-tail calibration launch
+worlds_per_game: 120
+games: 13
+total_game_simulations: 1560
+seed: 2026092022
+information_cutoff: 2026-09-19
+purpose: recalibrate left-tail mass, explicit drive finishing failures, and QB bench frequency
+control_v721: preserved
+control_v722: preserved
+direct_score_adjustment: false
+market_blind_football: true
