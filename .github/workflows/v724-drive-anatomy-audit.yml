@@ -152,7 +152,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: monster-v724-week2-drive-anatomy-\${{ github.run_id }}
+          name: monster-v724-week2-drive-anatomy-${{ github.run_id }}
           path: |
             artifacts/v724-week2-drive-anatomy/
             artifacts/historical-drive-reality-2025/
