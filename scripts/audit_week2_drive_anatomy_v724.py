@@ -48,6 +48,16 @@ TERMINALS = (
     "end_game",
 )
 
+NFLVERSE_TEAM_ALIASES = {
+    "JAX": "JAC",
+}
+
+
+def _canonical_team(team: object) -> str:
+    value = str(team or "")
+    return NFLVERSE_TEAM_ALIASES.get(value, value)
+
+
 COMPARE_METRICS = (
     "drives_per_team_game",
     "points_per_drive",
@@ -215,6 +225,7 @@ def _actual_drive_rows(
                 "drive_index": int(float(fixed_drive))
                 if str(fixed_drive).replace(".", "", 1).isdigit()
                 else -1,
+                "offense_team_id": offense,
                 "defense_team_id": defense,
                 "start_quarter": int(_number(first, "qtr", 1.0)),
                 "end_quarter": int(_number(last, "qtr", _number(first, "qtr", 1.0))),
