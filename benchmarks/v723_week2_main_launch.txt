@@ -9,3 +9,4 @@ control_v721: preserved
 control_v722: preserved
 direct_score_adjustment: false
 market_blind_football: true
+relaunch_after_green_reality_gate: true
