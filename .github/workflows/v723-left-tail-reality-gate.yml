@@ -29,11 +29,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
 
-      - name: Show canonical composer formatting
-        run: |
-          uv run ruff check --fix scripts/runtime_v723_composer.py
-          cat scripts/runtime_v723_composer.py
-
       - name: Lint V7.2.3
         run: >-
           uv run ruff check
