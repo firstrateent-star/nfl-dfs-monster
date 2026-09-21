@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from monster.reality.live_state_v72 import mutation_rows_v72
 from monster.sim.play_kernel import PassResult, PlayerIdentity, PlayType, TeamIdentity
 
 
@@ -293,6 +292,8 @@ def _record_live_mutations(start_index: int) -> None:
     world = _CURRENT
     if world is None:
         return
+    from monster.reality.live_state_v72 import mutation_rows_v72
+
     rows = mutation_rows_v72()
     for row in rows[start_index:]:
         team_id = str(row.get("team") or "")
@@ -411,6 +412,8 @@ def simulate_scrimmage_play_v722(
         )
 
     active = _apply_failure_identity_v722(offense, state)
+    from monster.reality.live_state_v72 import mutation_rows_v72
+
     mutation_start = len(mutation_rows_v72())
     event = _BASE_SCRIMMAGE(
         state,
