@@ -304,6 +304,7 @@ def compile_run_intent_policy(
             (yards == 0).mean().alias("zero_rate"),
             (yards <= -2).mean().alias("loss_2_plus_rate"),
             (yards <= -5).mean().alias("loss_5_plus_rate"),
+            (yards >= 5).mean().alias("gain_5plus_rate"),
             (yards >= 10).mean().alias("explosive_10_rate"),
             (yards >= 15).mean().alias("explosive_15_rate"),
             (yards >= 20).mean().alias("explosive_20_rate"),
