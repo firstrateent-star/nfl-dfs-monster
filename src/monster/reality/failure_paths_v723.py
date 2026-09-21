@@ -134,6 +134,8 @@ def _stall_probability(
 ) -> float:
     if event.play_type not in {PlayType.RUN, PlayType.PASS}:
         return 0.0
+    if event.turnover or event.fumbler_id is not None:
+        return 0.0
     yardline = float(getattr(state, "yardline_100", 0.0))
     if yardline < 65.0:
         return 0.0
@@ -172,6 +174,7 @@ def _failed_run_event(state: object, event: PlayEvent) -> PlayEvent:
         yards=yards,
         touchdown=False,
         turnover=False,
+        fumbler_id=None,
         stuffed=True,
         yards_before_contact=min(float(event.yards_before_contact), max(yards, 0.0)),
         yards_after_contact=0.0,
@@ -192,6 +195,7 @@ def _failed_scramble_event(state: object, event: PlayEvent) -> PlayEvent:
         yards=yards,
         touchdown=False,
         turnover=False,
+        fumbler_id=None,
         pass_result=PassResult.SCRAMBLE,
         target_id=None,
         air_yards=0.0,
@@ -233,6 +237,7 @@ def _failed_pass_event(
                 pass_result=PassResult.SACK,
                 touchdown=False,
                 turnover=False,
+                fumbler_id=None,
                 pressured=True,
                 air_yards=0.0,
                 yards_after_catch=0.0,
@@ -246,6 +251,7 @@ def _failed_pass_event(
             pass_result=PassResult.INCOMPLETE,
             touchdown=False,
             turnover=False,
+            fumbler_id=None,
             air_yards=0.0,
             yards_after_catch=0.0,
         ),
