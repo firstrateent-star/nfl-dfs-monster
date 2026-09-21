@@ -19,7 +19,6 @@ from monster.reality.failure_paths_v723 import (
 )
 from monster.sim import game_loop_v13
 
-
 _BASE_V722_FINGERPRINT = None
 
 
