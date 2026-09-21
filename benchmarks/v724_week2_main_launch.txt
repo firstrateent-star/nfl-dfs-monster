@@ -1,0 +1,5 @@
+V7.2.4 Week 2 collapse-consequence shadow launch.
+Base: V7.2.3 commit 628d721c7debde63e3b5f1e98e4773d1fd9d49a9.
+Purpose: preserve V7.2.3 left-tail mass while increasing scoring-territory consequence
+inside drag/hard worlds and protecting normal-world finishing.
+No Week 2 results, sportsbook data, fantasy output, or direct score adjustment enters football.
