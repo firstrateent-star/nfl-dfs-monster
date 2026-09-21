@@ -72,6 +72,7 @@ def _deeper_pass_yac(
     coverage_strength: float,
     rng: np.random.Generator,
     air_yards: float,
+    early_down: bool = False,
 ) -> float:
     if air_yards >= 40.0 or profile.gain_40plus_completion_rate <= 0.0:
         return _historical_sample_yac(
@@ -80,6 +81,7 @@ def _deeper_pass_yac(
             coverage_strength=coverage_strength,
             rng=rng,
             air_yards=air_yards,
+            early_down=early_down,
         )
 
     edge = _pass_interaction(receiver_explosiveness, coverage_strength)
@@ -110,6 +112,7 @@ def _deeper_pass_yac(
             coverage_strength=coverage_strength,
             rng=rng,
             air_yards=air_yards,
+            early_down=early_down,
         )
         if air_yards + yac < 40.0:
             return float(yac)
@@ -123,6 +126,7 @@ def sample_yac_progressive_skill_v2(
     coverage_strength: float,
     rng: np.random.Generator,
     air_yards: float | None = None,
+    early_down: bool = False,
 ) -> float:
     """Give receiver-vs-pursuit skill progressively more authority deeper into the gain tail."""
     if air_yards is None:
@@ -132,6 +136,7 @@ def sample_yac_progressive_skill_v2(
             coverage_strength=coverage_strength,
             rng=rng,
             air_yards=air_yards,
+            early_down=early_down,
         )
 
     air = float(air_yards)
@@ -142,10 +147,27 @@ def sample_yac_progressive_skill_v2(
             coverage_strength=coverage_strength,
             rng=rng,
             air_yards=air,
+            early_down=early_down,
         )
 
-    negative_p = float(np.clip(profile.negative_completion_rate, 0.0, 0.80))
-    zero_p = float(np.clip(profile.zero_completion_rate, 0.0, max(0.0, 0.90 - negative_p)))
+    if early_down and profile.early_down_completion_attempts > 0:
+        weight = float(
+            profile.early_down_completion_attempts
+            / (profile.early_down_completion_attempts + 80.0)
+        )
+        negative_base = (
+            (1.0 - weight) * profile.negative_completion_rate
+            + weight * profile.early_down_negative_completion_rate
+        )
+        zero_base = (
+            (1.0 - weight) * profile.zero_completion_rate
+            + weight * profile.early_down_zero_completion_rate
+        )
+    else:
+        negative_base = profile.negative_completion_rate
+        zero_base = profile.zero_completion_rate
+    negative_p = float(np.clip(negative_base, 0.0, 0.80))
+    zero_p = float(np.clip(zero_base, 0.0, max(0.0, 0.90 - negative_p)))
     p5 = float(np.clip(profile.gain_5plus_completion_rate, 0.0, 1.0))
     p10 = float(np.clip(profile.gain_10plus_completion_rate, 0.0, p5))
     p15 = float(np.clip(profile.gain_15plus_completion_rate, 0.0, p10))
@@ -263,6 +285,7 @@ def resolve_run_ecology_progressive_skill_v2(
     tackling: float,
     explosiveness: float,
     rng: np.random.Generator,
+    early_down: bool = False,
 ) -> RunAnatomy:
     """Resolve designed runs with increasing player authority at 10+, 15+, 20+ and 40+."""
     if profile.category == "other":
@@ -285,6 +308,7 @@ def resolve_run_ecology_progressive_skill_v2(
         tackling=1.0,
         explosiveness=1.0,
         rng=rng,
+        early_down=early_down,
     )
     if anatomy.total_yards >= 20.0:
         return _reshape_run_20plus_tail(
@@ -295,6 +319,8 @@ def resolve_run_ecology_progressive_skill_v2(
             explosiveness=1.0,
             rng=rng,
         )
+    if early_down:
+        return anatomy
     if anatomy.total_yards <= 0.0 or anatomy.total_yards >= 10.0:
         return anatomy
     replacement = _sample_routine_run_band_v2(
