@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import polars as pl
 
-
 def build_reality_benchmark(
     projected: pl.DataFrame,
     actual: pl.DataFrame,
