@@ -54,6 +54,7 @@ class RunGeometryOutcome:
     zero_rate: float
     loss_2_plus_rate: float
     loss_5_plus_rate: float
+    gain_5plus_rate: float
     explosive_10_rate: float
     explosive_15_rate: float
     explosive_20_rate: float
@@ -146,6 +147,7 @@ def build_run_outcomes(rows: Iterable[Mapping[str, object]]) -> dict[str, RunGeo
             zero_rate=_float(row, "zero_rate"),
             loss_2_plus_rate=_float(row, "loss_2_plus_rate"),
             loss_5_plus_rate=_float(row, "loss_5_plus_rate"),
+            gain_5plus_rate=_float(row, "gain_5plus_rate"),
             explosive_10_rate=_float(row, "explosive_10_rate"),
             explosive_15_rate=_float(row, "explosive_15_rate"),
             explosive_20_rate=_float(row, "explosive_20_rate"),
