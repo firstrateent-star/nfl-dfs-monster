@@ -13,3 +13,5 @@ Protected:
 This experiment is not promoted automatically.
 
 Launch trigger: paired 120-world V7.2.5 drive-reality gate.
+
+Relaunch after lint-only helper correction.
