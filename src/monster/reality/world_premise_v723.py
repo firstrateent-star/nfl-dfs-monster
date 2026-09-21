@@ -87,15 +87,11 @@ def _player_with_execution(
     )
 
 
-def _regime(vector: dict[str, float]) -> tuple[str, float]:
-    offense = (
-        "qb_execution",
-        "pass_protection",
-        "receiver_execution",
-        "run_blocking",
-        "ballcarrier_execution",
-    )
-    cohesion = float(np.mean([float(vector.get(name, 0.0)) for name in offense]))
+def _regime_for(
+    vector: dict[str, float],
+    factors: tuple[str, ...],
+) -> tuple[str, float]:
+    cohesion = float(np.mean([float(vector.get(name, 0.0)) for name in factors]))
     if cohesion <= -0.80:
         label = "collapse"
     elif cohesion <= -0.30:
@@ -105,6 +101,19 @@ def _regime(vector: dict[str, float]) -> tuple[str, float]:
     else:
         label = "normal"
     return label, cohesion
+
+
+def _regime(vector: dict[str, float]) -> tuple[str, float]:
+    return _regime_for(
+        vector,
+        (
+            "qb_execution",
+            "pass_protection",
+            "receiver_execution",
+            "run_blocking",
+            "ballcarrier_execution",
+        ),
+    )
 
 
 def _routed(
@@ -139,6 +148,15 @@ def _record_premise(
 
     vector = team_latent_vector(latents, str(team_id))
     regime, cohesion = _regime(vector)
+    defensive_regime, defensive_cohesion = _regime_for(
+        vector,
+        (
+            "pass_rush",
+            "coverage_execution",
+            "run_fit",
+            "tackling",
+        ),
+    )
     _PREMISE_ROWS.append(
         {
             "game": str(game),
@@ -147,6 +165,8 @@ def _record_premise(
             "team": str(team_id),
             "regime": regime,
             "offensive_cohesion": cohesion,
+            "defensive_regime": defensive_regime,
+            "defensive_cohesion": defensive_cohesion,
             **{name: float(value) for name, value in vector.items()},
         }
     )
