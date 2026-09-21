@@ -8,3 +8,4 @@ purpose: corrected binary availability + role redistribution for final 61 ceilin
 retry_after_lint_fix: true
 retry_after_second_lint_fix: true
 retry_preserve_team_policies: true
+week2_reality_five_change_replay: true
