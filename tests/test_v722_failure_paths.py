@@ -6,8 +6,8 @@ from monster.reality import failure_paths_v722 as failure
 from monster.sim.football_state import FootballState
 from monster.sim.play_kernel import (
     PassResult,
-    PlayEvent,
     PlayerIdentity,
+    PlayEvent,
     PlayType,
     TeamIdentity,
 )
