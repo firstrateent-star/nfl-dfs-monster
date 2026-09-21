@@ -436,6 +436,7 @@ def simulate_scrimmage_play(
                 tackling=tackling,
                 explosiveness=rusher.explosive * rusher_fatigue,
                 rng=rng,
+                early_down=state.down in {1, 2},
             )
             fumble_base = profile.fumble_lost_rate
 
@@ -762,6 +763,7 @@ def simulate_scrimmage_play(
                 coverage_strength=coverage_strength,
                 rng=rng,
                 air_yards=air_yards,
+                early_down=state.down in {1, 2},
             )
         )
         raw_yards = completed_pass_yards(air_yards, yac)
