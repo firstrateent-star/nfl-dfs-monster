@@ -9,3 +9,4 @@ retry_after_lint_fix: true
 retry_after_second_lint_fix: true
 retry_preserve_team_policies: true
 week2_reality_five_change_replay: true
+retry_five_change_after_qb_test_lint: true
