@@ -17,7 +17,7 @@ from monster.snapshot.player import TeamPlayerPool
 
 _LATENT_CACHE: dict[tuple[str, int, int], GameDayLatents] = {}
 _PREMISE_ROWS: list[dict[str, object]] = []
-_RECORDED: set[tuple[str, int, str]] = set()
+_RECORDED: set[tuple[str, int, int, str]] = set()
 
 
 def reset_world_premise_v723() -> None:
@@ -133,7 +133,7 @@ def _record_premise(
     team_id: str,
     latents: GameDayLatents,
 ) -> None:
-    record_key = (str(game), int(world), str(team_id))
+    record_key = (str(game), int(world), int(seed), str(team_id))
     if record_key in _RECORDED:
         return
     _RECORDED.add(record_key)
