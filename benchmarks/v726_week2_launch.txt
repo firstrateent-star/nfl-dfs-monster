@@ -11,3 +11,4 @@ Protected:
 - event-derived scoreboard and market-blind football
 
 Relaunch after progressive-skill wrapper propagation fix.
+V7.2.6 closure: migrate legacy run geometry fixtures and rerun full CI.
