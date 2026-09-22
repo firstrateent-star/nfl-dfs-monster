@@ -18,6 +18,8 @@ import run_reality_loop_v724 as v724
 import run_reality_loop_v725 as v725
 from runtime_v726_composer import compose_v726_runtime, write_runtime_fingerprint_v726
 
+from monster.reality.special_teams_identity_v72 import write_special_teams_telemetry_v72
+
 
 def _record_v726_manifest(out) -> None:
     path = out / "manifest.json"
@@ -34,6 +36,9 @@ def _record_v726_manifest(out) -> None:
             "v726_possession_geometry_v725_preserved": True,
             "v726_field_goal_ecology_v725_preserved": True,
             "v726_scoreboard_remains_event_derived": True,
+            "v726_kicker_player_box_event_derived": True,
+            "v726_pat_kicker_identity_active": True,
+            "v726_same_world_special_teams_telemetry_active": True,
             "market_inputs_used_for_football": False,
             "direct_fantasy_adjustment": False,
             "direct_score_adjustment": False,
@@ -68,6 +73,7 @@ def main() -> None:
     v724._record_v724_manifest(out)
     v725._record_v725_manifest(out)
     _record_v726_manifest(out)
+    write_special_teams_telemetry_v72(out)
     write_runtime_fingerprint_v726(out)
 
 
