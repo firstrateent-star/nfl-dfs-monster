@@ -165,11 +165,17 @@ def _run_anatomy(sim: Path, truth: Path) -> dict[str, object]:
 
 
 def _pfr_pressure_summary(rows: list[dict[str, Any]]) -> dict[str, float | None]:
-    pressures = sum(_f(row.get("times_pressured")) for row in rows)
-    sacks = sum(_f(row.get("times_sacked")) for row in rows)
-    blitzed = sum(_f(row.get("times_blitzed")) for row in rows)
+    usable = [
+        row for row in rows
+        if row.get("times_pressured") is not None
+        and row.get("team") is not None
+    ]
+    teams = {str(row.get("team")) for row in usable}
+    pressures = sum(_f(row.get("times_pressured")) for row in usable)
+    sacks = sum(_f(row.get("times_sacked")) for row in usable)
+    blitzed = sum(_f(row.get("times_blitzed")) for row in usable)
     inferred_opportunities = 0.0
-    for row in rows:
+    for row in usable:
         pct = None
         for name in ("times_pressured_pct", "pressure_pct"):
             if row.get(name) is not None:
@@ -177,19 +183,31 @@ def _pfr_pressure_summary(rows: list[dict[str, Any]]) -> dict[str, float | None]
                 break
         pressured = _f(row.get("times_pressured"))
         if pct and pct > 0.0:
-            inferred_opportunities += pressured / (pct / 100.0)
-    if inferred_opportunities <= 0.0:
-        attempts = sum(
-            _f(row.get("pass_attempts", row.get("attempts"))) for row in rows
-        )
-        inferred_opportunities = attempts + sacks
+            fraction = pct if pct <= 1.0 else pct / 100.0
+            inferred_opportunities += pressured / fraction
+    complete_enough = len(teams) >= 24
+    pressure_rate = (
+        _rate(pressures, inferred_opportunities)
+        if complete_enough and inferred_opportunities > 0.0
+        else None
+    )
+    blitz_rate = (
+        _rate(blitzed, inferred_opportunities)
+        if complete_enough and inferred_opportunities > 0.0
+        else None
+    )
     return {
-        "pressures": pressures,
-        "sacks": sacks,
-        "pressure_opportunities": inferred_opportunities,
-        "pressure_rate": _rate(pressures, inferred_opportunities),
-        "blitz_exposures": blitzed,
-        "blitz_exposure_rate": _rate(blitzed, inferred_opportunities),
+        "pressures": pressures if complete_enough else None,
+        "sacks": sacks if complete_enough else None,
+        "pressure_opportunities": (
+            inferred_opportunities if complete_enough else None
+        ),
+        "pressure_rate": pressure_rate,
+        "blitz_exposures": blitzed if complete_enough else None,
+        "blitz_exposure_rate": blitz_rate,
+        "rows": len(usable),
+        "teams": len(teams),
+        "coverage_complete_enough": complete_enough,
     }
 
 
@@ -231,14 +249,33 @@ def _protection_and_rush_plan(sim: Path, truth: Path) -> dict[str, object]:
     for row in sim_pass:
         value = str(row.get("planned_rushers") or "")
         planned_counts.append(len([piece for piece in value.split("|") if piece]))
+    def _play_id(value: object) -> str:
+        try:
+            return str(int(float(value)))
+        except (TypeError, ValueError):
+            return str(value or "")
+
+    dropback_keys = {
+        (str(row.get("game_id") or ""), _play_id(row.get("play_id")))
+        for row in actual_dropbacks
+    }
+    ftn_dropbacks = [
+        row
+        for row in ftn
+        if (
+            str(row.get("nflverse_game_id") or ""),
+            _play_id(row.get("nflverse_play_id")),
+        )
+        in dropback_keys
+    ]
     actual_rusher_counts = [
         _f(row.get("n_pass_rushers"))
-        for row in ftn
+        for row in ftn_dropbacks
         if row.get("n_pass_rushers") is not None
     ]
     actual_blitzers = [
         _f(row.get("n_blitzers"))
-        for row in ftn
+        for row in ftn_dropbacks
         if row.get("n_blitzers") is not None
     ]
 
@@ -289,7 +326,13 @@ def _protection_and_rush_plan(sim: Path, truth: Path) -> dict[str, object]:
             ),
         ),
         "actual_mean_charted_blitzers": _mean(actual_blitzers),
+        "actual_ftn_dropback_rows": len(ftn_dropbacks),
         "actual_pfr_blitz_exposure_rate": pfr_summary.get("blitz_exposure_rate"),
+        "actual_pfr_pressure_coverage": {
+            "rows": pfr_summary.get("rows"),
+            "teams": pfr_summary.get("teams"),
+            "complete_enough": pfr_summary.get("coverage_complete_enough"),
+        },
         "simulated_rush_plan_shares": rush_plan_shares,
         "actual_ngs_timing": _ngs_timing(ngs),
         "evidence_sources": {
