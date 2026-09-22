@@ -9,10 +9,10 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write
 
 concurrency:
-  group: v726-mnf-${{ github.ref }}
+  group: v726-mnf-600-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,6 +21,12 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cancel superseded 2000-world MNF run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel 35669706344 --repo "$GITHUB_REPOSITORY" || true
+
       - uses: astral-sh/setup-uv@v6
       - run: uv sync --extra dev
 
