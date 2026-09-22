@@ -36,6 +36,7 @@ def main() -> None:
 
     matchups = WEEK1_MATCHUPS if args.week == 1 else WEEK2_MATCHUPS
     base.MAIN_SLATE_MATCHUPS = matchups
+    base.TEAM_ALIASES["LA"] = "LAR"
 
     sim_manifest = json.loads(args.sim_manifest.read_text(encoding="utf-8"))
     historical_manifest = json.loads(
