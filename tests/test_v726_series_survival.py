@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
+import pytest
 
+from monster.dfs.fanduel import FANDUEL_KICKER_SCORING, score_kicker_player_worlds
+from monster.reality.special_teams_identity_v72 import (
+    configure_base_special_teams_hooks_v72,
+    configure_special_teams_identities_v72,
+    simulate_try_v72,
+)
+from monster.sim.game_loop_v13 import PlayerBoxScore, _record_kicking_events
 from monster.sim.intent_ecology import PassDepthOutcome, RunGeometryOutcome
+from monster.sim.rules_v13 import TryEvent, TryResult, simulate_try
+from monster.sim.special_teams_v13 import (
+    SpecialTeamsEvent,
+    SpecialTeamsType,
+    simulate_field_goal,
+    simulate_kickoff,
+    simulate_punt,
+)
 from monster.sim.resolution_ecology import resolve_run_ecology, sample_yac
 
 
@@ -130,3 +147,106 @@ def test_v726_non_early_run_path_remains_available() -> None:
         early_down=False,
     )
     assert np.isfinite(outcome.total_yards)
+
+
+
+def test_v726_kicker_events_survive_into_player_box_and_downstream_scoring() -> None:
+    stats: dict[str, PlayerBoxScore] = {}
+    special = [
+        SpecialTeamsEvent(
+            SpecialTeamsType.FIELD_GOAL,
+            kick_distance=37.0,
+            made=True,
+            kicker_id="k",
+        ),
+        SpecialTeamsEvent(
+            SpecialTeamsType.FIELD_GOAL,
+            kick_distance=47.0,
+            made=True,
+            kicker_id="k",
+        ),
+        SpecialTeamsEvent(
+            SpecialTeamsType.FIELD_GOAL,
+            kick_distance=55.0,
+            made=True,
+            kicker_id="k",
+        ),
+        SpecialTeamsEvent(
+            SpecialTeamsType.FIELD_GOAL,
+            kick_distance=52.0,
+            made=False,
+            kicker_id="k",
+        ),
+    ]
+    tries = [
+        TryEvent(
+            TryResult.PAT_GOOD,
+            1,
+            kicking_team_id="A",
+            kicker_id="k",
+            kick_distance=33.0,
+        ),
+        TryEvent(
+            TryResult.PAT_MISS,
+            0,
+            kicking_team_id="A",
+            kicker_id="k",
+            kick_distance=33.0,
+        ),
+    ]
+
+    _record_kicking_events(stats, special, tries)
+    box = stats["k"]
+    assert box.field_goal_attempts == 4
+    assert box.field_goals_made == 3
+    assert box.field_goals_made_0_39 == 1
+    assert box.field_goals_made_40_49 == 1
+    assert box.field_goals_made_50_plus == 1
+    assert box.extra_point_attempts == 2
+    assert box.extra_points_made == 1
+
+    fd = score_kicker_player_worlds(
+        {
+            stat: np.asarray([float(getattr(box, stat))])
+            for stat in FANDUEL_KICKER_SCORING
+        }
+    )
+    assert fd[0] == pytest.approx(13.0)
+
+
+def test_v726_pat_runtime_assigns_current_kicker_identity() -> None:
+    personnel = pl.DataFrame(
+        [
+            {
+                "gsis_id": "k",
+                "team_id": "A",
+                "position": "K",
+                "depth_position": "K",
+                "depth_rank": 1,
+                "conditional_special_teams_snap_share": 0.90,
+                "game_day_active_probability": 1.0,
+                "madden_kick_power": 90.0,
+                "madden_kick_accuracy": 92.0,
+            }
+        ]
+    )
+    configure_special_teams_identities_v72(personnel)
+    configure_base_special_teams_hooks_v72(
+        punt=simulate_punt,
+        field_goal=simulate_field_goal,
+        kickoff=simulate_kickoff,
+        kickoff_loop=lambda state, *args, **kwargs: state,
+        try_play=simulate_try,
+    )
+    event = simulate_try_v72(
+        np.random.default_rng(72605),
+        go_for_two=False,
+        kicking_team_id="A",
+        kicking_skill=1.0,
+        offense_skill=1.0,
+        defense_skill=1.0,
+    )
+    assert event.kicking_team_id == "A"
+    assert event.kicker_id == "k"
+    assert event.kick_distance == 33.0
+    assert event.result in {TryResult.PAT_GOOD, TryResult.PAT_MISS}
