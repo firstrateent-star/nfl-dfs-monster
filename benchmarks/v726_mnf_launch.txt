@@ -7,3 +7,4 @@ World count: 600. Purpose: FanDuel single-game ceiling and lineup construction.
 Relaunch: replace the 2,000-world run with a 600-world production run for faster lineup construction.
 
 Fast replacement trigger: start 600 worlds immediately and cancel superseded run 35669706344.
+V7.2.6 MNF kicker-world repair: preserve FG/PAT player identity and zero-inclusive K world boxes.
