@@ -5,3 +5,5 @@ Official inactive overrides include Puka Nacua, Jordan Whittington, Deonte Banks
 World count: 600. Purpose: FanDuel single-game ceiling and lineup construction.
 
 Relaunch: replace the 2,000-world run with a 600-world production run for faster lineup construction.
+
+Fast replacement trigger: start 600 worlds immediately and cancel superseded run 35669706344.
