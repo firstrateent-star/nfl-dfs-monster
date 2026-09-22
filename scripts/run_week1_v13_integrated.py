@@ -28,7 +28,12 @@ from run_week1_v13_first_sim import (
     _with_event_rush_plan,
 )
 
-from monster.dfs.fanduel import FANDUEL_SCORING, score_offensive_player_worlds
+from monster.dfs.fanduel import (
+    FANDUEL_KICKER_SCORING,
+    FANDUEL_SCORING,
+    score_kicker_player_worlds,
+    score_offensive_player_worlds,
+)
 from monster.feature_compile.health_pools import apply_health_to_skill_pools
 from monster.feature_compile.league_units import compile_league_unit_player_map
 from monster.feature_compile.reality_inputs import compile_player_reality_inputs
@@ -161,6 +166,30 @@ def main() -> None:
         for team_id, pool in pools.items()
         for player in pool.players
     }
+    kicker_ids_by_team: dict[str, list[str]] = defaultdict(list)
+    for row in personnel.to_dicts():
+        if str(row.get("position") or "").upper() != "K":
+            continue
+        team_id = str(row.get("team_id") or "")
+        player_id = str(
+            row.get("gsis_id")
+            or row.get("pfr_id")
+            or row.get("display_name")
+            or ""
+        )
+        active_value = row.get("game_day_active_probability")
+        active_probability = 1.0 if active_value is None else float(active_value)
+        if team_id in teams and player_id and active_probability >= 0.10:
+            kicker_ids_by_team[team_id].append(player_id)
+    offense_ids_by_team = {
+        team: tuple(
+            dict.fromkeys(
+                [player.player_id for player in pools[team].players]
+                + kicker_ids_by_team.get(team, [])
+            )
+        )
+        for team in teams
+    }
 
     anatomy_acc = defaultdict(lambda: defaultdict(list))
     outcome_acc = defaultdict(lambda: {"away_wins": 0, "home_wins": 0, "ties": 0})
@@ -179,7 +208,7 @@ def main() -> None:
     for game_idx, (away, home) in enumerate(MATCHUPS):
         game = f"{away}@{home}"
         offense_ids = {
-            team: tuple(p.player_id for p in pools[team].players) for team in (away, home)
+            team: offense_ids_by_team[team] for team in (away, home)
         }
         defense_ids = {
             team: tuple(p.player_id for p in units[team] if p.defense_snap_share >= 0.03)
@@ -376,14 +405,20 @@ def main() -> None:
     player_world_rows = []
     for (game, player_id), metrics in offensive_acc.items():
         arrays = {key: np.asarray(values, dtype=float) for key, values in metrics.items()}
-        fd_scores = score_offensive_player_worlds(
-            {stat: arrays[stat] for stat in FANDUEL_SCORING}
-        )
+        position = positions.get(player_id, "")
+        if str(position).upper() == "K":
+            fd_scores = score_kicker_player_worlds(
+                {stat: arrays[stat] for stat in FANDUEL_KICKER_SCORING}
+            )
+        else:
+            fd_scores = score_offensive_player_worlds(
+                {stat: arrays[stat] for stat in FANDUEL_SCORING}
+            )
         row = {
             "game": game,
             "player_id": player_id,
             "player": names.get(player_id, player_id),
-            "position": positions.get(player_id, ""),
+            "position": position,
         }
         for key, arr in arrays.items():
             row[f"{key}_mean"] = float(arr.mean())
@@ -581,7 +616,7 @@ def main() -> None:
             }
         )
         for team in (away, home):
-            for player_id in [p.player_id for p in pools[team].players]:
+            for player_id in offense_ids_by_team[team]:
                 representative_rows.append(
                     {
                         "game": game,
