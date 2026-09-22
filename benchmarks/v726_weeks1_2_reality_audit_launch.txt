@@ -1,1 +1,2 @@
 V7.2.6 whole-football reality audit: 2026 Weeks 1-2, 120 worlds per game, frozen runtime.
+Retry after truth-side LA/LAR normalization.
