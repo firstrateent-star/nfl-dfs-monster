@@ -92,6 +92,7 @@ def test_routine_run_sampler_has_no_winsorized_boundary_mass() -> None:
         zero_rate=0.03,
         loss_2_plus_rate=0.055,
         loss_5_plus_rate=0.012,
+        gain_5plus_rate=0.35,
         explosive_10_rate=0.105,
         explosive_15_rate=0.050,
         explosive_20_rate=0.025,

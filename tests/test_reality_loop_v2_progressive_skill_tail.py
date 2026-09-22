@@ -44,6 +44,7 @@ def _run_profile() -> RunGeometryOutcome:
         zero_rate=0.027,
         loss_2_plus_rate=0.034,
         loss_5_plus_rate=0.006,
+        gain_5plus_rate=0.309198,
         explosive_10_rate=0.073845,
         explosive_15_rate=0.028933,
         explosive_20_rate=0.014,
