@@ -40,6 +40,7 @@ from monster.sim.play_kernel import (
 from monster.sim.rules_v13 import (
     PenaltyEvent,
     TryEvent,
+    TryResult,
     choose_two_point,
     enforce_penalty,
     is_safety,
@@ -73,6 +74,13 @@ class PlayerBoxScore:
     rushing_yards: float = 0.0
     rushing_tds: int = 0
     fumbles_lost: int = 0
+    field_goal_attempts: int = 0
+    field_goals_made: int = 0
+    field_goals_made_0_39: int = 0
+    field_goals_made_40_49: int = 0
+    field_goals_made_50_plus: int = 0
+    extra_point_attempts: int = 0
+    extra_points_made: int = 0
 
 
 @dataclass
@@ -224,6 +232,43 @@ def _record_return(
     )
 
 
+def _record_kicking_events(
+    stats: dict[str, PlayerBoxScore],
+    special_events: list[SpecialTeamsEvent] | tuple[SpecialTeamsEvent, ...],
+    try_events: list[TryEvent] | tuple[TryEvent, ...],
+) -> None:
+    """Attribute already-resolved football kicking events into the canonical player box."""
+
+    for event in special_events:
+        if str(event.event_type) != "field_goal" or event.kicker_id is None:
+            continue
+        box = _box(stats, event.kicker_id)
+        if box is None:
+            continue
+        box.field_goal_attempts += 1
+        if not bool(event.made):
+            continue
+        box.field_goals_made += 1
+        distance = float(event.kick_distance)
+        if distance < 40.0:
+            box.field_goals_made_0_39 += 1
+        elif distance < 50.0:
+            box.field_goals_made_40_49 += 1
+        else:
+            box.field_goals_made_50_plus += 1
+
+    for event in try_events:
+        if event.result not in {TryResult.PAT_GOOD, TryResult.PAT_MISS}:
+            continue
+        if event.kicker_id is None:
+            continue
+        box = _box(stats, event.kicker_id)
+        if box is None:
+            continue
+        box.extra_point_attempts += 1
+        box.extra_points_made += int(event.result == TryResult.PAT_GOOD)
+
+
 def _same_possession_first_down(
     state: FootballState,
     *,
@@ -303,6 +348,7 @@ def _score_touchdown(
         kicking_skill=scoring_identity.field_goal_skill,
         offense_skill=scoring_identity.pass_efficiency,
         defense_skill=defense_strength,
+        kicking_team_id=scoring_team,
     )
     tries.append(trial)
     return _add_score_for_team(
@@ -988,6 +1034,7 @@ def simulate_regulation_game(
                     kicking_skill=offense.field_goal_skill,
                     offense_skill=offense.pass_efficiency,
                     defense_skill=defense_strength,
+                    kicking_team_id=offense.team_id,
                 )
                 tries.append(trial)
                 state = _add_score(state, trial.points, away_team_id=away.team_id)
@@ -1056,6 +1103,7 @@ def simulate_regulation_game(
         state = replace(state, seconds_remaining=0, quarter=4)
     if drive_recorder.has_activity:
         drive_traces.append(drive_recorder.finish(state, PossessionTerminal.END_GAME))
+    _record_kicking_events(stats, special, tries)
     return GameResultV13(
         final_state=state,
         plays=tuple(plays),
@@ -1101,6 +1149,8 @@ def _simulate_regular_season_overtime(
     special = list(regulation.special_teams_events)
     return_events = list(regulation.return_events)
     tries = list(regulation.try_events)
+    regulation_special_count = len(special)
+    regulation_try_count = len(tries)
     penalties = list(regulation.penalty_events)
     drives = regulation.drives
     drive_traces = list(regulation.drive_traces)
@@ -1368,6 +1418,7 @@ def _simulate_regular_season_overtime(
                 kicking_skill=offense.field_goal_skill,
                 offense_skill=offense.pass_efficiency,
                 defense_skill=defense_strength,
+                kicking_team_id=offense.team_id,
             )
             tries.append(trial)
             state = _add_score(state, trial.points, away_team_id=away.team_id)
@@ -1411,6 +1462,11 @@ def _simulate_regular_season_overtime(
     if drive_recorder.has_activity:
         drive_traces.append(drive_recorder.finish(state, PossessionTerminal.END_GAME))
 
+    _record_kicking_events(
+        stats,
+        special[regulation_special_count:],
+        tries[regulation_try_count:],
+    )
     return GameResultV13(
         final_state=state,
         plays=tuple(plays),
