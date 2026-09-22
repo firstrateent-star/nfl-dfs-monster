@@ -35,7 +35,9 @@ _BASE_PUNT: Callable | None = None
 _BASE_FIELD_GOAL: Callable | None = None
 _BASE_KICKOFF: Callable | None = None
 _BASE_KICKOFF_LOOP: Callable | None = None
+_BASE_TRY: Callable | None = None
 _EVENT_ROWS: list[dict[str, object]] = []
+_WORLD_COUNTER: dict[str, int] = {}
 
 
 def configure_special_teams_identities_v72(personnel: pl.DataFrame) -> None:
@@ -93,6 +95,8 @@ def configure_special_teams_identities_v72(personnel: pl.DataFrame) -> None:
         team: tuple(players)
         for team, players in by_team.items()
     }
+    _EVENT_ROWS.clear()
+    _WORLD_COUNTER.clear()
 
 
 def configure_base_special_teams_hooks_v72(
@@ -101,12 +105,15 @@ def configure_base_special_teams_hooks_v72(
     field_goal: Callable,
     kickoff: Callable,
     kickoff_loop: Callable,
+    try_play: Callable | None = None,
 ) -> None:
-    global _BASE_PUNT, _BASE_FIELD_GOAL, _BASE_KICKOFF, _BASE_KICKOFF_LOOP
+    global _BASE_PUNT, _BASE_FIELD_GOAL, _BASE_KICKOFF, _BASE_KICKOFF_LOOP, _BASE_TRY
     _BASE_PUNT = punt
     _BASE_FIELD_GOAL = field_goal
     _BASE_KICKOFF = kickoff
     _BASE_KICKOFF_LOOP = kickoff_loop
+    if try_play is not None:
+        _BASE_TRY = try_play
 
 
 def set_play_context_v72(offense_team: str, defense_team: str) -> None:
@@ -252,15 +259,30 @@ def simulate_kickoff_v72(rng, **kwargs):
     return _BASE_KICKOFF(rng, **kwargs)
 
 
+def simulate_try_v72(rng, **kwargs):
+    if _BASE_TRY is None:
+        raise RuntimeError("v7.2 base try hook is not configured")
+    go_for_two = bool(kwargs.get("go_for_two", False))
+    if not go_for_two:
+        kicking_team = kwargs.get("kicking_team_id") or _CURRENT_OFFENSE
+        kicker = _specialist(None if kicking_team is None else str(kicking_team), {"K"})
+        kwargs["kicker_id"] = None if kicker is None else kicker.player_id
+        kwargs["kicking_skill"] = _kick_skill(kicker)
+    return _BASE_TRY(rng, **kwargs)
+
+
 def capture_special_teams_v72(result: object) -> None:
     game = (
         f"{getattr(result.final_state, 'away_team_id', '')}@"
         f"{getattr(result.final_state, 'home_team_id', '')}"
     )
+    world = int(_WORLD_COUNTER.get(game, 0))
+    _WORLD_COUNTER[game] = world + 1
     for index, event in enumerate(getattr(result, "special_teams_events", ())):
         _EVENT_ROWS.append(
             {
                 "game": game,
+                "world": world,
                 "sequence": index,
                 "event_type": str(getattr(event, "event_type", "")),
                 "kicker_id": getattr(event, "kicker_id", None),
@@ -276,6 +298,35 @@ def capture_special_teams_v72(result: object) -> None:
                 "return_touchdown": bool(
                     getattr(event, "return_touchdown", False)
                 ),
+            }
+        )
+
+    special_count = len(getattr(result, "special_teams_events", ()))
+    for index, event in enumerate(getattr(result, "try_events", ())):
+        result_name = str(getattr(event, "result", ""))
+        is_pat = result_name in {"pat_good", "pat_miss"}
+        _EVENT_ROWS.append(
+            {
+                "game": game,
+                "world": world,
+                "sequence": special_count + index,
+                "event_type": "pat" if is_pat else "two_point_try",
+                "kicking_team_id": getattr(event, "kicking_team_id", None),
+                "kicker_id": getattr(event, "kicker_id", None),
+                "punter_id": None,
+                "returner_id": None,
+                "kick_distance": float(getattr(event, "kick_distance", 0.0) or 0.0),
+                "return_yards": 0.0,
+                "touchback": False,
+                "fair_catch": False,
+                "muffed": False,
+                "blocked": False,
+                "made": (
+                    result_name == "pat_good"
+                    if is_pat
+                    else result_name == "two_point_good"
+                ),
+                "return_touchdown": False,
             }
         )
 
