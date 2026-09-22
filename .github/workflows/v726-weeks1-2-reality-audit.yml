@@ -1,0 +1,303 @@
+name: V7.2.6 2026 Weeks 1-2 Whole-Football Reality Audit
+
+on:
+  push:
+    branches: [audit/v726-weeks1-2-reality]
+    paths:
+      - benchmarks/v726_weeks1_2_reality_audit_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: v726-weeks1-2-reality-\${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WORLDS: '120'
+
+jobs:
+  week1-simulation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Verify frozen V7.2.6 runtime gates
+        run: >-
+          uv run pytest -q
+          tests/test_v726_series_survival.py
+          tests/test_v725_possession_ecology.py
+          tests/test_drive_trace.py
+          tests/test_v724_collapse_consequence.py
+          tests/test_v723_failure_calibration.py
+          tests/test_v722_failure_paths.py
+          tests/test_v721_game_script.py
+          tests/test_v72_reality_engine.py
+          tests/test_market_blind_guard.py
+
+      - name: Build strict pre-Week-1 personnel
+        run: >-
+          uv run python scripts/build_week1_2026_pregame_strict.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week1-pregame
+
+      - name: Build frozen Week 1 policy inputs
+        run: |
+          uv run python scripts/build_league_policy.py \
+            --history 2025 \
+            --out artifacts/week1-policy
+          uv run python scripts/build_league_policy.py \
+            --history 2024 \
+            --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py \
+            --personnel artifacts/week1-pregame/league_personnel.parquet \
+            --injuries artifacts/week1-pregame/raw_injuries.parquet \
+            --overrides config/health/week1_2026_2026-09-07.csv \
+            --season 2026 \
+            --out artifacts/week1-health
+          uv run python scripts/build_continuity_conditioned_policy.py \
+            --older-policy artifacts/league-policy-2024/team_policy.parquet \
+            --latest-policy artifacts/week1-policy/team_policy.parquet \
+            --personnel artifacts/week1-health/health_personnel.parquet \
+            --out artifacts/week1-continuity-policy
+
+      - name: Simulate all 16 Week 1 games with V7.2.6
+        run: >-
+          uv run python scripts/run_week1_v726_full.py
+          --policy artifacts/week1-continuity-policy/team_policy.parquet
+          --personnel artifacts/week1-health/health_personnel.parquet
+          --player-usage artifacts/week1-policy/player_usage.parquet
+          --situation-context artifacts/week1-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed 2026092201
+          --progress-every 120
+          --first-out artifacts/week1-v726-full
+          --box-out artifacts/week1-v726-full-box
+
+      - name: Assert Week 1 observational integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          p=json.load(open("artifacts/week1-v726-full/runtime_fingerprint_v726.json"))
+          m=json.load(open("artifacts/week1-v726-full/manifest.json"))
+          assert p["version"] == "v7.2.6-series-survival-ecology"
+          assert p["market_inputs_to_football"] is False
+          assert p["direct_score_adjustment"] is False
+          assert m["games"] == 16
+          assert m["week1_truth_used_for_priors"] is False
+          assert m["current_2026_regular_season_snaps_used"] is False
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v726-week1-frozen-worlds
+          path: |
+            artifacts/week1-v726-full/
+            artifacts/week1-v726-full-box/
+            artifacts/week1-health/
+            artifacts/week1-pregame/manifest.json
+            artifacts/week1-policy/manifest.json
+            artifacts/week1-continuity-policy/
+          retention-days: 30
+
+  week2-simulation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Verify frozen V7.2.6 runtime gates
+        run: >-
+          uv run pytest -q
+          tests/test_v726_series_survival.py
+          tests/test_v725_possession_ecology.py
+          tests/test_drive_trace.py
+          tests/test_v724_collapse_consequence.py
+          tests/test_v723_failure_calibration.py
+          tests/test_v722_failure_paths.py
+          tests/test_v721_game_script.py
+          tests/test_v72_reality_engine.py
+          tests/test_market_blind_guard.py
+
+      - name: Build strict pre-opener Week 2 personnel
+        run: >-
+          uv run python scripts/build_week2_2026_preopener_strict.py
+          --season 2026
+          --history 2025
+          --recent-games 6
+          --out artifacts/week2-pregame
+
+      - name: Build Week 1-only Week 2 policy inputs
+        run: |
+          uv run python scripts/build_week2_2026_policy.py \
+            --prior-seasons 2025 \
+            --current-season 2026 \
+            --through-week 1 \
+            --out artifacts/week2-policy
+          uv run python scripts/build_league_policy.py \
+            --history 2024 \
+            --out artifacts/league-policy-2024
+          uv run python scripts/build_health_snapshot.py \
+            --personnel artifacts/week2-pregame/league_personnel.parquet \
+            --injuries artifacts/week2-pregame/raw_injuries.parquet \
+            --season 2026 \
+            --out artifacts/week2-health
+          uv run python scripts/build_continuity_conditioned_policy.py \
+            --older-policy artifacts/league-policy-2024/team_policy.parquet \
+            --latest-policy artifacts/week2-policy/team_policy.parquet \
+            --personnel artifacts/week2-health/health_personnel.parquet \
+            --out artifacts/week2-continuity-policy
+
+      - name: Simulate all 16 Week 2 games with V7.2.6
+        run: >-
+          uv run python scripts/run_week2_v726_full.py
+          --policy artifacts/week2-continuity-policy/team_policy.parquet
+          --personnel artifacts/week2-health/health_personnel.parquet
+          --player-usage artifacts/week2-policy/player_usage.parquet
+          --situation-context artifacts/week2-policy/situational_pass_context.parquet
+          --worlds "$WORLDS"
+          --seed 2026092202
+          --progress-every 120
+          --first-out artifacts/week2-v726-full
+          --box-out artifacts/week2-v726-full-box
+
+      - name: Assert Week 2 observational integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          p=json.load(open("artifacts/week2-v726-full/runtime_fingerprint_v726.json"))
+          m=json.load(open("artifacts/week2-v726-full/manifest.json"))
+          assert p["version"] == "v7.2.6-series-survival-ecology"
+          assert p["market_inputs_to_football"] is False
+          assert p["direct_score_adjustment"] is False
+          assert m["games"] == 16
+          assert m["week2_truth_used_for_priors"] is False
+          assert m["week2_current_snaps_used"] is False
+          assert m["input_cutoff_date"] == "2026-09-16"
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v726-week2-frozen-worlds
+          path: |
+            artifacts/week2-v726-full/
+            artifacts/week2-v726-full-box/
+            artifacts/week2-health/
+            artifacts/week2-pregame/manifest.json
+            artifacts/week2-policy/manifest.json
+            artifacts/week2-continuity-policy/
+          retention-days: 30
+
+  audit:
+    needs: [week1-simulation, week2-simulation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v726-week1-frozen-worlds
+          path: inputs/week1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: v726-week2-frozen-worlds
+          path: inputs/week2
+
+      - name: Freeze actual Week 1 truth only after simulation
+        run: >-
+          uv run python scripts/freeze_2026_week_truth.py
+          --season 2026
+          --week 1
+          --out truth/week1
+
+      - name: Freeze actual Week 2 truth only after simulation
+        run: >-
+          uv run python scripts/freeze_2026_week_truth.py
+          --season 2026
+          --week 2
+          --out truth/week2
+
+      - name: Build historical structural baseline
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --out artifacts/historical-drive-reality-2025
+
+      - name: Audit Week 1 drive and series reality
+        run: >-
+          uv run python scripts/audit_v726_week_drive_anatomy.py
+          --season 2026
+          --week 1
+          --simulated inputs/week1/week1-v726-full/same_world_drive_traces.csv
+          --sim-manifest inputs/week1/week1-v726-full/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v726-week1-drive-audit
+
+      - name: Audit Week 2 drive and series reality
+        run: >-
+          uv run python scripts/audit_v726_week_drive_anatomy.py
+          --season 2026
+          --week 2
+          --simulated inputs/week2/week2-v726-full/same_world_drive_traces.csv
+          --sim-manifest inputs/week2/week2-v726-full/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v726-week2-drive-audit
+
+      - name: Run whole-football two-week audit
+        run: >-
+          uv run python scripts/audit_v726_weeks1_2_reality.py
+          --week1-sim inputs/week1/week1-v726-full
+          --week1-box inputs/week1/week1-v726-full-box
+          --week1-truth truth/week1
+          --week1-personnel inputs/week1/week1-health/health_personnel.csv
+          --week1-drive-audit artifacts/v726-week1-drive-audit
+          --week2-sim inputs/week2/week2-v726-full
+          --week2-box inputs/week2/week2-v726-full-box
+          --week2-truth truth/week2
+          --week2-personnel inputs/week2/week2-health/health_personnel.csv
+          --week2-drive-audit artifacts/v726-week2-drive-audit
+          --out artifacts/v726-weeks1-2-whole-football-audit
+
+      - name: Require audit integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("artifacts/v726-weeks1-2-whole-football-audit")
+          m=json.loads((p/"manifest.json").read_text())
+          assert m["control_commit"] == "506fea89fc914e56ead1c17ccbc7212d950084c7"
+          assert m["postgame_truth_used_only_after_simulation"] is True
+          assert m["market_blind_simulation"] is True
+          assert m["simulation_behavior_changed_by_audit"] is False
+          assert (p/"week1_report.json").exists()
+          assert (p/"week2_report.json").exists()
+          assert (p/"cross_week_structural_candidates.json").exists()
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monster-v726-weeks1-2-whole-football-audit-\${{ github.run_id }}
+          path: |
+            artifacts/v726-weeks1-2-whole-football-audit/
+            artifacts/v726-week1-drive-audit/
+            artifacts/v726-week2-drive-audit/
+            artifacts/historical-drive-reality-2025/
+            truth/week1/
+            truth/week2/
+          retention-days: 30
