@@ -1,0 +1,123 @@
+name: V7.2.6 Audit Artifact Recovery
+
+on:
+  push:
+    branches: [audit/v726-weeks1-2-reality]
+    paths:
+      - benchmarks/v726_weeks1_2_audit_recovery_launch.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --extra dev
+
+      - name: Download preserved Week 1 worlds from completed run
+        uses: actions/download-artifact@v4
+        with:
+          name: v726-week1-frozen-worlds
+          path: inputs/week1
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+          run-id: 35749535242
+
+      - name: Download preserved Week 2 worlds from completed run
+        uses: actions/download-artifact@v4
+        with:
+          name: v726-week2-frozen-worlds
+          path: inputs/week2
+          github-token: \${{ secrets.GITHUB_TOKEN }}
+          run-id: 35749535242
+
+      - name: Freeze actual Week 1 truth
+        run: >-
+          uv run python scripts/freeze_2026_week_truth.py
+          --season 2026
+          --week 1
+          --out truth/week1
+
+      - name: Freeze actual Week 2 truth
+        run: >-
+          uv run python scripts/freeze_2026_week_truth.py
+          --season 2026
+          --week 2
+          --out truth/week2
+
+      - name: Build historical structural baseline
+        run: >-
+          uv run python scripts/audit_historical_drive_reality.py
+          --season 2025
+          --out artifacts/historical-drive-reality-2025
+
+      - name: Audit Week 1 drive and series reality
+        run: >-
+          uv run python scripts/audit_v726_week_drive_anatomy.py
+          --season 2026
+          --week 1
+          --simulated inputs/week1/week1-v726-full/same_world_drive_traces.csv
+          --sim-manifest inputs/week1/week1-v726-full/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v726-week1-drive-audit
+
+      - name: Audit Week 2 drive and series reality
+        run: >-
+          uv run python scripts/audit_v726_week_drive_anatomy.py
+          --season 2026
+          --week 2
+          --simulated inputs/week2/week2-v726-full/same_world_drive_traces.csv
+          --sim-manifest inputs/week2/week2-v726-full/manifest.json
+          --historical artifacts/historical-drive-reality-2025/historical_drive_traces.parquet
+          --historical-manifest artifacts/historical-drive-reality-2025/manifest.json
+          --out artifacts/v726-week2-drive-audit
+
+      - name: Run whole-football two-week audit
+        run: >-
+          uv run python scripts/audit_v726_weeks1_2_reality.py
+          --week1-sim inputs/week1/week1-v726-full
+          --week1-box inputs/week1/week1-v726-full-box
+          --week1-truth truth/week1
+          --week1-personnel inputs/week1/week1-health/health_personnel.csv
+          --week1-drive-audit artifacts/v726-week1-drive-audit
+          --week2-sim inputs/week2/week2-v726-full
+          --week2-box inputs/week2/week2-v726-full-box
+          --week2-truth truth/week2
+          --week2-personnel inputs/week2/week2-health/health_personnel.csv
+          --week2-drive-audit artifacts/v726-week2-drive-audit
+          --out artifacts/v726-weeks1-2-whole-football-audit
+
+      - name: Require audit integrity
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("artifacts/v726-weeks1-2-whole-football-audit")
+          m=json.loads((p/"manifest.json").read_text())
+          assert m["control_commit"] == "506fea89fc914e56ead1c17ccbc7212d950084c7"
+          assert m["postgame_truth_used_only_after_simulation"] is True
+          assert m["market_blind_simulation"] is True
+          assert m["simulation_behavior_changed_by_audit"] is False
+          assert (p/"week1_report.json").exists()
+          assert (p/"week2_report.json").exists()
+          assert (p/"cross_week_structural_candidates.json").exists()
+          PY
+
+      - name: Upload recovered audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: monster-v726-weeks1-2-whole-football-audit-recovered
+          path: |
+            artifacts/v726-weeks1-2-whole-football-audit/
+            artifacts/v726-week1-drive-audit/
+            artifacts/v726-week2-drive-audit/
+            artifacts/historical-drive-reality-2025/
+            truth/week1/
+            truth/week2/
+          retention-days: 30
