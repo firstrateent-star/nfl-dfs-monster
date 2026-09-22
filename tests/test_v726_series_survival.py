@@ -12,6 +12,7 @@ from monster.reality.special_teams_identity_v72 import (
 )
 from monster.sim.game_loop_v13 import PlayerBoxScore, _record_kicking_events
 from monster.sim.intent_ecology import PassDepthOutcome, RunGeometryOutcome
+from monster.sim.resolution_ecology import resolve_run_ecology, sample_yac
 from monster.sim.rules_v13 import TryEvent, TryResult, simulate_try
 from monster.sim.special_teams_v13 import (
     SpecialTeamsEvent,
@@ -20,7 +21,6 @@ from monster.sim.special_teams_v13 import (
     simulate_kickoff,
     simulate_punt,
 )
-from monster.sim.resolution_ecology import resolve_run_ecology, sample_yac
 
 
 def _run_profile() -> RunGeometryOutcome:
