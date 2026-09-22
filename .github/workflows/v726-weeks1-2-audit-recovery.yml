@@ -25,7 +25,7 @@ jobs:
         with:
           name: v726-week1-frozen-worlds
           path: inputs/week1
-          github-token: \${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: 35749535242
 
       - name: Download preserved Week 2 worlds from completed run
@@ -33,7 +33,7 @@ jobs:
         with:
           name: v726-week2-frozen-worlds
           path: inputs/week2
-          github-token: \${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: 35749535242
 
       - name: Freeze actual Week 1 truth
