@@ -40,6 +40,7 @@ from monster.reality.special_teams_identity_v72 import (
     simulate_field_goal_v72,
     simulate_kickoff_v72,
     simulate_punt_v72,
+    simulate_try_v72,
     write_special_teams_telemetry_v72,
 )
 from monster.sim import game_loop_v13, intent_ecology, play_kernel, reality_snap_v5
@@ -60,6 +61,7 @@ class RuntimeFingerprintV720:
     punt_runtime: str
     field_goal_runtime: str
     kickoff_runtime: str
+    try_runtime: str
     scoreboard_authority: str
     market_inputs_to_football: bool
     direct_fantasy_inputs_to_football: bool
@@ -116,6 +118,7 @@ def _fingerprint_payload() -> dict[str, object]:
         "punt_runtime": _callable_id(game_loop_v13.simulate_punt),
         "field_goal_runtime": _callable_id(game_loop_v13.simulate_field_goal),
         "kickoff_runtime": _callable_id(game_loop_v13.simulate_kickoff),
+        "try_runtime": _callable_id(game_loop_v13.simulate_try),
         "scoreboard_authority": "monster.sim.game_loop_v13 event-derived football state",
         "market_inputs_to_football": False,
         "direct_fantasy_inputs_to_football": False,
@@ -176,10 +179,12 @@ def compose_v720_runtime() -> None:
             field_goal=game_loop_v13.simulate_field_goal,
             kickoff=game_loop_v13.simulate_kickoff,
             kickoff_loop=game_loop_v13._kickoff,
+            try_play=game_loop_v13.simulate_try,
         )
     game_loop_v13.simulate_punt = simulate_punt_v72
     game_loop_v13.simulate_field_goal = simulate_field_goal_v72
     game_loop_v13.simulate_kickoff = simulate_kickoff_v72
+    game_loop_v13.simulate_try = simulate_try_v72
     game_loop_v13._kickoff = kickoff_loop_v72
 
     if integrated.simulate_game is not _simulate_game_v720:
@@ -210,6 +215,8 @@ def _runtime_integrity_errors() -> list[str]:
         errors.append("kicker identity runtime is not active")
     if game_loop_v13.simulate_kickoff is not simulate_kickoff_v72:
         errors.append("kickoff identity runtime is not active")
+    if game_loop_v13.simulate_try is not simulate_try_v72:
+        errors.append("PAT kicker identity runtime is not active")
     if game_loop_v13._kickoff is not kickoff_loop_v72:
         errors.append("kickoff context runtime is not active")
     # The dispersion runner deliberately adds an outer chaos/telemetry wrapper
