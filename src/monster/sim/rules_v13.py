@@ -32,6 +32,9 @@ class PenaltyEvent:
 class TryEvent:
     result: TryResult
     points: int
+    kicking_team_id: str | None = None
+    kicker_id: str | None = None
+    kick_distance: float | None = None
 
 
 def simulate_penalty(rng: np.random.Generator, *, base_rate: float = 0.055) -> PenaltyEvent | None:
@@ -85,14 +88,26 @@ def simulate_try(
     kicking_skill: float = 1.0,
     offense_skill: float = 1.0,
     defense_skill: float = 1.0,
+    kicking_team_id: str | None = None,
+    kicker_id: str | None = None,
 ) -> TryEvent:
     if go_for_two:
         success = float(np.clip(0.48 * offense_skill / max(defense_skill, 0.65), 0.25, 0.70))
         good = rng.random() < success
-        return TryEvent(TryResult.TWO_POINT_GOOD if good else TryResult.TWO_POINT_FAIL, 2 if good else 0)
+        return TryEvent(
+            TryResult.TWO_POINT_GOOD if good else TryResult.TWO_POINT_FAIL,
+            2 if good else 0,
+            kicking_team_id=kicking_team_id,
+        )
     pat = float(np.clip(0.94 * kicking_skill, 0.78, 0.995))
     good = rng.random() < pat
-    return TryEvent(TryResult.PAT_GOOD if good else TryResult.PAT_MISS, 1 if good else 0)
+    return TryEvent(
+        TryResult.PAT_GOOD if good else TryResult.PAT_MISS,
+        1 if good else 0,
+        kicking_team_id=kicking_team_id,
+        kicker_id=kicker_id,
+        kick_distance=33.0,
+    )
 
 
 def is_safety(*, yardline_100: float, yards: float) -> bool:
